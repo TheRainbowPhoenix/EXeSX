@@ -52,7 +52,7 @@ static void access_cb(unsigned int cpu, qemu_plugin_meminfo_t info,
         g_autofree char *line = g_strdup_printf(
             "EXESX_ACCESS cpu=%u pc=0x%08" PRIx64 " kind=%s"
             " virtual=0x%08" PRIx64 " physical=0x%08" PRIx64
-            " width=%u backing=%s\\n",
+            " width=%u backing=%s\n",
             cpu, pc, kind, vaddr, physical,
             1u << qemu_plugin_mem_size_shift(info),
             device ? device : "(unknown)");
@@ -77,7 +77,7 @@ static void finished(qemu_plugin_id_t id, void *userdata)
     g_autofree char *s = g_strdup_printf(
         "EXESX_SUMMARY tracked_accesses=%" G_GUINT64_FORMAT
         " emitted=%" G_GUINT64_FORMAT
-        " dropped=%" G_GUINT64_FORMAT "\\n",
+        " dropped=%" G_GUINT64_FORMAT "\n",
         seen, recorded, seen - recorded);
     qemu_plugin_outs(s);
 }
@@ -94,7 +94,7 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_install(qemu_plugin_id_t id,
         if (g_str_has_prefix(argv[i], "max=")) {
             max_events = g_ascii_strtoull(argv[i] + 4, NULL, 0);
             if (max_events > 100000) {
-                fprintf(stderr, "EXeSX plugin max limit exceeded\\n");
+                fprintf(stderr, "EXeSX plugin max limit exceeded\n");
                 return -1;
             }
         } else if (g_str_has_prefix(argv[i], "range=")) {
@@ -102,18 +102,18 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_install(qemu_plugin_id_t id,
             char *part = argv[i] + 6;
             uint64_t a, b;
             if (nranges >= 32 || !(colon = strchr(part, ':'))) {
-                fprintf(stderr, "EXeSX plugin expected range=START:END\\n");
+                fprintf(stderr, "EXeSX plugin expected range=START:END\n");
                 return -1;
             }
             a = g_ascii_strtoull(part, NULL, 0);
             b = g_ascii_strtoull(colon + 1, NULL, 0);
             if (a >= b) {
-                fprintf(stderr, "EXeSX plugin reversed/empty range\\n");
+                fprintf(stderr, "EXeSX plugin reversed/empty range\n");
                 return -1;
             }
             ranges[nranges++] = (Range){a,b};
         } else {
-            fprintf(stderr, "EXeSX plugin unknown option: %s\\n", argv[i]);
+            fprintf(stderr, "EXeSX plugin unknown option: %s\n", argv[i]);
             return -1;
         }
     }
