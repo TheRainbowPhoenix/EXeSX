@@ -66,7 +66,7 @@ jobs:
       - name: Bundle tested native emulator
         run: |
           mkdir -p dist/exesx-qemu-linux-x86_64
-          cp build/qemu-system-arm dist/exesx-qemu-linux-x86_64/
+          cp build/qemu-system-arm dist/exesx-qemu-linux-x86_64/\n          mkdir -p dist/exesx-qemu-linux-x86_64/lib\n          cp -L /usr/lib/x86_64-linux-gnu/libfdt.so.1 dist/exesx-qemu-linux-x86_64/lib/\n          cp scripts/qemu-wrapper.sh dist/exesx-qemu-linux-x86_64/\n          if test -f /usr/share/doc/libfdt1/copyright; then cp /usr/share/doc/libfdt1/copyright dist/exesx-qemu-linux-x86_64/LIBFDT-COPYRIGHT.txt; fi
           cp scripts/make_probe.py scripts/test_qemu.py scripts/prepare_osup.py scripts/run_firmware.py dist/exesx-qemu-linux-x86_64/
           cp build/cp15-probe.elf dist/exesx-qemu-linux-x86_64/\n          cp docs/local-firmware.md dist/exesx-qemu-linux-x86_64/LOCAL-FIRMWARE.md
           git rev-parse HEAD > dist/exesx-qemu-linux-x86_64/SOURCE_COMMIT
@@ -97,7 +97,7 @@ jobs:
         run: |
           python3 scripts/make_probe.py build/cp15-probe.elf
           timeout 20s gdb -q -batch \
-            -ex "set pagination off" -ex run -ex "thread apply all bt 12" --args \
+            -ex "set pagination off" -ex run -ex "frame 0" \u005c\n            -ex "p mr" -ex "p subregion->container" -ex "p subregion" \u005c\n            -ex "thread apply all bt 12" --args \
             build/qemu-system-arm -machine exesx -m 64M \
             -accel tcg -display none -serial none -monitor none \
             -device loader,file=build/cp15-probe.elf,cpu-num=0 || true
