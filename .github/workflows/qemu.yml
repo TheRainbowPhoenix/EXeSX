@@ -14,7 +14,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y git python3 meson ninja-build gcc pkg-config \
             libglib2.0-dev libpixman-1-dev libfdt-dev zlib1g-dev
-      - name: Build pinned QEMU with EXeSX overlay
+      - name: Install Meson >= 1.5 required by upstream QEMU\n        run: |\n          python3 -m pip install --user --break-system-packages 'meson>=1.5,<2'\n          echo "$HOME/.local/bin" >> "$GITHUB_PATH"\n      - name: Build pinned QEMU with EXeSX overlay
         env:
           JOBS: '2'
         run: bash scripts/build.sh
