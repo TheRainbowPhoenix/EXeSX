@@ -15,6 +15,8 @@
 #include "target/arm/cpu.h"
 #include "qemu/units.h"
 #include "qemu/module.h"
+#include "qemu/log.h"
+#include <inttypes.h>
 
 #define TYPE_EXESX_MACHINE MACHINE_TYPE_NAME("exesx")
 OBJECT_DECLARE_SIMPLE_TYPE(EXeSXState, EXESX_MACHINE)
@@ -24,6 +26,188 @@ typedef struct EXeSXState {
     Clock *m4cpuclk, *m4refclk;
     MemoryRegion firmware, vectors, sram, ipc, provisional_writable;
 } EXeSXState;
+
+
+/*
+ * Runtime memory-profile support. Deliberately data-driven so an experiment
+ * can remap suspected RAM or provision diagnostic MMIO registers without
+ * rebuilding QEMU. A read from an unconfigured register causes an abort,
+ * rather than inventing a successful hardware handshake.
+ *
+ * EXESX_MEMORY_PROFILE=/absolute/path/profile.ini
+ *
+ * [extra-ram]
+ * kind=ram
+ * base=0x67100000
+ * size=0x00500000
+ *
+ * [peripheral-probe]
+ * kind=registers
+ * base=0x410a3000
+ * size=0x1000
+ * reg.0x54=0x00000000
+ */
+typedef struct EXeSXProfileWindow {
+    MemoryRegion mr;
+    char *name;
+    uint64_t base;
+    uint64_t size;
+    GHashTable *registers;
+} EXeSXProfileWindow;
+
+static MemTxResult exesx_reg_read(void *opaque, hwaddr offset, uint64_t *data,
+                                  unsigned size, MemTxAttrs attrs)
+{
+    EXeSXProfileWindow *w = opaque;
+    uint32_t *v = NULL;
+    if (size == 4 && !(offset & 3) && offset <= UINT32_MAX - 1) {
+        v = g_hash_table_lookup(w->registers,
+                                GUINT_TO_POINTER((unsigned)offset + 1));
+    }
+    if (!v) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "EXeSX unconfigured MMIO READ @0x%" HWADDR_PRIx
+                      " size=%u (%s): ABORT\\n", w->base + offset, size,
+                      w->name);
+        return MEMTX_ERROR;
+    }
+    *data = *v;
+    qemu_log_mask(LOG_GUEST_ERROR,
+                  "EXeSX diagnostic MMIO READ @0x%" HWADDR_PRIx
+                  " =0x%08x (%s)\\n", w->base + offset, *v, w->name);
+    return MEMTX_OK;
+}
+
+static MemTxResult exesx_reg_write(void *opaque, hwaddr offset, uint64_t data,
+                                   unsigned size, MemTxAttrs attrs)
+{
+    EXeSXProfileWindow *w = opaque;
+    uint32_t *v = NULL;
+    if (size == 4 && !(offset & 3) && offset <= UINT32_MAX - 1) {
+        v = g_hash_table_lookup(w->registers,
+                                GUINT_TO_POINTER((unsigned)offset + 1));
+    }
+    if (!v) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "EXeSX unconfigured MMIO WRITE @0x%" HWADDR_PRIx
+                      " data=0x%" PRIx64 " size=%u (%s): ABORT\\n",
+                      w->base + offset, data, size, w->name);
+        return MEMTX_ERROR;
+    }
+    *v = (uint32_t)data;
+    qemu_log_mask(LOG_GUEST_ERROR,
+                  "EXeSX diagnostic MMIO WRITE @0x%" HWADDR_PRIx
+                  " =0x%08x (%s)\\n", w->base + offset, *v, w->name);
+    return MEMTX_OK;
+}
+
+static const MemoryRegionOps exesx_reg_ops = {
+    .read_with_attrs = exesx_reg_read,
+    .write_with_attrs = exesx_reg_write,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+    .valid.min_access_size = 4,
+    .valid.max_access_size = 4,
+    .impl.min_access_size = 4,
+    .impl.max_access_size = 4,
+};
+
+static uint64_t exesx_config_number(GKeyFile *cfg, const char *group,
+                                     const char *key)
+{
+    g_autofree char *s = g_key_file_get_string(cfg, group, key, NULL);
+    char *end;
+    uint64_t v;
+    if (!s || !*s || *s == '-') {
+        error_report("EXeSX profile %s.%s: missing/invalid number",
+                     group, key);
+        exit(1);
+    }
+    v = g_ascii_strtoull(s, &end, 0);
+    if (*end) {
+        error_report("EXeSX profile %s.%s: trailing number characters",
+                     group, key);
+        exit(1);
+    }
+    return v;
+}
+
+static void exesx_load_profile(MemoryRegion *sysmem)
+{
+    const char *filename = g_getenv("EXESX_MEMORY_PROFILE");
+    g_autoptr(GKeyFile) cfg = g_key_file_new();
+    g_autoptr(GError) error = NULL;
+    gsize ngroups;
+    g_auto(GStrv) groups = NULL;
+    unsigned int k;
+
+    if (!filename || !*filename) {
+        return;
+    }
+    if (!g_key_file_load_from_file(cfg, filename, G_KEY_FILE_NONE, &error)) {
+        error_report("EXeSX profile '%s': %s", filename, error->message);
+        exit(1);
+    }
+    groups = g_key_file_get_groups(cfg, &ngroups);
+    if (ngroups > 32) {
+        error_report("EXeSX: too many profile windows");
+        exit(1);
+    }
+    for (k = 0; k < ngroups; k++) {
+        const char *group = groups[k];
+        g_autofree char *kind = g_key_file_get_string(cfg, group, "kind", NULL);
+        EXeSXProfileWindow *w = g_new0(EXeSXProfileWindow, 1);
+        gsize nkeys;
+        g_auto(GStrv) keys = NULL;
+        gsize i;
+
+        w->base = exesx_config_number(cfg, group, "base");
+        w->size = exesx_config_number(cfg, group, "size");
+        w->name = g_strdup_printf("exesx.profile.%s", group);
+        if (!w->size || w->size > 256 * MiB ||
+            w->base + w->size > UINT64_C(0x100000000) ||
+            (w->base & 3) || (w->size & 3)) {
+            error_report("EXeSX profile %s has invalid window", group);
+            exit(1);
+        }
+        if (g_strcmp0(kind, "ram") == 0) {
+            memory_region_init_ram(&w->mr, NULL, w->name, w->size,
+                                   &error_fatal);
+        } else if (g_strcmp0(kind, "registers") == 0) {
+            if (w->size > 0x10000) {
+                error_report("EXeSX register window %s too large", group);
+                exit(1);
+            }
+            w->registers = g_hash_table_new_full(g_direct_hash, g_direct_equal,
+                                                  NULL, g_free);
+            keys = g_key_file_get_keys(cfg, group, &nkeys, NULL);
+            for (i = 0; i < nkeys; i++) {
+                if (g_str_has_prefix(keys[i], "reg.")) {
+                    uint64_t off = g_ascii_strtoull(keys[i] + 4, NULL, 0);
+                    uint64_t value = exesx_config_number(cfg, group, keys[i]);
+                    uint32_t *p;
+                    if (off >= w->size || (off & 3) || value > UINT32_MAX) {
+                        error_report("EXeSX register offset invalid: %s", keys[i]);
+                        exit(1);
+                    }
+                    p = g_new(uint32_t, 1);
+                    *p = (uint32_t)value;
+                    g_hash_table_insert(w->registers,
+                        GUINT_TO_POINTER((unsigned)off + 1), p);
+                }
+            }
+            memory_region_init_io(&w->mr, NULL, &exesx_reg_ops, w,
+                                  w->name, w->size);
+        } else {
+            error_report("EXeSX profile %s: unknown kind '%s'",
+                         group, kind ? kind : "(null)");
+            exit(1);
+        }
+        memory_region_add_subregion(sysmem, w->base, &w->mr);
+        error_report("EXeSX diagnostic profile %s: %s @0x%" PRIx64
+                     " +0x%" PRIx64 " (not hardware-validated)",
+                     group, kind, w->base, w->size);
+    }
+}
 
 static void exesx_init(MachineState *ms)
 {
@@ -64,6 +248,7 @@ static void exesx_init(MachineState *ms)
                            8 * MiB, &error_fatal);
     memory_region_add_subregion(mem, 0x2f000000, &s->ipc);
     memory_region_add_subregion(mem, 0x62000000, ms->ram);
+    exesx_load_profile(mem);
 
     /* Independent M-profile CPU and NVIC, powered off pending IPC model. */
     s->m4cpuclk = clock_new(OBJECT(ms), "m4cpuclk");
