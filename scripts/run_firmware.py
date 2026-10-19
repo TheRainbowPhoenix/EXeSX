@@ -4,6 +4,7 @@ An instruction trace does not imply an OS boot; LCD/touch hardware is missing.
 """
 from pathlib import Path
 import argparse
+import os
 import json
 import re
 import shlex
@@ -29,10 +30,14 @@ def main():
            "-device", "loader,file=" + str(args.elf.resolve()) + ",cpu-num=0",
            "-d", "in_asm,guest_errors,cpu_reset", "-D", str(log.resolve())]
     print("Experimental execution (no LCD):", shlex.join(cmd), flush=True)
+    env = os.environ.copy()
+    lib = args.qemu.resolve().parent / "lib"
+    if lib.is_dir():
+        env["LD_LIBRARY_PATH"] = str(lib) + ":" + env.get("LD_LIBRARY_PATH", "")
     started = time.monotonic()
     try:
         r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                           text=True, timeout=max(0.1, args.seconds))
+                           text=True, env=env, timeout=max(0.1, args.seconds))
         code, output, stopped = r.returncode, r.stdout, False
     except subprocess.TimeoutExpired as e:
         code, stopped = None, True
