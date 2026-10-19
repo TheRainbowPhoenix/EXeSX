@@ -78,8 +78,10 @@ static void exesx_class_init(ObjectClass *oc, const void *data)
     MachineClass *mc = MACHINE_CLASS(oc);
     mc->desc = "EXeSX Cortex-A7/M4 experimental (incomplete)";
     mc->init = exesx_init;
-    mc->max_cpus = 1;
-    mc->default_cpus = 1;
+    /* One A7 plus one independent M4: TCG must allocate two contexts. */
+    mc->min_cpus = 2;
+    mc->max_cpus = 2;
+    mc->default_cpus = 2;
     mc->default_ram_size = 64 * MiB;
     mc->default_ram_id = "exesx.ram";
     mc->no_floppy = true;
