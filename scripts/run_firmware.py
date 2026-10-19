@@ -33,7 +33,7 @@ def main():
            "-m", "64M", "-accel", "tcg", "-display", "none",
            "-serial", "none", "-monitor", "none", "-no-reboot",
            "-device", "loader,file=" + str(args.elf.resolve()) + ",cpu-num=0",
-           "-d", "in_asm,guest_errors,cpu_reset", "-D", str(log.resolve())]
+           "-d", "in_asm,guest_errors,cpu_reset,plugin,int,unimp", "-D", str(log.resolve())]
     if args.plugin:
         if not args.plugin.is_file(): p.error("missing plugin")
         options=[f"file={args.plugin.resolve()}",f"max={args.max_events}"]
