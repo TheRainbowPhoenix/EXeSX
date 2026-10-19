@@ -22,7 +22,7 @@ typedef struct EXeSXState {
     MachineState parent_obj;
     ARMv7MState m4;
     Clock *m4cpuclk, *m4refclk;
-    MemoryRegion firmware, vectors, sram, ipc;
+    MemoryRegion firmware, vectors, sram, ipc, provisional_writable;
 } EXeSXState;
 
 static void exesx_init(MachineState *ms)
@@ -42,6 +42,17 @@ static void exesx_init(MachineState *ms)
     memory_region_init_ram(&s->firmware, NULL, "exesx.rom-loading",
                            16 * MiB, &error_fatal);
     memory_region_add_subregion(mem, 0x60000000, &s->firmware);
+    /*
+     * User-firmware trace: first DFSR=0x808, DFAR=0x61080000, on the
+     * zero-initializer's STR at 0x60254714. The physical memory kind
+     * is NOT confirmed. Map 0x61000000..0x61ffffff to experimental
+     * RAM so later firmware faults/peripheral dependencies can be traced.
+     * This mapping is intentionally not presented as faithful silicon.
+     */
+    memory_region_init_ram(&s->provisional_writable, NULL,
+                           "exesx.provisional-writable", 16 * MiB,
+                           &error_fatal);
+    memory_region_add_subregion(mem, 0x61000000, &s->provisional_writable);
     /* Provisional low-vector alias, NOT confirmed hardware behavior. */
     memory_region_init_alias(&s->vectors, NULL, "exesx.vectors",
                              &s->firmware, 0, 1 * MiB);
