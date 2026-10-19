@@ -9,7 +9,7 @@
 #include "hw/qdev-clock.h"
 #include "hw/clock.h"
 #include "hw/qdev-properties.h"
-#include "exec/memory.h"
+#include "system/memory.h"
 #include "target/arm/cpu.h"
 #include "qemu/units.h"
 #include "qemu/module.h"
