@@ -37,17 +37,17 @@ static void exesx_init(MachineState *ms)
     object_property_add_child(OBJECT(ms), "cortex-a7", a7);
     qdev_realize(DEVICE(a7), NULL, &error_fatal);
     /* Real ARMv7-A CP15, barriers, and MMU are provided by QEMU TCG. */
-    memory_region_init_ram(&s->firmware, OBJECT(ms), "exesx.rom-loading",
+    memory_region_init_ram(&s->firmware, NULL, "exesx.rom-loading",
                            16 * MiB, &error_fatal);
     memory_region_add_subregion(mem, 0x60000000, &s->firmware);
     /* Provisional low-vector alias, NOT confirmed hardware behavior. */
-    memory_region_init_alias(&s->vectors, OBJECT(ms), "exesx.vectors",
+    memory_region_init_alias(&s->vectors, NULL, "exesx.vectors",
                              &s->firmware, 0, 1 * MiB);
     memory_region_add_subregion(mem, 0x0, &s->vectors);
-    memory_region_init_ram(&s->sram, OBJECT(ms), "exesx.sram",
+    memory_region_init_ram(&s->sram, NULL, "exesx.sram",
                            256 * KiB, &error_fatal);
     memory_region_add_subregion(mem, 0x1ffd0000, &s->sram);
-    memory_region_init_ram(&s->ipc, OBJECT(ms), "exesx.ipc",
+    memory_region_init_ram(&s->ipc, NULL, "exesx.ipc",
                            8 * MiB, &error_fatal);
     memory_region_add_subregion(mem, 0x2f000000, &s->ipc);
     memory_region_add_subregion(mem, 0x62000000, ms->ram);
