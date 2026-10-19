@@ -1,0 +1,35 @@
+name: Build QEMU and execute privileged Cortex-A7 probe
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  native-qemu:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git python3 meson ninja-build gcc pkg-config \
+            libglib2.0-dev libpixman-1-dev libfdt-dev zlib1g-dev
+      - name: Build pinned QEMU with EXeSX overlay
+        env:
+          JOBS: '2'
+        run: bash scripts/build.sh
+      - name: Produce firmware-free CPU probe
+        run: python3 scripts/make_probe.py build/cp15-probe.elf
+      - name: Check ELF generator
+        run: python3 -m unittest discover -s tests -v
+      - name: Run real QEMU Cortex-A7 privileged startup probe
+        run: python3 scripts/test_qemu.py
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exesx-build-diagnostics
+          path: |
+            build/meson-logs/meson-log.txt
+            build/config.log
+          if-no-files-found: ignore
