@@ -17,6 +17,7 @@ typedef struct { uint64_t start, end; } Range;
 static Range ranges[32];
 static int nranges;
 static guint64 seen, recorded;
+static guint64 emitted_per_range[33];
 static guint64 max_events = 128;
 static GMutex output_lock;
 
@@ -28,13 +29,14 @@ static void access_cb(unsigned int cpu, qemu_plugin_meminfo_t info,
     uint64_t physical = hw ? qemu_plugin_hwaddr_phys_addr(hw) : vaddr;
     const char *device = hw ? qemu_plugin_hwaddr_device_name(hw) : "untranslated";
     const char *kind = qemu_plugin_mem_is_store(info) ? "WRITE" : "READ";
-    guint64 index;
-    int i;
+    bool emit;
+    int i, range_index = 32;
     bool hit = nranges == 0;
     for (i = 0; i < nranges; i++) {
         if ((physical >= ranges[i].start && physical < ranges[i].end) ||
             (vaddr >= ranges[i].start && vaddr < ranges[i].end)) {
             hit = true;
+            range_index = i;
             break;
         }
     }
@@ -43,12 +45,13 @@ static void access_cb(unsigned int cpu, qemu_plugin_meminfo_t info,
     }
     g_mutex_lock(&output_lock);
     seen++;
-    index = recorded;
-    if (recorded < max_events) {
+    emit = emitted_per_range[range_index] < max_events;
+    if (emit) {
+        emitted_per_range[range_index]++;
         recorded++;
     }
     g_mutex_unlock(&output_lock);
-    if (index < max_events) {
+    if (emit) {
         g_autofree char *line = g_strdup_printf(
             "EXESX_ACCESS cpu=%u pc=0x%08" PRIx64 " kind=%s"
             " virtual=0x%08" PRIx64 " physical=0x%08" PRIx64
