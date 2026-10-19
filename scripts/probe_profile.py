@@ -49,6 +49,7 @@ def main():
              "-monitor","stdio","-no-reboot",
              "-device",f"loader,file={args.elf.resolve()},cpu-num=0"]
     if args.plugin:
+        command += ["-d", "plugin"]
         command+=["-plugin",f"file={args.plugin.resolve()},range=0x61080000:0x61080004,range=0x67100000:0x67100004,max=15"]
     p0=subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.PIPE,
                         stderr=subprocess.STDOUT,text=True,env=env)
