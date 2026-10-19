@@ -16,6 +16,7 @@
 #include "qemu/units.h"
 #include "qemu/module.h"
 #include "qemu/log.h"
+#include "migration/vmstate.h"
 #include <inttypes.h>
 
 #define TYPE_EXESX_MACHINE MACHINE_TYPE_NAME("exesx")
@@ -24,6 +25,9 @@ typedef struct EXeSXState {
     MachineState parent_obj;
     ARMv7MState m4;
     Clock *m4cpuclk, *m4refclk;
+    ARMCPU *a7cpu;
+    uint64_t cp15_dacr_s_saved;
+    uint64_t cp15_ttbr1_s_saved;
     MemoryRegion firmware, vectors, sram, ipc, provisional_writable;
 } EXeSXState;
 
@@ -53,7 +57,54 @@ typedef struct EXeSXProfileWindow {
     uint64_t base;
     uint64_t size;
     GHashTable *registers;
+    /* Stable addresses; preserved by VMState on loadvm. */
+    uint32_t regfile[0x10000 / sizeof(uint32_t)];
 } EXeSXProfileWindow;
+
+static const VMStateDescription exesx_registers_vmstate = {
+    .name = "exesx-experimental-registers",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .fields = (const VMStateField[]) {
+        VMSTATE_UINT32_ARRAY(regfile, EXeSXProfileWindow, 0x10000 / 4),
+        VMSTATE_END_OF_LIST()
+    },
+};
+
+/*
+ * Cortex-A7 in our experimental machine executes secure AArch32 CP15
+ * startup code. QEMU 10.1's generic CPU loadvm currently fails to
+ * preserve secure-side DACR and TTBR1 in this configuration.
+ * Register an EXeSX-only supplementary VMState; no guest behavior is faked.
+ */
+static int exesx_cp15_pre_save(void *opaque)
+{
+    EXeSXState *s = opaque;
+    s->cp15_dacr_s_saved = s->a7cpu->env.cp15.dacr_s;
+    s->cp15_ttbr1_s_saved = s->a7cpu->env.cp15.ttbr1_s;
+    return 0;
+}
+
+static int exesx_cp15_post_load(void *opaque, int version_id)
+{
+    EXeSXState *s = opaque;
+    s->a7cpu->env.cp15.dacr_s = s->cp15_dacr_s_saved;
+    s->a7cpu->env.cp15.ttbr1_s = s->cp15_ttbr1_s_saved;
+    return 0;
+}
+
+static const VMStateDescription exesx_cp15_vmstate = {
+    .name = "exesx-extra-secure-cp15",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .pre_save = exesx_cp15_pre_save,
+    .post_load = exesx_cp15_post_load,
+    .fields = (const VMStateField[]) {
+        VMSTATE_UINT64(cp15_dacr_s_saved, EXeSXState),
+        VMSTATE_UINT64(cp15_ttbr1_s_saved, EXeSXState),
+        VMSTATE_END_OF_LIST()
+    },
+};
 
 static MemTxResult exesx_reg_read(void *opaque, hwaddr offset, uint64_t *data,
                                   unsigned size, MemTxAttrs attrs)
@@ -177,8 +228,7 @@ static void exesx_load_profile(MemoryRegion *sysmem)
                 error_report("EXeSX register window %s too large", group);
                 exit(1);
             }
-            w->registers = g_hash_table_new_full(g_direct_hash, g_direct_equal,
-                                                  NULL, g_free);
+            w->registers = g_hash_table_new(g_direct_hash, g_direct_equal);
             keys = g_key_file_get_keys(cfg, group, &nkeys, NULL);
             for (i = 0; i < nkeys; i++) {
                 if (g_str_has_prefix(keys[i], "reg.")) {
@@ -189,7 +239,7 @@ static void exesx_load_profile(MemoryRegion *sysmem)
                         error_report("EXeSX register offset invalid: %s", keys[i]);
                         exit(1);
                     }
-                    p = g_new(uint32_t, 1);
+                    p = &w->regfile[off / 4];
                     *p = (uint32_t)value;
                     g_hash_table_insert(w->registers,
                         GUINT_TO_POINTER((unsigned)off + 1), p);
@@ -197,6 +247,10 @@ static void exesx_load_profile(MemoryRegion *sysmem)
             }
             memory_region_init_io(&w->mr, NULL, &exesx_reg_ops, w,
                                   w->name, w->size);
+            if (vmstate_register(NULL, k, &exesx_registers_vmstate, w)) {
+                error_report("EXeSX register window VMState registration failed");
+                exit(1);
+            }
         } else {
             error_report("EXeSX profile %s: unknown kind '%s'",
                          group, kind ? kind : "(null)");
@@ -222,6 +276,11 @@ static void exesx_init(MachineState *ms)
     }
     object_property_add_child(OBJECT(ms), "cortex-a7", a7);
     qdev_realize(DEVICE(a7), NULL, &error_fatal);
+    s->a7cpu = ARM_CPU(a7);
+    if (vmstate_register(NULL, 0, &exesx_cp15_vmstate, s)) {
+        error_report("EXeSX secure-CP15 migration registration failed");
+        exit(1);
+    }
     /* Real ARMv7-A CP15, barriers, and MMU are provided by QEMU TCG. */
     memory_region_init_ram(&s->firmware, NULL, "exesx.rom-loading",
                            16 * MiB, &error_fatal);
