@@ -67,8 +67,8 @@ jobs:
         run: |
           mkdir -p dist/exesx-qemu-linux-x86_64
           cp build/qemu-system-arm dist/exesx-qemu-linux-x86_64/
-          cp scripts/make_probe.py scripts/test_qemu.py dist/exesx-qemu-linux-x86_64/
-          cp build/cp15-probe.elf dist/exesx-qemu-linux-x86_64/
+          cp scripts/make_probe.py scripts/test_qemu.py scripts/prepare_osup.py scripts/run_firmware.py dist/exesx-qemu-linux-x86_64/
+          cp build/cp15-probe.elf dist/exesx-qemu-linux-x86_64/\n          cp docs/local-firmware.md dist/exesx-qemu-linux-x86_64/LOCAL-FIRMWARE.md
           git rev-parse HEAD > dist/exesx-qemu-linux-x86_64/SOURCE_COMMIT
           ldd build/qemu-system-arm > dist/exesx-qemu-linux-x86_64/LINKED_LIBRARIES.txt
           printf 'Ubuntu 24.04 x86_64; dynamically linked QEMU TCG (not WASM).\n' > dist/exesx-qemu-linux-x86_64/README.txt
