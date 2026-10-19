@@ -10,6 +10,8 @@
 #include "hw/clock.h"
 #include "hw/qdev-properties.h"
 #include "system/memory.h"
+#include "system/address-spaces.h"
+#include "qemu/error-report.h"
 #include "target/arm/cpu.h"
 #include "qemu/units.h"
 #include "qemu/module.h"
