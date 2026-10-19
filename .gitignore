@@ -1,0 +1,8 @@
+vendor/
+build/
+*.BIN
+*.bin
+*.elf
+*.rom
+*.zip
+__pycache__/
