@@ -25,7 +25,7 @@ try:
     if "0x45585358" not in output.lower():
         raise AssertionError("Guest marker missing; QEMU privileged startup did not complete")
     # The second value is the actual guest CP15 SCTLR read-back.
-    if not re.search(r"0x45585358\\s+0x[0-9a-fA-F]{8}", output, re.I):
+    if not re.search(r"0x45585358\s+0x[0-9a-fA-F]{8}", output, re.I):
         raise AssertionError("Missing SCTLR read-back")
     print("PASS: real QEMU guest executed CP15 MRC/MCR, DSB/ISB and RAM store")
 finally:
