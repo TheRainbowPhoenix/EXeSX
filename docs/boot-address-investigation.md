@@ -42,3 +42,11 @@ Other little-endian occurrences of `0x67100000` appear near `0x600acdb4`, `0x600
 6. For interactive stoppoints: `python3 scripts/make_gdb_commands.py -o private/zero-init.gdb`, run QEMU with `-S -gdb tcp:127.0.0.1:1234` and `gdb-multiarch -x private/zero-init.gdb`. The breakpoint is set on the Thumb `STR` and conditioned on the target destination; it may be slow when the zeroing loop executes hundreds of thousands of times.
 
 The accompanying profiles are **hypotheses**, not production hardware maps. More faults are expected. Do not claim a working OS or display until the guest has genuinely reached the scheduler and written an LCD framebuffer. No genuine boot screenshot is available.
+
+## Latest local QEMU run (profile experiment, not authenticated hardware)
+
+With firmware-provisioned RAM backing, both formerly faulting BSS writes complete; TCG plugin event evidence includes `cpu=0 pc=0x60254714 kind=WRITE physical=0x61080000 width=4 backing=RAM`, and the same PC writing `0x67100000` when that is the watched window. The next unmapped read is `0x4102603c` at guest PC `0x6004992c`.
+
+ARM instructions at `0x60049920` load literal `0x4102603c`, read it, set bit 30 (`0x40000000`), write back, and poll bit 30. They then do the same at `0x410260fc` (base + `0xc0`). On an explicitly provisional INI register-readback profile, QEMU logs: **READ 0; WRITE 0x40000000; READ 0x40000000** for each offset. Execution then raises a new Data Abort at **0x4100f004**. This proves the *software's requested transaction sequence*, not that a clock/peripheral controller with those semantics has been implemented. `profiles/clock-registers-probe-only.ini` makes the hypothesis reproducible without recompiling the emulator.
+
+NXP i.MX7ULP is a plausible hardware family, but the exact controller identity for `0x41026000` and the EXeSX board silicon SKU are not established here. Do not infer a hardware ID or ready bit without stronger evidence.
