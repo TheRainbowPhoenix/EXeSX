@@ -6,3 +6,6 @@ build/
 *.rom
 *.zip
 __pycache__/
+
+private/
+*.elf
