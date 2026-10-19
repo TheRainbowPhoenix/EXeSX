@@ -16,6 +16,11 @@ def main():
     p.add_argument("elf", type=Path)
     p.add_argument("--qemu", type=Path, default=Path("build/qemu-system-arm"))
     p.add_argument("--seconds", type=float, default=3.0)
+    p.add_argument("--profile",type=Path,help="runtime board INI memory profile")
+    p.add_argument("--plugin",type=Path,help="separately built EXeSX TCG memtrace .so")
+    p.add_argument("--watch",action="append",default=[],metavar="START:END",
+                   help="tracked address interval; repeat for multiple regions")
+    p.add_argument("--max-events",type=int,default=256)
     p.add_argument("--results", type=Path, default=Path("private/firmware-trace"))
     args = p.parse_args()
     if not args.qemu.is_file():
@@ -29,8 +34,17 @@ def main():
            "-serial", "none", "-monitor", "none", "-no-reboot",
            "-device", "loader,file=" + str(args.elf.resolve()) + ",cpu-num=0",
            "-d", "in_asm,guest_errors,cpu_reset", "-D", str(log.resolve())]
+    if args.plugin:
+        if not args.plugin.is_file(): p.error("missing plugin")
+        options=[f"file={args.plugin.resolve()}",f"max={args.max_events}"]
+        options.extend(f"range={item}" for item in args.watch or
+            ["0x61080000:0x61180000","0x67100000:0x67150000"])
+        cmd += ["-plugin",",".join(options)]
     print("Experimental execution (no LCD):", shlex.join(cmd), flush=True)
     env = os.environ.copy()
+    if args.profile:
+        if not args.profile.is_file(): p.error("missing profile INI")
+        env["EXESX_MEMORY_PROFILE"]=str(args.profile.resolve())
     lib = args.qemu.resolve().parent / "lib"
     if lib.is_dir():
         env["LD_LIBRARY_PATH"] = str(lib) + ":" + env.get("LD_LIBRARY_PATH", "")
@@ -52,6 +66,10 @@ def main():
         "timed_out": stopped,
         "process_exit_code": code,
         "trace_bytes": len(trace),
+        "profile": str(args.profile) if args.profile else None,
+        "plugin":str(args.plugin) if args.plugin else None,
+        "mmio_faults": re.findall(r"Invalid (?:read|write) at addr 0x[0-9a-fA-F]+[^\\n]*", trace),
+        "tracer_events": len(re.findall(r"EXESX_ACCESS",trace+output)),
         "instruction_lines": len(pcs),
         "first_instruction_addresses": pcs[:12],
         "last_instruction_addresses": pcs[-12:],
