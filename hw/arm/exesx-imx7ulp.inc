@@ -19,6 +19,8 @@ static bool exesx_imx7ulp_kind(const char *kind)
            g_strcmp0(kind, "imx7ulp-pctl") == 0 ||
            g_strcmp0(kind, "imx7ulp-iomuxc") == 0 ||
            g_strcmp0(kind, "imx7ulp-flexbus") == 0 ||
+           g_strcmp0(kind, "imx7ulp-smc") == 0 ||
+           g_strcmp0(kind, "imx7ulp-wdog") == 0 ||
            g_strcmp0(kind, "imx7ulp-tstmr") == 0;
 }
 
@@ -97,6 +99,30 @@ static MemTxResult exesx_imx7ulp_read(EXeSXProfileWindow *w,
     if (size != 4 || (off & 3) || off >= w->size) {
         return MEMTX_ERROR;
     }
+    if (!strcmp(w->kind, "imx7ulp-smc")) {
+        /* SMC0 register layout from NXP PERI_SMC.h. */
+        switch (off) {
+        case 0x00: /* VERID */ *value = 0x000000aa; break;
+        case 0x04: /* PARAM */ *value = 0; break;
+        case 0x08: /* PMPROT */ case 0x10: /* PMCTRL */
+        case 0x24: /* RPC */ case 0x28: /* SSRS */
+        case 0x2c: /* SRIE */ case 0x30: /* SRIF */
+        case 0x34: /* CSRE */ case 0x60: /* FM */
+            *value = w->regfile[index]; break;
+        case 0x18: /* PMSTAT */ case 0x40: /* MR */
+            *value = 1; break; /* RUN mode, not a full PM controller */
+        case 0x20: /* SRS */ *value = 0; break;
+        default: return MEMTX_ERROR;
+        }
+        return MEMTX_OK;
+    }
+    if (!strcmp(w->kind, "imx7ulp-wdog")) {
+        if (off > 0x0c) {
+            return MEMTX_ERROR;
+        }
+        *value = w->regfile[index];
+        return MEMTX_OK;
+    }
     if (!strcmp(w->kind, "imx7ulp-tstmr")) {
         uint64_t ticks = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) / 1000;
         if (off != 0 && off != 4) {
@@ -169,6 +195,51 @@ static MemTxResult exesx_imx7ulp_write(EXeSXProfileWindow *w,
     uint32_t bits = (uint32_t)value;
     if (size != 4 || (off & 3) || off >= w->size) {
         return MEMTX_ERROR;
+    }
+    if (!strcmp(w->kind, "imx7ulp-smc")) {
+        if (off != 0x08 && off != 0x10 && off != 0x24 &&
+            off != 0x28 && off != 0x2c && off != 0x30 &&
+            off != 0x34 && off != 0x60) {
+            return MEMTX_ERROR;
+        }
+        if (off == 0x28 || off == 0x30) {
+            /* Sticky reset / interrupt status flag: write-one-to-clear. */
+            w->regfile[index] &= ~bits;
+        } else {
+            w->regfile[index] = bits;
+        }
+        return MEMTX_OK;
+    }
+    if (!strcmp(w->kind, "imx7ulp-wdog")) {
+        if (off > 0x0c) {
+            return MEMTX_ERROR;
+        }
+        if (off == 0x04) { /* CNT: unlock sequence C520/D928 */
+            if (bits == 0xc520) {
+                w->regfile[0x3c / 4] = 1;
+            } else if (bits == 0xd928 && w->regfile[0x3c / 4]) {
+                w->regfile[0] |= 0x800;  /* CS.ULK */
+                w->regfile[0x3c / 4] = 0;
+            } else {
+                w->regfile[0x3c / 4] = 0;
+            }
+        } else if (off == 0) {
+            if (!(w->regfile[0] & 0x800)) {
+                qemu_log_mask(LOG_GUEST_ERROR,
+                              "EXeSX WDOG CS write while locked @0x%"
+                              HWADDR_PRIx "\\n", w->base);
+                return MEMTX_ERROR;
+            }
+            /* EN/UPDATE/CLK configured; RCS succeeds, ULK locks again. */
+            w->regfile[0] = (bits & ~UINT32_C(0xc00)) | 0x400;
+        } else {
+            w->regfile[index] = bits;
+        }
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "EXeSX WDOG WRITE @0x%" HWADDR_PRIx
+                      " data=0x%08x CS=0x%08x\n",
+                      w->base + off, bits, w->regfile[0]);
+        return MEMTX_OK;
     }
     if (!strcmp(w->kind, "imx7ulp-tstmr")) {
         return MEMTX_ERROR; /* Read-only 64-bit timestamp timer. */
