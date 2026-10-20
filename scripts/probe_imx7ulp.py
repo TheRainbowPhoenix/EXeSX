@@ -52,6 +52,28 @@ def probe_elf():
     store(2,7,24)
     ldr(2,0,4)         # TSTMRB high
     store(2,7,28)
+    # SIM_DGO_CTRL1: GP7 update must trigger the ACK bit 13.
+    literal(0,0x410a3054)
+    literal(1,0x00000001)
+    store(1,0)
+    ldr(2,0)
+    store(2,7,32)     # 0x2000, UPDATE strobe self-cleared
+    literal(1,0x00002000)
+    store(1,0)        # ACK W1C
+    ldr(2,0)
+    store(2,7,36)     # 0
+    # SIM_DGO_CTRL0: GP1/GP2 simultaneous update => ACK bits 13/14.
+    literal(0,0x410a3050)
+    literal(1,0x00000003)
+    store(1,0)
+    ldr(2,0)
+    store(2,7,40)     # 0x6000
+    # SIM retention GP7 ordinary storage
+    literal(0,0x410a3070)
+    literal(1,0x0000abcd)
+    store(1,0)
+    ldr(2,0)
+    store(2,7,44)     # 0x0000abcd
     ins(0xeafffffe)   # final infinite loop
     for n,reg,value in literals:
         pos=len(op)*4
@@ -88,22 +110,23 @@ def main():
                           text=True)
     try:
         time.sleep(0.65)
-        commands=''.join(f'xp /1wx 0x{OUT+i*4:08x}\n' for i in range(8))+'quit\n'
+        commands=''.join(f'xp /1wx 0x{OUT+i*4:08x}\n' for i in range(12))+'quit\n'
         output,_=proc.communicate(commands,timeout=12)
     finally:
         if proc.poll() is None:
             proc.kill();proc.wait()
     values=[]
-    for i in range(8):
+    for i in range(12):
         match=re.search(r'(?im)^0*'+f'{OUT+i*4:08x}'+
                         r':\s+0x([0-9a-f]+)',output)
         if not match:
             raise AssertionError(f'Missing guest result {i}: {output[-1200:]}')
         values.append(int(match.group(1),16))
     expected=[0x10,0,0x10,0xc0000000,0xc0000000,0x20100]
-    if values[:6]!=expected:
+    expected += [0x2000,0,0x6000,0xabcd]
+    if values[:6]+values[8:]!=expected:
         raise AssertionError(f'Guest outputs: {[hex(v) for v in values]}')
-    print('PASS: ARM guest PCC0/PCC2, GPIO aliases/direction, PCTLA, TSTMRB')
+    print('PASS: ARM guest PCC0/PCC2, GPIO, PCTLA, TSTMRB, SIM DGO request/ACK/W1C')
     print('Guest results:',*[hex(v) for v in values])
 
 if __name__=='__main__':
