@@ -50,7 +50,7 @@ def one(args, case: str):
             guest.wait()
     (directory/"monitor.txt").write_text(output)
     text=re.sub(r"\x1b\[[0-9;]*[a-zA-Z]","",output)
-    pcs=re.findall(r"(?m)^R15=([0-9a-fA-F]{8})\b",text)
+    pcs=re.findall(r"\bR15=([0-9a-fA-F]{8})\b",text)
     word=re.search(r"(?m)^0*2f028000:\s+0x([0-9a-fA-F]{8})",text)
     faulttext=logfile.read_text(errors="replace")
     exceptions=re.findall(
