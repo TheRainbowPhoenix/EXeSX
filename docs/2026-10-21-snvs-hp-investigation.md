@@ -44,4 +44,32 @@ The synthetic regression `scripts/probe_snvs_hp.py` runs ARM firmware inside act
 
 **Do not call this security-correct emulation** or claim that the Casio OS booted. Private real-ROM differential results, guest M4 PC/fault changes and any next peripheral blocker should be recorded separately after compiling this patch.
 
+## Completed CI and real-firmware comparison
+
+**Native GitHub Actions build/test:** [run 39517192643](https://github.com/TheRainbowPhoenix/EXeSX/actions/runs/39517192643) **SUCCESS**, including synthetic ARM guest tests for both strict and diagnostic SNVS command behavior and all earlier MU tests. For independent real-ROM validation, extracted the compiled QEMU binary from the compiler artifact of run 39516973986. That artifact is the same source code as the CI-success run, apart from the subsequent GitHub Actions command typo fix. The source firmware was re-extracted locally and SHA256-validated. All firmware, private machine logs, snapshots and binary artifacts stayed off GitHub.
+
+Both independent QEMU cold processes used the same user OSUP, existing synthetic I2C register mirrors for 7-bit 0x4B/0x40, experimental MU IRQ delivery, and the new SNVS profile at 0x41070000.
+
+| Observation | Strict SNVS (security pulses rejected) | Research-only security-pulse ignore |
+| --- | --- | --- |
+| M4 initial HPCOMR read | **Succeeds** | **Succeeds** |
+| LP_SWR reset command | Issued, command clears | Issued, command clears |
+| HPCOMR/HPCR readback at end | 0 / 1 | 0 / 1 |
+| Write of 0x500 (SW_SV, SW_LPSV) | **Rejected: precise M4 BusFault** | **Diagnostic-only pulse ignored with warning** |
+| M4 CFSR/HFSR/BFAR after 1s | 0x00008200 / 0x40000000 / 0x41070004 | **0 / 0 / 0** |
+| Sample M4 PC after 1s | 0x1FFD4D1E, fault context | 0x1FFDA0A0, M4 kernel idle/WFI area |
+| Sample A7 PC after 1s | 0x60179A7C, kernel idle | 0x601B82A8, A7 exception-handler context |
+| Shared A7/M4 IPC | 0xEEEEEEEE | 0xEEEEEEEE |
+
+At **3 seconds** in diagnostic mode, the M4 remains near 0x1FFDA0A0 without an observed M4 BusFault; the A7 is in **Abort mode** (CPSR 0x60000197), with sampled PC 0x601B40F4. The QEMU interrupt trace includes the line **"Exception return from AArch32 irq to sys PC 0x20002028"** immediately followed by **"Taking exception 4 [Data Abort] on CPU 0"**. That is a newly exposed **A7-side interrupt-return/translation problem**. It is **not proven** to be an SNVS issue; it may involve the interrupt context, memory mappings, or another incomplete guest peripheral. We have not measured a working OS entry at 0x60400000 or on-screen text. Do not call A7 Abort-mode execution successful boot progress.
+
+**What is actually unlocked:** the original missing-peripheral SNVS HPCOMR BusFault is resolved, and normal M4 code reaches and requests the next documented command. The policy deliberately leaves real security state unimplemented, while a separate opt-in diagnostic run isolates the *next* CPU failure without patching the ROM.
+
+### Next test
+
+1. Find what guest A7 instruction or saved IRQ stack frame produces return PC 0x20002028; inspect IRQ stack, translation status (DFSR/DFAR), and whether the failing fetch/address is mapped. Use CPU-specific debug breakpoints rather than assuming the M4 idle loop implies success.
+2. Obtain the **i.MX7ULP Security Reference Manual** (NXP login may be required) before modeling software violation effects or the SNVS state machine. Identify the Casio silicon mask revision first if errata are relevant.
+3. Preserve the default strict SNVS and only use diagnostic security bypass in private experiments; do not fake secure status or accept unsupported register offsets.
+4. Prove OS entry and actual LCD framebuffer updates independently.
+
 See the maintained [hardware reference catalog](HARDWARE_REFERENCES.md) and the [real-firmware MU bit-order correction](2026-10-20-imx7ulp-mu-v1-bit-order.md).
