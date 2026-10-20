@@ -78,7 +78,7 @@ static MemTxResult exesx_tpm_write(EXeSXProfileWindow *w, hwaddr off,
 {
     uint32_t bits = (uint32_t)value;
     if (size != 4 || !exesx_tpm_offset(off) || off >= w->size ||
-        (w->base != 0x40a10000 && w->base != 0x40a20000) ||
+        !exesx_tpm_base(w->base) ||
         off == 0 || off == 4) {
         return MEMTX_ERROR;
     }
