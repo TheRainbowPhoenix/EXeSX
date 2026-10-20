@@ -61,6 +61,11 @@ adc_target = qemu / 'hw/arm/exesx-imx7ulp-adc.inc'
 if adc_target.exists() and adc_target.read_bytes() != adc_module.read_bytes():
     raise SystemExit('Refusing to overwrite changed upstream exesx-imx7ulp-adc.inc')
 adc_target.write_bytes(adc_module.read_bytes())
+dma_module = root / 'hw/arm/exesx-imx7ulp-dma.inc'
+dma_target = qemu / 'hw/arm/exesx-imx7ulp-dma.inc'
+if dma_target.exists() and dma_target.read_bytes() != dma_module.read_bytes():
+    raise SystemExit('Refusing to overwrite changed upstream exesx-imx7ulp-dma.inc')
+dma_target.write_bytes(dma_module.read_bytes())
 sema_module = root / 'hw/arm/exesx-imx7ulp-sema42.inc'
 sema_target = qemu / 'hw/arm/exesx-imx7ulp-sema42.inc'
 if sema_target.exists() and sema_target.read_bytes() != sema_module.read_bytes():

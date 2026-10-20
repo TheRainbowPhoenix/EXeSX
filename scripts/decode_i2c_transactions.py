@@ -18,6 +18,8 @@ DIAGNOSTIC = re.compile(r"EXeSX DIAGNOSTIC I2C4B ACK @0x([0-9a-fA-F]+) rw=(read|
 
 def decode(trace: str) -> dict:
     buses = {}
+    pending_nacks = {}
+    pending_acks = {}
     for line in trace.splitlines():
         m = MTDR.search(line)
         if m:
@@ -29,12 +31,14 @@ def decode(trace: str) -> dict:
             bits = int(m.group(2), 16)
             cmd, byte = (bits >> 8) & 7, bits & 0xff
             if cmd in (4, 5):
+                nack = pending_nacks.pop(base, None) == byte
+                ack = pending_acks.pop(base, None) == ("read" if byte & 1 else "write")
                 tx = {
                     "start_word": f"0x{bits:04x}",
                     "address_7bit": f"0x{byte >> 1:02x}",
                     "direction": "read" if byte & 1 else "write",
                     "write_bytes": [], "read_requests": [],
-                    "nack_logged": False, "diagnostic_ack_logged": False,
+                    "nack_logged": nack, "diagnostic_ack_logged": ack,
                     "stop_observed": False,
                     "previous_start_without_stop": bool(obj["active"] is not None),
                 }
@@ -52,17 +56,11 @@ def decode(trace: str) -> dict:
             continue
         m = NACK.search(line)
         if m:
-            bus = f"0x{int(m.group(1),16):08x}"
-            active = buses.get(bus, {}).get("active")
-            if active is not None and active["address_7bit"] == f"0x{int(m.group(2),16) >> 1:02x}":
-                active["nack_logged"] = True
+            pending_nacks[f"0x{int(m.group(1),16):08x}"] = int(m.group(2),16)
             continue
         m = DIAGNOSTIC.search(line)
         if m:
-            bus = f"0x{int(m.group(1),16):08x}"
-            active = buses.get(bus, {}).get("active")
-            if active is not None and active["direction"] == m.group(2):
-                active["diagnostic_ack_logged"] = True
+            pending_acks[f"0x{int(m.group(1),16):08x}"] = m.group(2)
     out = {}
     for bus, obj in buses.items():
         txs = obj["transactions"]
