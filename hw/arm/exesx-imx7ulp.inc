@@ -18,6 +18,7 @@ static bool exesx_imx7ulp_kind(const char *kind)
            g_strcmp0(kind, "imx7ulp-gpio") == 0 ||
            g_strcmp0(kind, "imx7ulp-pctl") == 0 ||
            g_strcmp0(kind, "imx7ulp-iomuxc") == 0 ||
+           g_strcmp0(kind, "imx7ulp-flexbus") == 0 ||
            g_strcmp0(kind, "imx7ulp-tstmr") == 0;
 }
 
@@ -82,6 +83,12 @@ static bool exesx_imx7ulp_pcc_present(uint64_t base, hwaddr off)
     return false;
 }
 
+/* FB CS0..CS5 each have CSAR/CSMR/CSCR; one CSPMCR at +0x60. */
+static bool exesx_imx7ulp_flexbus_offset(hwaddr off)
+{
+    return !(off & 3) && (off < 6 * 0xc || off == 0x60);
+}
+
 static MemTxResult exesx_imx7ulp_read(EXeSXProfileWindow *w,
                                       hwaddr off, uint64_t *value,
                                       unsigned size)
@@ -117,6 +124,14 @@ static MemTxResult exesx_imx7ulp_read(EXeSXProfileWindow *w,
         default:
             return MEMTX_ERROR;
         }
+    }
+    if (!strcmp(w->kind, "imx7ulp-flexbus")) {
+        if (w->base != 0x40100000 ||
+            !exesx_imx7ulp_flexbus_offset(off)) {
+            return MEMTX_ERROR;
+        }
+        *value = w->regfile[index];
+        return MEMTX_OK;
     }
     if (!strcmp(w->kind, "imx7ulp-iomuxc")) {
         if (w->base != 0x40ac0000 ||
@@ -167,6 +182,16 @@ static MemTxResult exesx_imx7ulp_write(EXeSXProfileWindow *w,
         case 0x14: w->regfile[index] = bits; break; /* PDDR */
         default: return MEMTX_ERROR;
         }
+    } else if (!strcmp(w->kind, "imx7ulp-flexbus")) {
+        if (w->base != 0x40100000 ||
+            !exesx_imx7ulp_flexbus_offset(off)) {
+            return MEMTX_ERROR;
+        }
+        /*
+         * Record control register programming. The FlexBus external
+         * target/CS decode is not modeled; it must remain separate.
+         */
+        w->regfile[index] = bits;
     } else if (!strcmp(w->kind, "imx7ulp-iomuxc")) {
         if (w->base != 0x40ac0000 ||
             !exesx_imx7ulp_iomuxc_offset(off)) {
