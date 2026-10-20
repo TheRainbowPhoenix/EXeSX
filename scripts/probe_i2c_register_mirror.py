@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import struct
 import subprocess
+import time
 
 BASE = 0x60000000
 OUT = 0x62006000
@@ -63,9 +64,15 @@ def run(qemu: Path, profile: Path, elf: Path, mirror: bool) -> int:
            "-accel", "tcg", "-display", "none", "-serial", "none",
            "-monitor", "stdio", "-no-reboot",
            "-device", f"loader,file={elf.resolve()},cpu-num=0"]
-    output = subprocess.run(cmd, input=f"xp /1wx 0x{OUT:08x}\nquit\n",
-                            capture_output=True, text=True, env=env,
-                            timeout=15, check=True).stdout
+    child = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT, text=True, env=env)
+    try:
+        time.sleep(0.35)
+        output, _ = child.communicate(f"xp /1wx 0x{OUT:08x}\nquit\n", timeout=15)
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.wait()
     match = re.search(rf"{OUT:08x}:\s+0x([0-9a-fA-F]+)", output)
     if not match:
         raise AssertionError("QEMU monitor result missing: " + output[-1500:])
