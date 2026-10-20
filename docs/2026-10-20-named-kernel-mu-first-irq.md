@@ -61,6 +61,22 @@ A real GDB hardware **write watchpoint** on the A7-side MUB TR0 `0x40220020` sto
 
 A7 earlier sent value **0** into TR2 `0x40220028`, and its next **1..5** attempted TR2 messages were rejected as busy in the emulator. It then sent **6** to TR0, explaining the independently observed change `MUB.TE=0xB→0xA`, `MUA.RF=0x4→0x5` between the first and second IRQ22 entries. This sender has been added to the [A7 Ghidra names](../reverse/a7_kernel_named_sites.tsv). A QEMU model in which RR0/RR2 are never read will leave both slots full; it may reflect unfinished M4 callback initialization, delayed receive dispatch, or a model mismatch, none yet confirmed as the root cause.
 
+## M4 IRQ handler registered and running — root-cause narrowed further
+
+An additional **non-intrusive GDB instruction breakpoint** at generic M4 dispatch site `0x1FFD32DC` reached during the **first real IRQ22**, before the M4 MU SR/CR changed:
+
+1. M4 IRQ vector entry `0x1FFED180` enters **`M4_Kernel_CommonInterruptDispatch` at `0x1FFD3270`**.
+2. The dispatcher reaches `blx r1` at `0x1FFD32DC`, with **`r1=0x1FFD2E51`**. Thumb function `0x1FFD2E50` is `M4_Kernel_DispatchRegisteredIRQCallbacks`.
+3. Its linked-list node at **`0x1FFF5518`**, inspected in private guest RAM, contains a genuine callback pointer at `node+0x0C = 0x1FFD5713` and parameter `node+0x10 = 0`. Thus **the MU IRQ callback is registered**, not absent.
+4. The handler's actual Thumb function is **`M4_MU_ReceiveAndGIP_IRQHandler` at `0x1FFD5712`**. Its prologue loads MUA SR and CR (`r5` and `r6` respectively). Its receive callback-dispatch loop at **`0x1FFD572E–0x1FFD575E`** constructs masks `8 >> r8` for `r8=0,1,2`: checks **channels 3,2,1 only**. A second pending-callback loop `0x1FFD579A–0x1FFD5798` also iterates just those three channels. Neither loop checks channel 0.
+5. At `0x1FFD57C2–0x1FFD57D8`, the handler first writes the GIP status mask to MUA SR (zero in this captured run), then uses observed receive-full bits to clear enabled receive channels in CR **while OR-ing `0x01000000` to keep RIE0 enabled**. This explains the actual MUA CR `0xFF000000→0xFB000000` after RR2 is reported full. It deliberately leaves RIE0 enabled.
+
+These instructions **disprove the simpler missing-IRQ-registration hypothesis**: the generic M4 dispatcher and a specific MU callback both exist and are live. The immediate storm is a **real firmware/MU model semantic conflict**: MUA RF0 remains asserted, RIE0 remains enabled, yet the registered MU handler's normal per-channel callback loops omit channel 0. This could be intentional special channel-0 handling elsewhere or a mismatch in how MU hardware is expected to transition. It does **not** prove Casio firmware is defective.
+
+**Do not patch away RF0 or disable RIE0 blindly.** Correct next task: identify why this firmware uses TR0 (code 6) while the M4 special channel-0 consumer is not responding. Trace the *separate* channel-0 control path, IRQ ownership, and register semantics in the chipset documentation. Only model a change when actual guest control flow/acknowledgments warrant it.
+
+These M4 function names are now included in the SHA-guarded `scripts/prepare_i2c_ghidra.py` M4 ELF symbol table and `ghidra/ExesxI2CXrefs.java`; **Ghidra Java has not been executed in this environment**.
+
 ## Re-run against your firmware, privately
 
 ```sh
