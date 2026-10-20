@@ -20,6 +20,52 @@ static bool exesx_imx7ulp_kind(const char *kind)
            g_strcmp0(kind, "imx7ulp-tstmr") == 0;
 }
 
+/*
+ * Only address offsets present in MCUXpresso i.MX7ULP fsl_clock.h.
+ * Generic echoes of undocumented offsets would mask missing peripherals.
+ */
+static bool exesx_imx7ulp_pcc_present(uint64_t base, hwaddr off)
+{
+    static const uint16_t pcc0[] = {
+        0x20, 0x3c, 0x50, 0x6c, 0x80, 0x88, 0x94, 0xa4, 0xa8,
+        0xb0, 0xb4, 0xb8, 0xbc, 0xc0, 0xc4, 0xc8, 0xcc, 0xd0,
+        0xd4, 0xd8, 0xdc, 0xe0, 0xe4, 0xe8, 0xec, 0xfc,
+        0x100, 0x104, 0x108, 0x10c, 0x110, 0x114, 0x1c0
+    };
+    static const uint16_t pcc1[] = {
+        0x50, 0x94, 0xa0, 0xa4, 0xa8, 0xac, 0xb0, 0xb4
+    };
+    static const uint16_t pcc2[] = {
+        0x20, 0x3c, 0x40, 0x6c, 0x84, 0x90, 0x94, 0x98, 0x9c,
+        0xa4, 0xa8, 0xac, 0xb0, 0xb4, 0xb8, 0xc4, 0xcc, 0xd0,
+        0xd4, 0xd8, 0xdc, 0xe0, 0xf4, 0x10c
+    };
+    static const uint16_t pcc3[] = {
+        0x84, 0x88, 0x90, 0x94, 0x98, 0x9c, 0xa0, 0xa4, 0xa8,
+        0xac, 0xb8, 0xbc, 0xc0, 0xc4, 0x140, 0x144
+    };
+    const uint16_t *list = NULL;
+    size_t n = 0, i;
+    switch (base) {
+    case 0x41026000:
+        list = pcc0; n = G_N_ELEMENTS(pcc0); break;
+    case 0x410b2000:
+        list = pcc1; n = G_N_ELEMENTS(pcc1); break;
+    case 0x403f0000:
+        list = pcc2; n = G_N_ELEMENTS(pcc2); break;
+    case 0x40b30000:
+        list = pcc3; n = G_N_ELEMENTS(pcc3); break;
+    default:
+        return false;
+    }
+    for (i = 0; i < n; i++) {
+        if (off == list[i]) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static MemTxResult exesx_imx7ulp_read(EXeSXProfileWindow *w,
                                       hwaddr off, uint64_t *value,
                                       unsigned size)
@@ -66,9 +112,7 @@ static MemTxResult exesx_imx7ulp_read(EXeSXProfileWindow *w,
     }
     if (!strcmp(w->kind, "imx7ulp-pcc")) {
         /* Only the gate registers observed in the BIOS, not full clock tree. */
-        if ((w->base == 0x41026000 &&
-             (off == 0x3c || off == 0xfc || off == 0x100)) ||
-            (w->base == 0x403f0000 && off == 0x40)) {
+        if (exesx_imx7ulp_pcc_present(w->base, off)) {
             /* Present bit 31 (PR) is read-only; all listed modules exist. */
             *value = w->regfile[index] | UINT32_C(0x80000000);
             return MEMTX_OK;
@@ -105,9 +149,7 @@ static MemTxResult exesx_imx7ulp_write(EXeSXProfileWindow *w,
         }
         w->regfile[index] = bits;
     } else if (!strcmp(w->kind, "imx7ulp-pcc")) {
-        if (!((w->base == 0x41026000 &&
-               (off == 0x3c || off == 0xfc || off == 0x100)) ||
-              (w->base == 0x403f0000 && off == 0x40))) {
+        if (!exesx_imx7ulp_pcc_present(w->base, off)) {
             return MEMTX_ERROR;
         }
         /* CGC bit 30 writable; INUSE bit 29 / PR bit 31 read-only. */
