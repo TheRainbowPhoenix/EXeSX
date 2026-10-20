@@ -76,7 +76,7 @@ def run(qemu: Path, profile: Path, elf: Path, count: int, diagnostic: bool):
         env["LD_LIBRARY_PATH"] = str(lib) + ":" + env.get("LD_LIBRARY_PATH", "")
     cmd = [str(qemu.resolve()), "-machine", "exesx", "-m", "64M", "-accel", "tcg",
            "-display", "none", "-serial", "none", "-monitor", "stdio",
-           "-no-reboot", "-device", f"loader,file={elf.resolve()},cpu-num=0"]
+           "-no-reboot", "-d", "guest_errors", "-device", f"loader,file={elf.resolve()},cpu-num=0"]
     guest = subprocess.Popen(cmd, env=env, stdin=subprocess.PIPE,
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                              text=True)
