@@ -17,6 +17,7 @@ static bool exesx_imx7ulp_kind(const char *kind)
     return g_strcmp0(kind, "imx7ulp-pcc") == 0 ||
            g_strcmp0(kind, "imx7ulp-gpio") == 0 ||
            g_strcmp0(kind, "imx7ulp-pctl") == 0 ||
+           g_strcmp0(kind, "imx7ulp-iomuxc") == 0 ||
            g_strcmp0(kind, "imx7ulp-tstmr") == 0;
 }
 
@@ -24,6 +25,21 @@ static bool exesx_imx7ulp_kind(const char *kind)
  * Only address offsets present in MCUXpresso i.MX7ULP fsl_clock.h.
  * Generic echoes of undocumented offsets would mask missing peripherals.
  */
+/*
+ * Valid IOMUXC1 mux/pad/select-input register offsets extracted from NXP
+ * MCIMX7U5 fsl_iomuxc.h (six contiguous runs). Do not map reserved gaps.
+ */
+static bool exesx_imx7ulp_iomuxc_offset(hwaddr off)
+{
+    return !(off & 3) &&
+           ((off <= 0x4c) ||
+            (off >= 0x80 && off <= 0xac) ||
+            (off >= 0x100 && off <= 0x13c) ||
+            (off >= 0x180 && off <= 0x1cc) ||
+            (off >= 0x200 && off <= 0x33c) ||
+            (off == 0x39c));
+}
+
 static bool exesx_imx7ulp_pcc_present(uint64_t base, hwaddr off)
 {
     static const uint16_t pcc0[] = {
@@ -102,6 +118,14 @@ static MemTxResult exesx_imx7ulp_read(EXeSXProfileWindow *w,
             return MEMTX_ERROR;
         }
     }
+    if (!strcmp(w->kind, "imx7ulp-iomuxc")) {
+        if (w->base != 0x40ac0000 ||
+            !exesx_imx7ulp_iomuxc_offset(off)) {
+            return MEMTX_ERROR;
+        }
+        *value = w->regfile[index];
+        return MEMTX_OK;
+    }
     if (!strcmp(w->kind, "imx7ulp-pctl")) {
         /* Port pin control PCR[n]. Partial pinmux/drive configuration. */
         if (off < 0x80) {
@@ -143,6 +167,12 @@ static MemTxResult exesx_imx7ulp_write(EXeSXProfileWindow *w,
         case 0x14: w->regfile[index] = bits; break; /* PDDR */
         default: return MEMTX_ERROR;
         }
+    } else if (!strcmp(w->kind, "imx7ulp-iomuxc")) {
+        if (w->base != 0x40ac0000 ||
+            !exesx_imx7ulp_iomuxc_offset(off)) {
+            return MEMTX_ERROR;
+        }
+        w->regfile[index] = bits;
     } else if (!strcmp(w->kind, "imx7ulp-pctl")) {
         if (off >= 0x80) {
             return MEMTX_ERROR;
