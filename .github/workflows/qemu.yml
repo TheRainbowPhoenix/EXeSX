@@ -89,7 +89,7 @@ jobs:
             --profile profiles/imx7ulp-early-boot.ini
       - name: Verify NXP MU v1 channel-bit ordering, all four channels and acknowledgments
         run: |
-          python3 scripts/probe_mu_v1_channels.py scripts/probe_snvs_hp.py --qemu build/qemu-system-arm \
+          python3 scripts/probe_mu_v1_channels.py --qemu build/qemu-system-arm \
             --profile profiles/imx7ulp-early-boot.ini
       - name: Verify NXP SNVS HP reset command and RTC enable from real ARM guest
         run: |
