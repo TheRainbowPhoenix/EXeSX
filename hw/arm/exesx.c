@@ -8,6 +8,7 @@
 #include "hw/arm/boot.h"
 #include "hw/intc/arm_gic.h"
 #include "hw/sysbus.h"
+#include "hw/irq.h"
 #include "hw/qdev-clock.h"
 #include "hw/clock.h"
 #include "hw/qdev-properties.h"
@@ -33,6 +34,8 @@ typedef struct EXeSXState {
     uint64_t cp15_dacr_s_saved;
     uint64_t cp15_ttbr1_s_saved;
     bool m4_released;
+    /* MU_A input is M4 NVIC IRQ22; MU_B is GIC SPI19 on A7. */
+    qemu_irq mu_a_irq, mu_b_irq;
     MemoryRegion firmware, vectors, sram, ipc, provisional_writable;
 } EXeSXState;
 
@@ -444,6 +447,9 @@ static void exesx_init(MachineState *ms)
                            qdev_get_gpio_in(DEVICE(a7), ARM_CPU_IRQ));
         sysbus_connect_irq(gicsbd, 1,
                            qdev_get_gpio_in(DEVICE(a7), ARM_CPU_FIQ));
+        /* GIC qdev input indices are 0-based SPIs (GIC ID=32+index). */
+        s->mu_b_irq = qdev_get_gpio_in(gic, 19);
+
     }
 
     /* Independent M-profile CPU and NVIC, powered off pending IPC model. */
@@ -465,6 +471,9 @@ static void exesx_init(MachineState *ms)
     qdev_connect_clock_in(m4dev, "cpuclk", s->m4cpuclk);
     qdev_connect_clock_in(m4dev, "refclk", s->m4refclk);
     sysbus_realize(SYS_BUS_DEVICE(&s->m4), &error_fatal);
+    /* MCIMX7U5_cm4_COMMON.h: MU_A_IRQn = 22 (external NVIC line). */
+    s->mu_a_irq = qdev_get_gpio_in(DEVICE(&s->m4), 22);
+
     armv7m_load_kernel(s->m4.cpu, NULL, 0x1ffd0000, 0x40000);
 }
 static void exesx_class_init(ObjectClass *oc, const void *data)
