@@ -57,9 +57,12 @@ typedef struct EXeSXProfileWindow {
     uint64_t base;
     uint64_t size;
     GHashTable *registers;
+    char *kind;
     /* Stable addresses; preserved by VMState on loadvm. */
     uint32_t regfile[0x10000 / sizeof(uint32_t)];
 } EXeSXProfileWindow;
+
+#include "exesx-imx7ulp.inc"
 
 static const VMStateDescription exesx_registers_vmstate = {
     .name = "exesx-experimental-registers",
@@ -111,6 +114,9 @@ static MemTxResult exesx_reg_read(void *opaque, hwaddr offset, uint64_t *data,
 {
     EXeSXProfileWindow *w = opaque;
     uint32_t *v = NULL;
+    if (exesx_imx7ulp_kind(w->kind)) {
+        return exesx_imx7ulp_read(w, offset, data, size);
+    }
     if (size == 4 && !(offset & 3) && offset <= UINT32_MAX - 1) {
         v = g_hash_table_lookup(w->registers,
                                 GUINT_TO_POINTER((unsigned)offset + 1));
@@ -134,6 +140,9 @@ static MemTxResult exesx_reg_write(void *opaque, hwaddr offset, uint64_t data,
 {
     EXeSXProfileWindow *w = opaque;
     uint32_t *v = NULL;
+    if (exesx_imx7ulp_kind(w->kind)) {
+        return exesx_imx7ulp_write(w, offset, data, size);
+    }
     if (size == 4 && !(offset & 3) && offset <= UINT32_MAX - 1) {
         v = g_hash_table_lookup(w->registers,
                                 GUINT_TO_POINTER((unsigned)offset + 1));
@@ -214,6 +223,7 @@ static void exesx_load_profile(MemoryRegion *sysmem)
         w->base = exesx_config_number(cfg, group, "base");
         w->size = exesx_config_number(cfg, group, "size");
         w->name = g_strdup_printf("exesx.profile.%s", group);
+        w->kind = g_strdup(kind);
         if (!w->size || w->size > 256 * MiB ||
             w->base + w->size > UINT64_C(0x100000000) ||
             (w->base & 3) || (w->size & 3)) {
@@ -223,6 +233,18 @@ static void exesx_load_profile(MemoryRegion *sysmem)
         if (g_strcmp0(kind, "ram") == 0) {
             memory_region_init_ram(&w->mr, NULL, w->name, w->size,
                                    &error_fatal);
+        } else if (exesx_imx7ulp_kind(kind)) {
+            if (w->size > 0x10000 ||
+                (!strcmp(kind, "imx7ulp-tstmr") && w->size != 8)) {
+                error_report("EXeSX i.MX7ULP model window %s invalid size", group);
+                exit(1);
+            }
+            memory_region_init_io(&w->mr, NULL, &exesx_reg_ops, w,
+                                  w->name, w->size);
+            if (vmstate_register(NULL, k, &exesx_registers_vmstate, w)) {
+                error_report("EXeSX i.MX7ULP model migration registration failed");
+                exit(1);
+            }
         } else if (g_strcmp0(kind, "registers") == 0) {
             if (w->size > 0x10000) {
                 error_report("EXeSX register window %s too large", group);
