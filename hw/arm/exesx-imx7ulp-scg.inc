@@ -23,6 +23,34 @@ static bool exesx_scg1_offset(hwaddr off)
     }
 }
 
+/*
+ * SCG0 lives in M4 real-time domain, with additional SIRC/FIRC trim
+ * registers, and no SCG1-only DDR/NIC clock controls.
+ */
+static bool exesx_scg0_offset(hwaddr off)
+{
+    switch (off) {
+    case 0x00: case 0x04: case 0x10: case 0x14:
+    case 0x18: case 0x1c: case 0x20:
+    case 0x100: case 0x104: case 0x108:
+    case 0x200: case 0x204: case 0x208:
+    case 0x300: case 0x304: case 0x308:
+    case 0x30c: case 0x318: case 0x400:
+    case 0x500: case 0x504: case 0x508: case 0x50c:
+    case 0x510: case 0x514: case 0x518: case 0x5f8:
+    case 0x600: case 0x604: case 0x608: case 0x60c:
+    case 0x6f8:
+        return true;
+    default: return false;
+    }
+}
+
+static bool exesx_scg_valid(EXeSXProfileWindow *w, hwaddr off)
+{
+    return (w->base == 0x403e0000 && exesx_scg1_offset(off)) ||
+           (w->base == 0x41027000 && exesx_scg0_offset(off));
+}
+
 static uint32_t exesx_scg1_pfd_status(uint32_t raw, bool pll_enabled)
 {
     unsigned i;
@@ -47,7 +75,7 @@ static MemTxResult exesx_scg1_read(EXeSXProfileWindow *w,
 {
     uint32_t raw;
     if (size != 4 || (off & 3) || off >= w->size ||
-        w->base != 0x403e0000 || !exesx_scg1_offset(off)) {
+        !exesx_scg_valid(w, off)) {
         return MEMTX_ERROR;
     }
     raw = w->regfile[off / 4];
@@ -79,7 +107,7 @@ static MemTxResult exesx_scg1_write(EXeSXProfileWindow *w,
 {
     uint32_t raw = (uint32_t)value;
     if (size != 4 || (off & 3) || off >= w->size ||
-        w->base != 0x403e0000 || !exesx_scg1_offset(off)) {
+        !exesx_scg_valid(w, off)) {
         return MEMTX_ERROR;
     }
     /* Read-only identity and status controls. */
