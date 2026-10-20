@@ -20,6 +20,7 @@ static bool exesx_imx7ulp_kind(const char *kind)
            g_strcmp0(kind, "imx7ulp-iomuxc") == 0 ||
            g_strcmp0(kind, "imx7ulp-flexbus") == 0 ||
            g_strcmp0(kind, "imx7ulp-smc") == 0 ||
+           g_strcmp0(kind, "imx7ulp-sim") == 0 ||
            g_strcmp0(kind, "imx7ulp-wdog") == 0 ||
            g_strcmp0(kind, "imx7ulp-tstmr") == 0;
 }
@@ -86,6 +87,16 @@ static bool exesx_imx7ulp_pcc_present(uint64_t base, hwaddr off)
 }
 
 /* FB CS0..CS5 each have CSAR/CSMR/CSCR; one CSPMCR at +0x60. */
+/* Permitted SIM offsets from NXP PERI_SIM.h; unknown offsets fault. */
+static bool exesx_imx7ulp_sim_offset(hwaddr off)
+{
+    return off == 0 || off == 4 || off == 0xc || off == 0x28 ||
+           off == 0x2c || off == 0x30 || off == 0x3c ||
+           (off >= 0x50 && off <= 0x80 && !(off & 3)) ||
+           off == 0x88 || off == 0x8c || off == 0x90 ||
+           off == 0x94 || off == 0x98;
+}
+
 static bool exesx_imx7ulp_flexbus_offset(hwaddr off)
 {
     return !(off & 3) && (off < 6 * 0xc || off == 0x60);
@@ -98,6 +109,14 @@ static MemTxResult exesx_imx7ulp_read(EXeSXProfileWindow *w,
     uint32_t index = off / 4;
     if (size != 4 || (off & 3) || off >= w->size) {
         return MEMTX_ERROR;
+    }
+    if (!strcmp(w->kind, "imx7ulp-sim")) {
+        if (w->base != 0x410a3000 ||
+            !exesx_imx7ulp_sim_offset(off)) {
+            return MEMTX_ERROR;
+        }
+        *value = w->regfile[index];
+        return MEMTX_OK;
     }
     if (!strcmp(w->kind, "imx7ulp-smc")) {
         /* SMC0 register layout from NXP PERI_SMC.h. */
@@ -195,6 +214,15 @@ static MemTxResult exesx_imx7ulp_write(EXeSXProfileWindow *w,
     uint32_t bits = (uint32_t)value;
     if (size != 4 || (off & 3) || off >= w->size) {
         return MEMTX_ERROR;
+    }
+    if (!strcmp(w->kind, "imx7ulp-sim")) {
+        /* SIM_DGO_GP7 is writable battery-backed GP state. */
+        if (w->base != 0x410a3000 ||
+            !exesx_imx7ulp_sim_offset(off) || off == 0x8c) {
+            return MEMTX_ERROR;
+        }
+        w->regfile[index] = bits;
+        return MEMTX_OK;
     }
     if (!strcmp(w->kind, "imx7ulp-smc")) {
         if (off != 0x08 && off != 0x10 && off != 0x24 &&
