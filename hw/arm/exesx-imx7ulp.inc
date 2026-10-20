@@ -46,6 +46,19 @@ static bool exesx_imx7ulp_kind(const char *kind)
  * Valid IOMUXC1 mux/pad/select-input register offsets extracted from NXP
  * MCIMX7U5 fsl_iomuxc.h (six contiguous runs). Do not map reserved gaps.
  */
+/*
+ * IOMUXC0 (real-time domain) valid mux/pad addresses from NXP's
+ * i.MX7ULP fsl_iomuxc.h. 128 allowed word registers in three blocks.
+ * M4 firmware programs +0x194 during port setup.
+ */
+static bool exesx_imx7ulp_iomuxc0_offset(hwaddr off)
+{
+    return !(off & 3) &&
+           (off <= 0xcc ||
+            (off >= 0x100 && off <= 0x228) ||
+            off == 0x294);
+}
+
 static bool exesx_imx7ulp_iomuxc_offset(hwaddr off)
 {
     return !(off & 3) &&
@@ -221,12 +234,13 @@ static MemTxResult exesx_imx7ulp_read(EXeSXProfileWindow *w,
         return MEMTX_OK;
     }
     if (!strcmp(w->kind, "imx7ulp-pctl")) {
-        /* Port pin control PCR[n]. Partial pinmux/drive configuration. */
-        if (off < 0x80) {
-            *value = w->regfile[index];
-            return MEMTX_OK;
+        /* Historical model name for IOMUXC0 at 0x4103d000. */
+        if (w->base != 0x4103d000 ||
+            !exesx_imx7ulp_iomuxc0_offset(off)) {
+            return MEMTX_ERROR;
         }
-        return MEMTX_ERROR;
+        *value = w->regfile[index];
+        return MEMTX_OK;
     }
     if (!strcmp(w->kind, "imx7ulp-pcc")) {
         /* Only the gate registers observed in the BIOS, not full clock tree. */
@@ -384,7 +398,8 @@ static MemTxResult exesx_imx7ulp_write(EXeSXProfileWindow *w,
         }
         w->regfile[index] = bits;
     } else if (!strcmp(w->kind, "imx7ulp-pctl")) {
-        if (off >= 0x80) {
+        if (w->base != 0x4103d000 ||
+            !exesx_imx7ulp_iomuxc0_offset(off)) {
             return MEMTX_ERROR;
         }
         w->regfile[index] = bits;
