@@ -297,6 +297,14 @@ static MemTxResult exesx_imx7ulp_write(EXeSXProfileWindow *w,
                           "EXeSX SIM DGO update @0x%" HWADDR_PRIx
                           " requested=0x%x ack=0x%x\\n",
                           w->base + off, updates, ack);
+            /*
+             * In i.MX7ULP Single Boot the CA7 advertises the CM4 entry
+             * via DGO_GP7 and the CM4 ROM then branches to that image.
+             * Omit the ROM stage only when explicitly opted in.
+             */
+            if (off == 0x54 && (updates & 1) && w->board) {
+                exesx_m4_rom_handoff(w->board, w->regfile[0x70 / 4]);
+            }
         } else {
             w->regfile[index] = bits;
         }
