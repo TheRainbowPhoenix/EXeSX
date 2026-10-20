@@ -225,6 +225,9 @@ class Session:
         self.qmp.command("stop")
         self.select_a7()
         later_a7 = self.rsp.reg(15)
+        a7_r4 = self.rsp.reg(4)
+        callback_address = a7_r4 + 0x8c if later_a7 == A7_HOLD else None
+        callback_value = read32(self.rsp, callback_address) if callback_address is not None else None
         self.select_m4()
         later_m4 = self.rsp.reg(15)
         return {"case": case, "read_interceptions": events,
@@ -236,6 +239,9 @@ class Session:
                 "a7_pc_after_follow_up": hex(later_a7),
                 "m4_pc_after_follow_up": hex(later_m4),
                 "a7_in_holding_loop": later_a7 == A7_HOLD,
+                "a7_r4_at_sample": hex(a7_r4),
+                "a7_hold_callback_slot": hex(callback_address) if callback_address is not None else None,
+                "a7_hold_callback_value": hex(callback_value) if callback_value is not None else None,
                 "firmware_boot_verified": False, "physical_gpio_state_known": False}
 
 
