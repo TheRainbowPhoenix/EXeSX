@@ -55,7 +55,7 @@ snvs_module = root / 'hw/arm/exesx-imx7ulp-snvs.inc'
 snvs_target = qemu / 'hw/arm/exesx-imx7ulp-snvs.inc'
 if snvs_target.exists() and snvs_target.read_bytes() != snvs_module.read_bytes():
     raise SystemExit('Refusing to overwrite changed upstream exesx-imx7ulp-snvs.inc')
-shutil.copy2(snvs_module, snvs_target)
+snvs_target.write_bytes(snvs_module.read_bytes())
 lpi2c_module = root / 'hw/arm/exesx-imx7ulp-lpi2c.inc'
 lpi2c_target = qemu / 'hw/arm/exesx-imx7ulp-lpi2c.inc'
 if lpi2c_target.exists() and lpi2c_target.read_bytes() != lpi2c_module.read_bytes():
