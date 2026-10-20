@@ -1,0 +1,110 @@
+#!/usr/bin/env python3
+"""Firmware-free real ARM instruction probe for early i.MX7ULP peripherals."""
+from pathlib import Path
+import argparse
+import os
+import re
+import struct
+import subprocess
+import time
+
+RESET=0x60000000
+OUT=0x62002000
+
+def probe_elf():
+    op=[]
+    literals=[]
+    def ins(word): op.append(word)
+    def literal(reg,value):
+        literals.append((len(op),reg,value));ins(0)
+    def ldr(reg,base,off=0):
+        ins(0xe5900000 | (base<<16) | (reg<<12) | off)
+    def store(reg,base,off=0):
+        ins(0xe5800000 | (base<<16) | (reg<<12) | off)
+    literal(7,OUT)
+    literal(0,0x4100f000)
+    literal(1,0x10)
+    store(1,0,4)       # GPIO PSOR set 0x10
+    ldr(2,0)
+    store(2,7,0)       # PDOR must reflect set
+    store(1,0,8)       # GPIO PCOR clear 0x10
+    ldr(2,0)
+    store(2,7,4)
+    store(1,0,0x14)    # GPIO PDDR direction
+    ldr(2,0,0x14)
+    store(2,7,8)
+    literal(0,0x41026000)
+    literal(1,0x40000000)
+    store(1,0,0x3c)    # PCC0 RGPIO2P0
+    ldr(2,0,0x3c)
+    store(2,7,12)
+    literal(0,0x403f0000)
+    store(1,0,0x40)    # PCC2 FlexBus
+    ldr(2,0,0x40)
+    store(2,7,16)
+    literal(0,0x4103d000)
+    literal(1,0x20100)
+    store(1,0,0x10)    # PCTLA PCR4
+    ldr(2,0,0x10)
+    store(2,7,20)
+    literal(0,0x410a3c08)
+    ldr(2,0,0)         # TSTMRB low
+    store(2,7,24)
+    ldr(2,0,4)         # TSTMRB high
+    store(2,7,28)
+    ins(0xeafffffe)   # final infinite loop
+    for n,reg,value in literals:
+        pos=len(op)*4
+        op.append(value)
+        off=pos-(n*4+8)
+        assert 0<=off<=4095
+        op[n]=0xe59f0000 | (reg<<12) | off
+    data=struct.pack('<%dI'%len(op),*op)
+    ident=b'\x7fELF\x01\x01\x01'+bytes(9)
+    hdr=struct.pack('<16sHHIIIIIHHHHHH',ident,2,40,1,RESET,52,0,
+                    0x05000000,52,32,1,0,0,0)
+    phdr=struct.pack('<8I',1,0x100,RESET,RESET,len(data),len(data),5,0x100)
+    return hdr+phdr+bytes(0x100-len(hdr)-len(phdr))+data
+
+def main():
+    p=argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--qemu',type=Path,default=Path('build/qemu-system-arm'))
+    p.add_argument('--profile',type=Path,default=Path('profiles/imx7ulp-early-boot.ini'))
+    p.add_argument('--elf',type=Path,default=Path('build/imx7ulp-probe.elf'))
+    args=p.parse_args()
+    args.elf.parent.mkdir(parents=True,exist_ok=True)
+    args.elf.write_bytes(probe_elf())
+    env=os.environ.copy()
+    env['EXESX_MEMORY_PROFILE']=str(args.profile.resolve())
+    lib=args.qemu.resolve().parent/'lib'
+    if lib.is_dir():
+        env['LD_LIBRARY_PATH']=str(lib)+':'+env.get('LD_LIBRARY_PATH','')
+    cmd=[str(args.qemu.resolve()),'-machine','exesx','-m','64M',
+         '-accel','tcg','-display','none','-serial','none','-monitor','stdio',
+         '-no-reboot','-device',
+         f'loader,file={args.elf.resolve()},cpu-num=0']
+    proc=subprocess.Popen(cmd,env=env,stdin=subprocess.PIPE,
+                          stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
+                          text=True)
+    try:
+        time.sleep(0.65)
+        commands=''.join(f'xp /1wx 0x{OUT+i*4:08x}\n' for i in range(8))+'quit\n'
+        output,_=proc.communicate(commands,timeout=12)
+    finally:
+        if proc.poll() is None:
+            proc.kill();proc.wait()
+    values=[]
+    for i in range(8):
+        match=re.search(r'(?im)^0*'+f'{OUT+i*4:08x}'+
+                        r':\s+0x([0-9a-f]+)',output)
+        if not match:
+            raise AssertionError(f'Missing guest result {i}: {output[-1200:]}')
+        values.append(int(match.group(1),16))
+    expected=[0x10,0,0x10,0xc0000000,0xc0000000,0x20100]
+    if values[:6]!=expected:
+        raise AssertionError(f'Guest outputs: {[hex(v) for v in values]}')
+    print('PASS: ARM guest PCC0/PCC2, GPIO aliases/direction, PCTLA, TSTMRB')
+    print('Guest results:',*[hex(v) for v in values])
+
+if __name__=='__main__':
+    main()
