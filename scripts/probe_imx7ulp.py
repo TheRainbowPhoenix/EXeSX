@@ -218,14 +218,14 @@ def probe_elf():
     store(1,0,0x20)    # A transmit channel 0
     literal(0,0x40220000)
     ldr(2,0,0x60)
-    store(2,7,164)     # B SR receive-full flag bit24
+    store(2,7,164)     # B SR receive-full for RR0 at bit27 (NXP MU v1 reversed channel mapping)
     ldr(2,0,0x40)
     store(2,7,168)     # B RR0 must contain actual A payload
     ldr(2,0,0x60)
     store(2,7,172)     # B RF cleared after consume
     literal(0,0x41022000)
     ldr(2,0,0x60)
-    store(2,7,176)     # A TE0 restored
+    store(2,7,176)     # A TE0 restored (bit23)
     # LPI2C2 controller is real: empty FIFO requests data when enabled.
     # Unpopulated external bus must NACK rather than pretending success.
     literal(0,0x41035000)
@@ -291,7 +291,7 @@ def main():
         values.append(int(match.group(1),16))
     expected=[0x10,0,0x10,0xc0000000,0xc0000000,0x20100]
     expected += [0x2000,0,0x6000,0xabcd,0x01000001,0,0x01000001,0x5d,0x9d,0,8,0xffffffff,0x40000,0x10000000,0x40020000,0x3ff]
-    if values[:6]+values[8:24]!=expected or (values[24] & 0x1f)!=4 or values[25]!=0 or values[26:41]!=[0x90000,0x90000,1,0xffff,1,1,0,0x01000001,0,0x01000001,1,4,0x1000,8,0xffff] or values[41:45]!=[0x01f00000,0x12345678,0x00f00000,0x00f00000] or values[45:]!=[1,0x401,1]:
+    if values[:6]+values[8:24]!=expected or (values[24] & 0x1f)!=4 or values[25]!=0 or values[26:41]!=[0x90000,0x90000,1,0xffff,1,1,0,0x01000001,0,0x01000001,1,4,0x1000,8,0xffff] or values[41:45]!=[0x08f00000,0x12345678,0x00f00000,0x00f00000] or values[45:]!=[1,0x401,1]:
         raise AssertionError(f'Guest outputs: {[hex(v) for v in values]}')
     print('PASS: ARM guest PCC0/PCC2, GPIO, PCTLA, TSTMRB, SIM DGO ACK/W1C, SCG1 oscillator/PLL PFD and TPM6 control/modulo PMC1/PMC0 VLPS and GICv2 CBAR/physical interfaces and PORTF PCR0 and LPIT1 and SEMA42 byte gate ownership and M4 SCG0 FIRC ready status and LPTMR0, TPM1 and two-sided MU mailbox and LPI2C2 missing-slave NACK')
     print('Guest results:',*[hex(v) for v in values])
