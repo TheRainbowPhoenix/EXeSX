@@ -42,6 +42,12 @@ python3 scripts/probe_gpio_ipc.py private/a7-firmware.elf \
 
 This writes a **private** `results.json`, QEMU console and debug logs. Do not upload those logs, extracted ROM or QCOW2 to public GitHub/CI. The script fails closed if the expected first M4 scan, GPIO input direction, snapshot restoration, mailbox stores or A7 IPC compare site is absent.
 
+## Why A7 still holds — actual callback-slot observation
+
+Further bounded real-firmware GDB samples on both `code9c:pass` and `code9c:high` captured A7 **`r4=0x62148F00`** at `PC=0x60179A7C`. ARM disassembly at `0x60179A68` reads **`[r4+0x8c]`**, tests zero and branches to `0x60179A7C` if the value is zero. Live guest memory at **`0x62148F8C`** was **`0x00000000`** under both conditions. This explains the immediate cause of the holding loop in these tests: the callback/function slot is unset. It does **not** prove which initialization routine should set it, that it is an error rather than intended idle state, or that manually filling the slot would boot the OS.
+
+The reusable probe also logs the A7 r4, callback slot and observed pointer when the final PC is the known holding loop. The next non-speculative task is to locate firmware writes/XRefs to the pointer slot, correlate scheduler/IRQ dependencies, and detect actual OS entry (rather than synthesizing a callback).
+
 ## What this does and does not unlock
 
 **Verified progress:** establishes the exact M4 GPIO input condition that chooses between two real shared-memory sentinel writes, plus the corresponding observed A7 branch around the diagnostic handler. The earlier claim that simply setting `0xFFFFFFFF` constitutes startup success is **not** supported. Both branches converge on subsequent A7 execution leading to the `0x60179A7C` holding loop in this bounded experiment.
