@@ -15,6 +15,7 @@
 #include "exesx-imx7ulp-tpm.inc"
 #include "exesx-imx7ulp-pmc.inc"
 #include "exesx-imx7ulp-port.inc"
+#include "exesx-imx7ulp-lpit.inc"
 
 static bool exesx_imx7ulp_kind(const char *kind)
 {
@@ -30,6 +31,7 @@ static bool exesx_imx7ulp_kind(const char *kind)
            g_strcmp0(kind, "imx7ulp-pmc1") == 0 ||
            g_strcmp0(kind, "imx7ulp-pmc0") == 0 ||
            g_strcmp0(kind, "imx7ulp-port") == 0 ||
+           g_strcmp0(kind, "imx7ulp-lpit") == 0 ||
            g_strcmp0(kind, "imx7ulp-wdog") == 0 ||
            g_strcmp0(kind, "imx7ulp-tstmr") == 0;
 }
@@ -118,6 +120,9 @@ static MemTxResult exesx_imx7ulp_read(EXeSXProfileWindow *w,
     uint32_t index = off / 4;
     if (size != 4 || (off & 3) || off >= w->size) {
         return MEMTX_ERROR;
+    }
+    if (!strcmp(w->kind, "imx7ulp-lpit")) {
+        return exesx_lpit_read(w, off, value, size);
     }
     if (!strcmp(w->kind, "imx7ulp-port")) {
         return exesx_port_read(w, off, value, size);
@@ -238,6 +243,9 @@ static MemTxResult exesx_imx7ulp_write(EXeSXProfileWindow *w,
     uint32_t bits = (uint32_t)value;
     if (size != 4 || (off & 3) || off >= w->size) {
         return MEMTX_ERROR;
+    }
+    if (!strcmp(w->kind, "imx7ulp-lpit")) {
+        return exesx_lpit_write(w, off, value, size);
     }
     if (!strcmp(w->kind, "imx7ulp-port")) {
         return exesx_port_write(w, off, value, size);
