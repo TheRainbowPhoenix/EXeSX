@@ -205,7 +205,8 @@ static MemTxResult exesx_lpi2c_write(EXeSXProfileWindow *w, hwaddr off,
             w->regfile[0x1c4 / 4] = (bits & 0xff) + 1;
             w->regfile[0x1c8 / 4] = 0;
             qemu_log_mask(LOG_GUEST_ERROR,
-                          "EXeSX DIAGNOSTIC I2C4B RX_REQUEST count=%u\\n",
+                          "EXeSX DIAGNOSTIC %s RX_REQUEST count=%u\\n",
+                          w->regfile[0x1c0 / 4] == 0x81 ? "I2C40" : "I2C4B",
                           (unsigned)((bits & 0xff) + 1));
         } else if (cmd == 0 &&
                    (exesx_lpi2c_probe_reply(w) ||
