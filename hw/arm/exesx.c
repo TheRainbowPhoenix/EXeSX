@@ -167,9 +167,9 @@ static const MemoryRegionOps exesx_reg_ops = {
     .read_with_attrs = exesx_reg_read,
     .write_with_attrs = exesx_reg_write,
     .endianness = DEVICE_LITTLE_ENDIAN,
-    .valid.min_access_size = 4,
+    .valid.min_access_size = 1,
     .valid.max_access_size = 4,
-    .impl.min_access_size = 4,
+    .impl.min_access_size = 1,
     .impl.max_access_size = 4,
 };
 
