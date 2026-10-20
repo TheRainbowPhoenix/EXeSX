@@ -31,7 +31,6 @@ typedef struct EXeSXState {
     uint64_t cp15_dacr_s_saved;
     uint64_t cp15_ttbr1_s_saved;
     MemoryRegion firmware, vectors, sram, ipc, provisional_writable;
-    MemoryRegion gic_dist_low, gic_cpu_low;
 } EXeSXState;
 
 
@@ -310,6 +309,16 @@ static void exesx_init(MachineState *ms)
         exit(1);
     }
     object_property_add_child(OBJECT(ms), "cortex-a7", a7);
+    /*
+     * Cortex-A7 CBAR/PERIPHBASE identifies the cluster private peripheral
+     * region. The Casio BIOS reads CBAR using MRC p15,4,...,c15,c0,0
+     * and derives GICD=CBAR+0x1000 and GICC=CBAR+0x2000.
+     * i.MX7ULP Linux DTS gives 0x40021000/0x40022000, hence 0x40020000.
+     * Leaving QEMU's reset-cbar at zero sends the BIOS to ROM VA 0x2000
+     * after the MMU maps that VA to 0x60002000; a physical 0x2000
+     * alias does not fix the virtual address.
+     */
+    object_property_set_int(a7, "reset-cbar", 0x40020000, &error_fatal);
     qdev_realize(DEVICE(a7), NULL, &error_fatal);
     s->a7cpu = ARM_CPU(a7);
     if (vmstate_register(NULL, 0, &exesx_cp15_vmstate, s)) {
@@ -345,14 +354,8 @@ static void exesx_init(MachineState *ms)
     exesx_load_profile(mem);
 
     /*
-     * i.MX7ULP real Cortex-A7 GICv2: distributor 0x40021000,
-     * CPU interface 0x40022000 (NXP imx7ulp.dtsi).
-     *
-     * BIOS accesses the GIC as low 0x1000/0x2000 regions during early
-     * initialization; previously our provisional vector alias exposed
-     * the firmware bytes there, causing a permanent GICC_IAR poll.
-     * Overlay exactly those 4K pages with aliases of the SAME real
-     * GIC. Keep exception vectors at 0x00000000 intact.
+     * Real QEMU GICv2: A7 secure distributor/CPU interface plus IRQ/FIQ.
+     * The CBAR-derived physical addresses are defined in imx7ulp.dtsi.
      */
     {
         DeviceState *gic = qdev_new(TYPE_ARM_GIC);
@@ -369,18 +372,6 @@ static void exesx_init(MachineState *ms)
                            qdev_get_gpio_in(DEVICE(a7), ARM_CPU_IRQ));
         sysbus_connect_irq(gicsbd, 1,
                            qdev_get_gpio_in(DEVICE(a7), ARM_CPU_FIQ));
-        memory_region_init_alias(&s->gic_dist_low, NULL,
-                                 "exesx.gic_dist_low",
-                                 sysbus_mmio_get_region(gicsbd, 0), 0,
-                                 0x1000);
-        memory_region_init_alias(&s->gic_cpu_low, NULL,
-                                 "exesx.gic_cpu_low",
-                                 sysbus_mmio_get_region(gicsbd, 1), 0,
-                                 0x1000);
-        memory_region_add_subregion_overlap(mem, 0x1000,
-                                            &s->gic_dist_low, 1);
-        memory_region_add_subregion_overlap(mem, 0x2000,
-                                            &s->gic_cpu_low, 1);
     }
 
     /* Independent M-profile CPU and NVIC, powered off pending IPC model. */
