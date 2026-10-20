@@ -74,6 +74,33 @@ def probe_elf():
     store(1,0)
     ldr(2,0)
     store(2,7,44)     # 0x0000abcd
+    # SCG1: FIRC is valid when enabled at direct BIOS entry.
+    literal(0,0x403e0000)
+    ldr(2,0,0x300)
+    store(2,7,48)     # FIRC CSR = EN|VALID
+    # SPLL enable -> VALID (bit24) status; disable -> no VALID.
+    literal(1,0)
+    store(1,0,0x600)
+    ldr(2,0,0x600)
+    store(2,7,52)     # 0
+    literal(1,1)
+    store(1,0,0x600)
+    ldr(2,0,0x600)
+    store(2,7,56)     # 0x01000001
+    # SPLLPFD0 fractional divider 29: ungated => VALID bit6.
+    literal(1,0x1d)
+    store(1,0,0x60c)
+    ldr(2,0,0x60c)
+    store(2,7,60)     # 0x5d
+    # Gate it: VALID bit clears; read-only status cannot be forced.
+    literal(1,0x9d)
+    store(1,0,0x60c)
+    ldr(2,0,0x60c)
+    store(2,7,64)     # 0x9d
+    literal(1,0x40)
+    store(1,0,0x60c)
+    ldr(2,0,0x60c)
+    store(2,7,68)     # 0
     ins(0xeafffffe)   # final infinite loop
     for n,reg,value in literals:
         pos=len(op)*4
@@ -110,23 +137,23 @@ def main():
                           text=True)
     try:
         time.sleep(0.65)
-        commands=''.join(f'xp /1wx 0x{OUT+i*4:08x}\n' for i in range(12))+'quit\n'
+        commands=''.join(f'xp /1wx 0x{OUT+i*4:08x}\n' for i in range(18))+'quit\n'
         output,_=proc.communicate(commands,timeout=12)
     finally:
         if proc.poll() is None:
             proc.kill();proc.wait()
     values=[]
-    for i in range(12):
+    for i in range(18):
         match=re.search(r'(?im)^0*'+f'{OUT+i*4:08x}'+
                         r':\s+0x([0-9a-f]+)',output)
         if not match:
             raise AssertionError(f'Missing guest result {i}: {output[-1200:]}')
         values.append(int(match.group(1),16))
     expected=[0x10,0,0x10,0xc0000000,0xc0000000,0x20100]
-    expected += [0x2000,0,0x6000,0xabcd]
+    expected += [0x2000,0,0x6000,0xabcd,0x01000001,0,0x01000001,0x5d,0x9d,0]
     if values[:6]+values[8:]!=expected:
         raise AssertionError(f'Guest outputs: {[hex(v) for v in values]}')
-    print('PASS: ARM guest PCC0/PCC2, GPIO, PCTLA, TSTMRB, SIM DGO request/ACK/W1C')
+    print('PASS: ARM guest PCC0/PCC2, GPIO, PCTLA, TSTMRB, SIM DGO ACK/W1C, SCG1 oscillator and PLL PFD status')
     print('Guest results:',*[hex(v) for v in values])
 
 if __name__=='__main__':
