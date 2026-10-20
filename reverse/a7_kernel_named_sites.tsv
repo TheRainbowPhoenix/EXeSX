@@ -1,0 +1,24 @@
+address	name	kind	confidence	evidence
+0x6017a11c	A7_Kernel_InitializeFromConfig	function	high	Live kernel config caller; loads then copies optional hook fields
+0x601797a8	A7_Kernel_ScheduleNextReadyTask	function	high	Live scheduler trace searches ready tasks
+0x60179d20	A7_Kernel_SearchReadyQueues	function	high	Ready queue traversal observed after semaphore waits
+0x601e1a08	A7_Kernel_WaitSemaphore_Impl	function	high	Live wai_sem(31) kernel service r0=31
+0x601e17d8	A7_Kernel_SignalSemaphore_Impl	function	high	Live sig_sem(31) releases count
+0x60178be4	A7_Syscall_WaitSemaphore_Wrapper	function	high	Callsite wrapper reaches kernel wait service
+0x60178b9c	A7_Syscall_SignalSemaphore_Wrapper	function	high	Callsite wrapper reaches kernel signal service
+0x60037da8	A7_MainTask_Entry	function	high	Firmware names MainTask; TCB 0x621e88c8
+0x6004a0b4	A7_MainTask_BootStartup	function	high	Observed entry after MainTask starts
+0x60179a68	A7_IdleTask_CheckOptionalHook	site	high	Checks [r4+0x8c] and skips null callback
+0x60179a7c	A7_IdleTask_EmptyQueueLoop	site	high	Idle loop observed after scheduler no-ready-task state
+0x6017a560	A7_Kernel_OptionalHook_CopySource	site	high	Loads configuration +0x40 for idle callback
+0x6017a564	A7_Kernel_OptionalHook_CopyDestination	site	high	Stores configuration hook to state +0x8c
+0x600495f0	A7_KernelConfig_SetIdleHookNull	site	high	Caller explicitly writes zero to config +0x40
+0x600069ec	A7_MainTask_WaitSem31_Initial	site	high	Confirmed wai_sem(31) callsite
+0x60006a08	A7_MainTask_SignalSem31	site	high	Confirmed sig_sem(31) callsite
+0x60006a2c	A7_MainTask_WaitSem31_Again	site	high	Confirmed second wai_sem(31) callsite
+0x601e19cc	A7_Kernel_SemaphoreCount_Decrement	site	high	13 successful observed writes to semaphore 31 count
+0x601e17a4	A7_Kernel_SemaphoreCount_Increment	site	high	13 successful observed writes to semaphore 31 count
+0x601786bc	A7_M4Handshake_ReadSharedWord	site	high	A7 polls IPC 0x2f028000
+0x601786d4	A7_M4Handshake_CompareErrorMarker	site	high	Branches differently for 0xeeeeeeee vs 0xffffffff
+0x601786d8	A7_M4Handshake_DiagnosticBranch	site	high	0xeeeeeeee case from snapshot-differential
+0x601786e0	A7_M4Handshake_NonDiagnosticBranch	site	high	0xffffffff case from snapshot-differential
