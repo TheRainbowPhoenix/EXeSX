@@ -431,6 +431,8 @@ static void exesx_init(MachineState *ms)
     qdev_prop_set_string(m4dev, "cpu-type", ARM_CPU_TYPE_NAME("cortex-m4"));
     qdev_prop_set_uint32(m4dev, "num-irq", 128);
     qdev_prop_set_uint32(m4dev, "init-svtor", 0x1ffd0000);
+    /* ARMv7-M without TrustZone resets through M_REG_NS vector base. */
+    qdev_prop_set_uint32(m4dev, "init-nsvtor", 0x1ffd0000);
     object_property_set_bool(OBJECT(&s->m4), "start-powered-off", true,
                              &error_fatal);
     object_property_set_link(OBJECT(&s->m4), "memory", OBJECT(mem),
