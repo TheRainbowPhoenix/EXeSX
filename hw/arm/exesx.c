@@ -6,6 +6,8 @@
 #include "hw/boards.h"
 #include "hw/arm/armv7m.h"
 #include "hw/arm/boot.h"
+#include "hw/intc/arm_gic.h"
+#include "hw/sysbus.h"
 #include "hw/qdev-clock.h"
 #include "hw/clock.h"
 #include "hw/qdev-properties.h"
@@ -29,6 +31,7 @@ typedef struct EXeSXState {
     uint64_t cp15_dacr_s_saved;
     uint64_t cp15_ttbr1_s_saved;
     MemoryRegion firmware, vectors, sram, ipc, provisional_writable;
+    MemoryRegion gic_dist_low, gic_cpu_low;
 } EXeSXState;
 
 
@@ -340,6 +343,45 @@ static void exesx_init(MachineState *ms)
     memory_region_add_subregion(mem, 0x2f000000, &s->ipc);
     memory_region_add_subregion(mem, 0x62000000, ms->ram);
     exesx_load_profile(mem);
+
+    /*
+     * i.MX7ULP real Cortex-A7 GICv2: distributor 0x40021000,
+     * CPU interface 0x40022000 (NXP imx7ulp.dtsi).
+     *
+     * BIOS accesses the GIC as low 0x1000/0x2000 regions during early
+     * initialization; previously our provisional vector alias exposed
+     * the firmware bytes there, causing a permanent GICC_IAR poll.
+     * Overlay exactly those 4K pages with aliases of the SAME real
+     * GIC. Keep exception vectors at 0x00000000 intact.
+     */
+    {
+        DeviceState *gic = qdev_new(TYPE_ARM_GIC);
+        SysBusDevice *gicsbd = SYS_BUS_DEVICE(gic);
+
+        qdev_prop_set_uint32(gic, "num-cpu", 1);
+        qdev_prop_set_uint32(gic, "num-irq", 160);
+        qdev_prop_set_uint32(gic, "revision", 2);
+        qdev_prop_set_bit(gic, "has-security-extensions", true);
+        sysbus_realize_and_unref(gicsbd, &error_fatal);
+        sysbus_mmio_map(gicsbd, 0, 0x40021000);
+        sysbus_mmio_map(gicsbd, 1, 0x40022000);
+        sysbus_connect_irq(gicsbd, 0,
+                           qdev_get_gpio_in(DEVICE(a7), ARM_CPU_IRQ));
+        sysbus_connect_irq(gicsbd, 1,
+                           qdev_get_gpio_in(DEVICE(a7), ARM_CPU_FIQ));
+        memory_region_init_alias(&s->gic_dist_low, NULL,
+                                 "exesx.gic_dist_low",
+                                 sysbus_mmio_get_region(gicsbd, 0), 0,
+                                 0x1000);
+        memory_region_init_alias(&s->gic_cpu_low, NULL,
+                                 "exesx.gic_cpu_low",
+                                 sysbus_mmio_get_region(gicsbd, 1), 0,
+                                 0x1000);
+        memory_region_add_subregion_overlap(mem, 0x1000,
+                                            &s->gic_dist_low, 1);
+        memory_region_add_subregion_overlap(mem, 0x2000,
+                                            &s->gic_cpu_low, 1);
+    }
 
     /* Independent M-profile CPU and NVIC, powered off pending IPC model. */
     s->m4cpuclk = clock_new(OBJECT(ms), "m4cpuclk");
