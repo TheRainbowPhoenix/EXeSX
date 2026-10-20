@@ -120,6 +120,12 @@ def probe_elf():
     store(1,0,0x14)
     ldr(2,0,0x14)
     store(2,7,80)
+    # PMC0 has a different layout: M4-domain VLPS at offset +0x18.
+    literal(0,0x410a1000)
+    literal(1,0x10000000)
+    store(1,0,0x18)
+    ldr(2,0,0x18)
+    store(2,7,84)
     ins(0xeafffffe)   # final infinite loop
     for n,reg,value in literals:
         pos=len(op)*4
@@ -156,23 +162,23 @@ def main():
                           text=True)
     try:
         time.sleep(0.65)
-        commands=''.join(f'xp /1wx 0x{OUT+i*4:08x}\n' for i in range(21))+'quit\n'
+        commands=''.join(f'xp /1wx 0x{OUT+i*4:08x}\n' for i in range(22))+'quit\n'
         output,_=proc.communicate(commands,timeout=12)
     finally:
         if proc.poll() is None:
             proc.kill();proc.wait()
     values=[]
-    for i in range(21):
+    for i in range(22):
         match=re.search(r'(?im)^0*'+f'{OUT+i*4:08x}'+
                         r':\s+0x([0-9a-f]+)',output)
         if not match:
             raise AssertionError(f'Missing guest result {i}: {output[-1200:]}')
         values.append(int(match.group(1),16))
     expected=[0x10,0,0x10,0xc0000000,0xc0000000,0x20100]
-    expected += [0x2000,0,0x6000,0xabcd,0x01000001,0,0x01000001,0x5d,0x9d,0,8,0xffffffff,0x40000]
+    expected += [0x2000,0,0x6000,0xabcd,0x01000001,0,0x01000001,0x5d,0x9d,0,8,0xffffffff,0x40000,0x10000000]
     if values[:6]+values[8:]!=expected:
         raise AssertionError(f'Guest outputs: {[hex(v) for v in values]}')
-    print('PASS: ARM guest PCC0/PCC2, GPIO, PCTLA, TSTMRB, SIM DGO ACK/W1C, SCG1 oscillator/PLL PFD and TPM6 control/modulo and PMC1 VLPS')
+    print('PASS: ARM guest PCC0/PCC2, GPIO, PCTLA, TSTMRB, SIM DGO ACK/W1C, SCG1 oscillator/PLL PFD and TPM6 control/modulo and PMC1/PMC0 VLPS')
     print('Guest results:',*[hex(v) for v in values])
 
 if __name__=='__main__':
