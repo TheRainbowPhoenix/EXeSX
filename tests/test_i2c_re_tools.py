@@ -26,9 +26,8 @@ class I2CReToolsTests(unittest.TestCase):
         self.assertEqual(txs[2]["read_requests"], [9])
 
     def test_nack_does_not_imply_ack(self):
-        result = decode(log(0x496) +
-                        "EXeSX LPI2C @0x41035000 address=0x96: NACK\n" +
-                        log(0x14))
+        result = decode("EXeSX LPI2C @0x41035000 address=0x96: NACK\n" +
+                        log(0x496, 0x14))
         tx = result["buses"]["0x41035000"]["transactions"][0]
         self.assertTrue(tx["nack_logged"])
         self.assertFalse(tx["diagnostic_ack_logged"])

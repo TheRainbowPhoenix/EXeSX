@@ -39,6 +39,31 @@ static const char *exesx_lpi2c_probe_reply(EXeSXProfileWindow *w)
     return hex;
 }
 
+/* Diagnostic-only 8-bit register echo; do not confuse with a real chip.
+ * Preserve all registers in the existing serialized QEMU regfile.
+ */
+static bool exesx_lpi2c_register_mirror(EXeSXProfileWindow *w)
+{
+    const char *v = g_getenv("EXESX_I2C4B_REGISTER_MIRROR");
+    return w->base == 0x41035000 && v && !strcmp(v, "1") &&
+           !exesx_lpi2c_probe_reply(w);
+}
+
+/* Separate diagnostic hypothesis at I2C 0x40. This is NOT a chip model. */
+static bool exesx_lpi2c_register_mirror40(EXeSXProfileWindow *w)
+{
+    const char *v = g_getenv("EXESX_I2C40_REGISTER_MIRROR");
+    return w->base == 0x41035000 && v && !strcmp(v, "1");
+}
+
+/* State for the currently ACKed slave, kept in VMState-backed regfile. */
+static bool exesx_lpi2c_active_mirror(EXeSXProfileWindow *w)
+{
+    unsigned addr = w->regfile[0x1c0 / 4] & 0xfe;
+    return (addr == 0x96 && exesx_lpi2c_register_mirror(w)) ||
+           (addr == 0x80 && exesx_lpi2c_register_mirror40(w));
+}
+
 static bool exesx_lpi2c_valid_base(uint64_t base)
 {
     return base == 0x41033000 || base == 0x41034000 ||
@@ -77,17 +102,29 @@ static MemTxResult exesx_lpi2c_read(EXeSXProfileWindow *w, hwaddr off,
     case 0x14: /* MSR: TDF/RDF plus sticky errors */
         *value = w->regfile[0x14 / 4] |
                  ((w->regfile[0x10 / 4] & 1) ? 1U : 0U) |
-                 ((w->regfile[0x1c4 / 4] && exesx_lpi2c_probe_reply(w))
+                 ((w->regfile[0x1c4 / 4] && (exesx_lpi2c_probe_reply(w) || exesx_lpi2c_active_mirror(w)))
                   ? 2U : 0U);
         return MEMTX_OK;
     case 0x5c: /* MFSR RXCOUNT [18:16] */
         *value = (w->regfile[0x1c4 / 4] &&
-                  exesx_lpi2c_probe_reply(w)) ? (1U << 16) : 0;
+                  (exesx_lpi2c_probe_reply(w) || exesx_lpi2c_active_mirror(w))) ? (1U << 16) : 0;
         return MEMTX_OK;
     case 0x70: { /* MRDR; RXEMPTY if no byte pending */
         const char *hex = exesx_lpi2c_probe_reply(w);
         uint32_t remaining = w->regfile[0x1c4 / 4];
-        if (hex && remaining) {
+        if (exesx_lpi2c_active_mirror(w) && remaining) {
+            unsigned ptr = w->regfile[0x1d8 / 4] & 0xff;
+            unsigned addr = w->regfile[0x1c0 / 4] & 0xfe;
+            unsigned bank = addr == 0x80 ? 0x2000 / 4 : 0x1000 / 4;
+            *value = w->regfile[bank + ptr] & 0xff;
+            w->regfile[0x1d8 / 4] = (ptr + 1) & 0xff;
+            w->regfile[0x1c4 / 4] = remaining - 1;
+            qemu_log_mask(LOG_GUEST_ERROR,
+                          "EXeSX DIAGNOSTIC %s MIRROR READ"
+                          " reg=0x%02x byte=0x%02x remaining=%u\n",
+                          addr == 0x80 ? "I2C40" : "I2C4B",
+                          ptr, (unsigned)*value, remaining - 1);
+        } else if (hex && remaining) {
             size_t len = strlen(hex) / 2;
             uint32_t cursor = w->regfile[0x1c8 / 4]++;
             size_t pos = (cursor % len) * 2;
@@ -137,16 +174,21 @@ static MemTxResult exesx_lpi2c_write(EXeSXProfileWindow *w, hwaddr off,
         if (cmd == 4 || cmd == 5) {
             const char *probe = exesx_lpi2c_probe_reply(w);
             unsigned address_byte = bits & 0xff;
-            if (probe && (address_byte == 0x96 || address_byte == 0x97)) {
+            bool accept4b = (probe || exesx_lpi2c_register_mirror(w)) &&
+                            (address_byte == 0x96 || address_byte == 0x97);
+            bool accept40 = exesx_lpi2c_register_mirror40(w) &&
+                            (address_byte == 0x80 || address_byte == 0x81);
+            if (accept4b || accept40) {
                 w->regfile[0x1c0 / 4] = address_byte; /* active */
                 w->regfile[0x1c4 / 4] = 0; /* pending RX */
                 w->regfile[0x1c8 / 4] = 0; /* read cursor */
-                if (address_byte == 0x96) {
+                if (!(address_byte & 1)) {
                     w->regfile[0x1cc / 4] = 0; /* pointer byte index */
                 }
                 qemu_log_mask(LOG_GUEST_ERROR,
-                              "EXeSX DIAGNOSTIC I2C4B ACK @0x%"
+                              "EXeSX DIAGNOSTIC %s ACK @0x%"
                               HWADDR_PRIx " rw=%s (not chip-validated)\\n",
+                              accept40 ? "I2C40" : "I2C4B",
                               w->base, (address_byte & 1) ? "read" : "write");
             } else {
                 w->regfile[0x14 / 4] |= 0x400; /* NDF, no slave */
@@ -155,17 +197,39 @@ static MemTxResult exesx_lpi2c_write(EXeSXProfileWindow *w, hwaddr off,
                               " address=0x%02x: NACK (no slave attached)\\n",
                               w->base, address_byte);
             }
-        } else if (cmd == 1 && exesx_lpi2c_probe_reply(w) &&
-                   w->regfile[0x1c0 / 4] == 0x97) {
+        } else if (cmd == 1 &&
+                   (exesx_lpi2c_probe_reply(w) ||
+                    exesx_lpi2c_active_mirror(w)) &&
+                   (w->regfile[0x1c0 / 4] == 0x97 ||
+                    w->regfile[0x1c0 / 4] == 0x81)) {
             w->regfile[0x1c4 / 4] = (bits & 0xff) + 1;
             w->regfile[0x1c8 / 4] = 0;
             qemu_log_mask(LOG_GUEST_ERROR,
-                          "EXeSX DIAGNOSTIC I2C4B RX_REQUEST count=%u\\n",
+                          "EXeSX DIAGNOSTIC %s RX_REQUEST count=%u\\n",
+                          w->regfile[0x1c0 / 4] == 0x81 ? "I2C40" : "I2C4B",
                           (unsigned)((bits & 0xff) + 1));
-        } else if (cmd == 0 && exesx_lpi2c_probe_reply(w) &&
-                   w->regfile[0x1c0 / 4] == 0x96) {
+        } else if (cmd == 0 &&
+                   (exesx_lpi2c_probe_reply(w) ||
+                    exesx_lpi2c_active_mirror(w)) &&
+                   (w->regfile[0x1c0 / 4] == 0x96 ||
+                    w->regfile[0x1c0 / 4] == 0x80)) {
             unsigned index = w->regfile[0x1cc / 4]++;
-            if (index < 2) {
+            if (exesx_lpi2c_active_mirror(w)) {
+                if (index == 0) {
+                    w->regfile[0x1d8 / 4] = bits & 0xff;
+                } else {
+                    unsigned reg = w->regfile[0x1d8 / 4] & 0xff;
+                    unsigned address = w->regfile[0x1c0 / 4] & 0xfe;
+                    unsigned bank = address == 0x80 ? 0x2000 / 4 : 0x1000 / 4;
+                    w->regfile[bank + reg] = bits & 0xff;
+                    w->regfile[0x1d8 / 4] = (reg + 1) & 0xff;
+                    qemu_log_mask(LOG_GUEST_ERROR,
+                                  "EXeSX DIAGNOSTIC %s MIRROR WRITE"
+                                  " reg=0x%02x byte=0x%02x\n",
+                                  address == 0x80 ? "I2C40" : "I2C4B",
+                                  reg, bits & 0xff);
+                }
+            } else if (index < 2) {
                 w->regfile[(0x1d0 + 4*index) / 4] = bits & 0xff;
                 if (index == 1) {
                     unsigned ptr = w->regfile[0x1d0 / 4] |
