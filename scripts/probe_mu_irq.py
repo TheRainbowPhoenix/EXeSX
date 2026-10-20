@@ -19,12 +19,23 @@ HANDLER = 0x1FFED180
 MUA, MUB = 0x41022000, 0x40220000
 
 
+def channel_list(nibble: int) -> list[int]:
+    """NXP MU v1: channel 0 is MSB (0x8), channel 3 is LSB (0x1)."""
+    return [ch for ch in range(4) if nibble & (1 << (3 - ch))]
+
+
 def decode(sr: int, cr: int) -> dict:
     te, rf, gp = (sr >> 20) & 15, (sr >> 24) & 15, (sr >> 28) & 15
     ti, ri, gi = (cr >> 20) & 15, (cr >> 24) & 15, (cr >> 28) & 15
     return {"sr":f"0x{sr:08x}","cr":f"0x{cr:08x}","te":te,"rf":rf,
             "gip":gp,"tien":ti,"rien":ri,"gien":gi,
-            "irq_sources":{"tx_empty":te&ti,"rx_full":rf&ri,"general":gp&gi}}
+            "rx_full_channels":channel_list(rf),
+            "rx_interrupt_enabled_channels":channel_list(ri),
+            "tx_empty_channels":channel_list(te),
+            "irq_sources":{"tx_empty":te&ti,"rx_full":rf&ri,"general":gp&gi},
+            "irq_source_channels":{"tx_empty":channel_list(te&ti),
+                                   "rx_full":channel_list(rf&ri),
+                                   "general":channel_list(gp&gi)}}
 
 
 def nonconsuming_state(rsp: RSP) -> dict:
@@ -140,7 +151,7 @@ def main():
         mua=row["MUA_M4"]
         print(f"IRQ#{row['entry']}: SR={mua['sr']} CR={mua['cr']} "
               f"RF={mua['rf']:#x} RIE={mua['rien']:#x} GIP={mua['gip']:#x} "
-              f"pending={mua['irq_sources']}")
+              f"pending={mua['irq_source_channels']}")
     print("Verified snapshot restore; private report:",dest)
 
 
