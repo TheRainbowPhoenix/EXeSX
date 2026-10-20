@@ -26,6 +26,11 @@ tpm_target = qemu / 'hw/arm/exesx-imx7ulp-tpm.inc'
 if tpm_target.exists() and tpm_target.read_bytes() != tpm_module.read_bytes():
     raise SystemExit('Refusing to overwrite changed upstream exesx-imx7ulp-tpm.inc')
 tpm_target.write_bytes(tpm_module.read_bytes())
+pmc_module = root / 'hw/arm/exesx-imx7ulp-pmc.inc'
+pmc_target = qemu / 'hw/arm/exesx-imx7ulp-pmc.inc'
+if pmc_target.exists() and pmc_target.read_bytes() != pmc_module.read_bytes():
+    raise SystemExit('Refusing to overwrite changed upstream exesx-imx7ulp-pmc.inc')
+pmc_target.write_bytes(pmc_module.read_bytes())
 line = "arm_ss.add(when: 'CONFIG_ARM_V7M', if_true: files('exesx.c'))"
 content = meson.read_text()
 if line not in content:
