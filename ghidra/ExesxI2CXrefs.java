@@ -17,11 +17,14 @@ import ghidra.program.model.symbol.SourceType;
 
 public class ExesxI2CXrefs extends GhidraScript {
     private final long[] functions = {
+        0x1ffd2e50L, 0x1ffd3270L, 0x1ffd5712L,
         0x1ffd6c48L, 0x1ffd6cb6L, 0x1ffd6cf8L, 0x1ffd6d52L,
         0x1ffd6da0L, 0x1ffd6e28L, 0x1ffd6f4cL, 0x1ffd6f7eL,
         0x1ffd6fa6L, 0x1ffd6fd8L
     };
     private final String[] names = {
+        "M4_Kernel_DispatchRegisteredIRQCallbacks",
+        "M4_Kernel_CommonInterruptDispatch", "M4_MU_ReceiveAndGIP_IRQHandler",
         "M4_LPI2C_ClearState", "M4_LPI2C_CheckErrors",
         "M4_LPI2C_SendStart", "M4_LPI2C_WaitComplete",
         "M4_LPI2C_TransmitBytes", "M4_LPI2C_ReceiveBytes",
@@ -95,7 +98,7 @@ public class ExesxI2CXrefs extends GhidraScript {
         if (thumb != null) {
             try {
                 currentProgram.getProgramContext().setValue(
-                    thumb, at(0x1ffd6c48L), at(0x1ffd75ffL), BigInteger.ONE);
+                    thumb, at(0x1ffd2e50L), at(0x1ffd75ffL), BigInteger.ONE);
             } catch (Exception e) {
                 println("Existing instruction context prevented TMode override: " + e);
             }
