@@ -1,10 +1,27 @@
 /*
- * TPM6/TPM7: early-boot Timer/PWM counter and control registers.
+ * TPM0..TPM7: early-boot Timer/PWM counter and control registers.
  * NXP MCIMX7U5 PERI_TPM.h and fsl_clock.h (TPM6 @0x40a10000).
  * Experimental clock period: QEMU virtual microseconds, not board-calibrated.
  * Internal epoch is kept in spare regfile indexes >0x100 and serialized with
  * all other board registers for snapshot rollback. No IRQ output yet.
  */
+/* All eight TPM instances from NXP MCIMX7U5_cm4_COMMON.h. */
+static bool exesx_tpm_base(uint64_t base)
+{
+    switch (base) {
+    case 0x41030000: /* TPM0 */
+    case 0x41031000: /* TPM1 */
+    case 0x410a8000: /* TPM2 */
+    case 0x410a9000: /* TPM3 */
+    case 0x40250000: /* TPM4 */
+    case 0x40260000: /* TPM5 */
+    case 0x40a10000: /* TPM6 */
+    case 0x40a20000: /* TPM7 */
+        return true;
+    default:
+        return false;
+    }
+}
 static bool exesx_tpm_offset(hwaddr off)
 {
     return off == 0 || off == 4 || off == 8 ||
@@ -42,7 +59,7 @@ static MemTxResult exesx_tpm_read(EXeSXProfileWindow *w, hwaddr off,
                                   uint64_t *value, unsigned size)
 {
     if (size != 4 || !exesx_tpm_offset(off) || off >= w->size ||
-        (w->base != 0x40a10000 && w->base != 0x40a20000)) {
+        !exesx_tpm_base(w->base)) {
         return MEMTX_ERROR;
     }
     if (off == 0x14) {
