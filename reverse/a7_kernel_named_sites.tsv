@@ -22,3 +22,6 @@ address	name	kind	confidence	evidence
 0x601786d4	A7_M4Handshake_CompareErrorMarker	site	high	Branches differently for 0xeeeeeeee vs 0xffffffff
 0x601786d8	A7_M4Handshake_DiagnosticBranch	site	high	0xeeeeeeee case from snapshot-differential
 0x601786e0	A7_M4Handshake_NonDiagnosticBranch	site	high	0xffffffff case from snapshot-differential
+0x60177dfc	A7_MU_TransmitDescriptor	function	high	Live MUB TR0 write from descriptor-selected channel with payload r4
+0x60177ec0	A7_MU_WriteTRnSelectedChannel	site	high	Real write watchpoint 0x40220020, A7 r4=6 r6=0
+0x60177dcc	A7_MU_WriteTRnDirect	site	medium-high	Static ARM STR to 0x40220020 plus channel offset; not separately live-captured
