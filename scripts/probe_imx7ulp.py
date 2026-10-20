@@ -185,6 +185,20 @@ def probe_elf():
     store(1,0,0x300)
     ldr(2,0,0x300)
     store(2,7,140)   # enabled: VLD is restored
+    # LPTMR0 register state after M4 startup. No external input modeled.
+    literal(0,0x4102e000)
+    literal(1,4)
+    store(1,0,4)       # PBYP: internal clock without divider
+    literal(1,0x1000)
+    store(1,0,8)       # compare
+    literal(1,1)
+    store(1,0,0)       # enable
+    ldr(2,0,0)
+    store(2,7,144)     # CSR TEN
+    ldr(2,0,4)
+    store(2,7,148)     # PSR PBYP
+    ldr(2,0,8)
+    store(2,7,152)     # CMR
     ins(0xeafffffe)   # final infinite loop
     for n,reg,value in literals:
         pos=len(op)*4
@@ -221,13 +235,13 @@ def main():
                           text=True)
     try:
         time.sleep(0.65)
-        commands=''.join(f'xp /1wx 0x{OUT+i*4:08x}\n' for i in range(36))+'quit\n'
+        commands=''.join(f'xp /1wx 0x{OUT+i*4:08x}\n' for i in range(39))+'quit\n'
         output,_=proc.communicate(commands,timeout=12)
     finally:
         if proc.poll() is None:
             proc.kill();proc.wait()
     values=[]
-    for i in range(36):
+    for i in range(39):
         match=re.search(r'(?im)^0*'+f'{OUT+i*4:08x}'+
                         r':\s+0x([0-9a-f]+)',output)
         if not match:
@@ -235,9 +249,9 @@ def main():
         values.append(int(match.group(1),16))
     expected=[0x10,0,0x10,0xc0000000,0xc0000000,0x20100]
     expected += [0x2000,0,0x6000,0xabcd,0x01000001,0,0x01000001,0x5d,0x9d,0,8,0xffffffff,0x40000,0x10000000,0x40020000,0x3ff]
-    if values[:6]+values[8:24]!=expected or (values[24] & 0x1f)!=4 or values[25]!=0 or values[26:]!=[0x90000,0x90000,1,0xffff,1,1,0,0x01000001,0,0x01000001]:
+    if values[:6]+values[8:24]!=expected or (values[24] & 0x1f)!=4 or values[25]!=0 or values[26:]!=[0x90000,0x90000,1,0xffff,1,1,0,0x01000001,0,0x01000001,1,4,0x1000]:
         raise AssertionError(f'Guest outputs: {[hex(v) for v in values]}')
-    print('PASS: ARM guest PCC0/PCC2, GPIO, PCTLA, TSTMRB, SIM DGO ACK/W1C, SCG1 oscillator/PLL PFD and TPM6 control/modulo PMC1/PMC0 VLPS and GICv2 CBAR/physical interfaces and PORTF PCR0 and LPIT1 and SEMA42 byte gate ownership and M4 SCG0 FIRC ready status')
+    print('PASS: ARM guest PCC0/PCC2, GPIO, PCTLA, TSTMRB, SIM DGO ACK/W1C, SCG1 oscillator/PLL PFD and TPM6 control/modulo PMC1/PMC0 VLPS and GICv2 CBAR/physical interfaces and PORTF PCR0 and LPIT1 and SEMA42 byte gate ownership and M4 SCG0 FIRC ready status and LPTMR0 counter settings')
     print('Guest results:',*[hex(v) for v in values])
 
 if __name__=='__main__':
