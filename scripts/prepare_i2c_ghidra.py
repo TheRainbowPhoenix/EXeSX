@@ -23,6 +23,9 @@ M4_SOURCE = 0x600ad6a0
 M4_SIZE = 0x14f70
 M4_RESET = 0x1ffe19e4
 FUNCTIONS = {
+    0x1ffd2e50: "M4_Kernel_DispatchRegisteredIRQCallbacks",
+    0x1ffd3270: "M4_Kernel_CommonInterruptDispatch",
+    0x1ffd5712: "M4_MU_ReceiveAndGIP_IRQHandler",
     0x1ffd6c48: "M4_LPI2C_ClearState",
     0x1ffd6cb6: "M4_LPI2C_CheckErrors",
     0x1ffd6cf8: "M4_LPI2C_SendStart",
