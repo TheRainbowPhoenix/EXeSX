@@ -42,7 +42,8 @@ static MemTxResult exesx_mu_read(EXeSXProfileWindow *w, hwaddr off,
     } else if (off == 4) {
         *value = 0x00040404; /* 4 TX and RX registers each */
     } else if (off >= 0x20 && off <= 0x2c) {
-        *value = w->regfile[off / 4];
+        /* NXP MU TRn are write-only; reads return zero. */
+        *value = 0;
     } else if (off >= 0x40 && off <= 0x4c) {
         chan = (off - 0x40) / 4;
         *value = w->regfile[off / 4];
@@ -82,8 +83,17 @@ static MemTxResult exesx_mu_write(EXeSXProfileWindow *w, hwaddr off,
     if (off >= 0x20 && off <= 0x2c) {
         chan = (off - 0x20) / 4;
         if (!(w->regfile[EXESX_MU_TE_INDEX] & (1U << chan))) {
-            /* Hardware cannot accept another word before peer consumes. */
-            return MEMTX_ERROR;
+            /*
+             * TE=0: no room for another message. Do not convert a
+             * non-ready TX write into a synchronous ARM Data Abort.
+             * Drop the unaccepted word and preserve existing mailbox
+             * data; model does not fabricate a peer acknowledgement.
+             */
+            qemu_log_mask(LOG_GUEST_ERROR,
+                          "EXeSX MU busy TR%u at 0x%" HWADDR_PRIx
+                          " ignored data=0x%08x\\n",
+                          chan, w->base + off, bits);
+            return MEMTX_OK;
         }
         w->regfile[off / 4] = bits;
         w->regfile[EXESX_MU_TE_INDEX] &= ~(1U << chan);
