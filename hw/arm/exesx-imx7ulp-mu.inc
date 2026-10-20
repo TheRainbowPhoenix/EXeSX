@@ -27,6 +27,31 @@ static EXeSXProfileWindow *exesx_mu_peer(EXeSXProfileWindow *w)
     return w->base == UINT64_C(0x41022000) ?
         w->board->mu_b : w->board->mu_a;
 }
+/*
+ * Experimental IRQ delivery for NXP MU_A (M4 IRQ22) and MU_B (GIC SPI19).
+ * Enable EXESX_EXPERIMENTAL_MU_IRQ=1. Default keeps historical behavior.
+ * NXP MU.CR TIEn/RIEn/GIEn masks match SR TE/RF/GIP status nibbles.
+ */
+static void exesx_mu_update_irq(EXeSXProfileWindow *w)
+{
+    EXeSXState *board = w->board;
+    qemu_irq line;
+    uint32_t cr, pending;
+    if (!board ||
+        g_strcmp0(g_getenv("EXESX_EXPERIMENTAL_MU_IRQ"), "1")) {
+        return;
+    }
+    line = w->base == 0x41022000 ? board->mu_a_irq : board->mu_b_irq;
+    if (!line) {
+        return;
+    }
+    cr = w->regfile[0x64 / 4];
+    pending = ((cr >> 20) & w->regfile[EXESX_MU_TE_INDEX]) |
+              ((cr >> 24) & w->regfile[EXESX_MU_RF_INDEX]) |
+              ((cr >> 28) & w->regfile[EXESX_MU_GIP_INDEX]);
+    qemu_set_irq(line, (pending & 15) != 0);
+}
+
 static MemTxResult exesx_mu_read(EXeSXProfileWindow *w, hwaddr off,
                                 uint64_t *value, unsigned size)
 {
@@ -51,6 +76,10 @@ static MemTxResult exesx_mu_read(EXeSXProfileWindow *w, hwaddr off,
             w->regfile[EXESX_MU_RF_INDEX] &= ~(1U << chan);
             if (peer) {
                 peer->regfile[EXESX_MU_TE_INDEX] |= 1U << chan;
+            }
+            exesx_mu_update_irq(w);
+            if (peer) {
+                exesx_mu_update_irq(peer);
             }
         }
     } else if (off == 0x60) {
@@ -119,6 +148,10 @@ static MemTxResult exesx_mu_write(EXeSXProfileWindow *w, hwaddr off,
                               ~UINT32_C(0x000f0120);
     } else {
         return MEMTX_ERROR;
+    }
+    exesx_mu_update_irq(w);
+    if (peer) {
+        exesx_mu_update_irq(peer);
     }
     qemu_log_mask(LOG_GUEST_ERROR,
                   "EXeSX MU WRITE @0x%" HWADDR_PRIx
