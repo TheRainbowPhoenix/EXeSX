@@ -35,10 +35,10 @@ The A7 polls this word at `0x601786BC`. Earlier A7 analysis shows the special `0
 
 It converts two input codes, **`0x9C` and `0x90`**, to board input positions with lookup routine `0x1FFD852A`, then calls test routine `0x1FFD8610` on both in a three-iteration loop. The test reads GPIO input states through `0x1FFD8564`. Exact private ROM lookup-table results:
 
-- `0x9C` → 9×8 table row **4**, column **5**; row pin index **15**.
-- `0x90` → table row **7**, column **6**; row pin index **20**.
+- `0x9C` → 9×8 table row **4**, column **5**; the subsequent GPIO table is indexed by the **column** and gives candidate pin index **16**.
+- `0x90` → table row **7**, column **6**; the subsequent GPIO table is indexed by the **column** and gives candidate pin index **17**.
 
-These are **logical firmware input codes/positions**, not validated keyboard legends, wiring or physical chip IDs. Literal `0x1FFD8994` points to GPIO PTA base `0x4100F000`; `0x1FFD8564` polls PDIR at **`0x4100F010`**.
+These are **logical firmware input codes/positions**, not validated keyboard legends, wiring or physical chip IDs. The first byte of the mapped pair is used to index the second GPIO table in `0x1FFD8564`; the second byte selects a logical scan position for `0x1FFD8412`. Even the derived pin indices are NOT independently confirmed physical wiring. The polling function can also change result when masked input states vary across reads; do not assume one constant PDIR bit will unlock startup. Literal `0x1FFD8994` points to GPIO PTA base `0x4100F000`; `0x1FFD8564` polls PDIR at **`0x4100F010`**.
 
 The real QEMU memory plugin registered:
 - 30 successful M4 GPIO PDIR reads at PC `0x1FFD85C6`.
