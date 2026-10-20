@@ -288,6 +288,18 @@ static void exesx_load_profile(MemoryRegion *sysmem, EXeSXState *board)
                 error_report("EXeSX i.MX7ULP model window %s invalid size", group);
                 exit(1);
             }
+            if (g_strcmp0(kind, "imx7ulp-scg0") == 0) {
+                /*
+                 * This emulator enters at the A7 BIOS, bypassing M4 ROM.
+                 * The real M4 expects FIRC CSR.VLD (bit24) already set
+                 * before configuring its SCG0 divider registers.
+                 * Provide enabled oscillator reset state, not an
+                 * unconditional read override. Status tracks CSR.EN.
+                 */
+                w->regfile[0x14 / 4] = 0x03000000; /* RUN: FIRC */
+                w->regfile[0x200 / 4] = 1; /* SIRCEN */
+                w->regfile[0x300 / 4] = 1; /* FIRCEN */
+            }
             if (g_strcmp0(kind, "imx7ulp-scg1") == 0) {
                 /*
                  * This image starts at the BIOS entry, not the silicon ROM.
