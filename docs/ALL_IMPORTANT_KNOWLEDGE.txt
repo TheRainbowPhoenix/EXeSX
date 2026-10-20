@@ -1,0 +1,145 @@
+EXeSX PROJECT HANDOFF — 2026-10-20
+==================================
+
+CORE LINKS
+Repo: https://github.com/TheRainbowPhoenix/EXeSX
+Release: https://github.com/TheRainbowPhoenix/EXeSX/releases/tag/dev-native
+Builds: https://github.com/TheRainbowPhoenix/EXeSX/actions
+Issue: https://github.com/TheRainbowPhoenix/EXeSX/issues/1
+Detailed recent status:
+ https://github.com/TheRainbowPhoenix/EXeSX/blob/main/docs/2026-10-20-m4-i2c-adc-boot.md
+ https://github.com/TheRainbowPhoenix/EXeSX/blob/main/docs/dual-core-lpi2c4b-and-recovery.md
+ https://github.com/TheRainbowPhoenix/EXeSX/blob/main/docs/boot-address-investigation.md
+ https://github.com/TheRainbowPhoenix/EXeSX/blob/main/docs/imx7ulp-online-crossrefs.md
+ https://github.com/TheRainbowPhoenix/EXeSX/blob/main/docs/mmio-snapshot-fuzzing.md
+
+IMPORTANT: NO OS MENU, NO LCD PIXELS, NO TRUE BOOT SCREENSHOT YET.
+The older docs/STATUS.md is stale relative to the 2026-10-20 real
+dual-core execution investigation. Synthetic successes MUST NOT be
+confused with the original Casio BIOS successfully booting a GUI.
+
+SYSTEM
+Casio XD-SX9850, NXP i.MX7ULP, Cortex-A7 + Cortex-M4, IAR Arm firmware,
+eForce µITRON/uC3 RTOS (actual RTOS task scheduling not yet demonstrated).
+Custom QEMU 10.1.0 -machine exesx with real TCG ARM CPUs and physical GICv2.
+Proprietary firmware must NEVER be added to this public repository.
+
+CONFIRMED FIRMWARE-DERIVED ADDRESSES
+A7 BIOS: 0x60000000 size 2447360
+A7 OS: 0x60400000 size 8923136 (not proven to have executed)
+M4 SRAM vector 0x1FFD0000: MSP 0x20001C00, Thumb PC 0x1FFE19E5.
+Shared A7/M4 IPC: 0x2F028000.
+BIOS zero-initialization write at 0x61080000, 0x100000 bytes.
+BIOS zero-initialization write at 0x67100000, 0x2608 bytes.
+Other BIOS aperture 0x67600000 length 0xA00000. RAM backing provisional.
+BIOS low zero-store instruction at PC 0x60254714.
+
+IMPORTANT HARDWARE MAPPINGS / REAL QEMU PROGRESS
+A7 CBAR = 0x40020000; physical GICv2 distributor 0x40021000,
+CPU interface 0x40022000; GICC_IAR returns 0x3FF when idle.
+PCC0 clock gates 0x4102603C (RGPIO2P0), 0x410260FC (PCTLA);
+PCC2 FlexBus 0x403F0040; LCDIF clock gate 0x40B300A8 (not guest LCD).
+GPIO A PSOR 0x4100F004; PDDR 0x4100F014.
+IOMUXC0 0x4103D000; IOMUXC1 0x40AC0000.
+TSTMRB 0x410A3C08; LPIT1 0x40270008; TPM6 0x40A10010.
+WDOG1 0x403D0000; WDOG2 0x40430000.
+SCG1 0x403E0300; SCG0 0x41027300 (FIRCCSR valid bit 24).
+PMC1 VLPS 0x40400014; PMC0 VLPS 0x410A1018.
+SIM0 DGO GP7: entry 0x410A3070; control/update 0x410A3054:
+bit0 UPDATE_DGO_GP7, bit13 WR_ACK_DGO_GP7 (W1C).
+SEMA42_0 gate0 0x4101B003 (byte-wide).
+A7 loads real M4 code to SRAM, writes its reset entry into GP7; opt-in
+QEMU ROM handoff really boots Cortex-M4 Thumb instructions.
+M4 LPI2C2 controller 0x41035000; first ADC0 CTRL 0x41041010.
+ADC1 base 0x410AD000.
+
+CURRENT EXECUTION BLOCKER: EXTERNAL I2C 7-BIT ADDRESS 0x4B
+REAL M4 LPI2C2 MTDR writes (not invented):
+ 0x0496 START to I2C 0x4B WRITE
+ 0x0014 data byte
+ 0x0062 data byte  (possibly 16-bit little-endian pointer 0x6214)
+ 0x0497 repeated START to 0x4B READ
+No modelled physical I2C slave: proper NACK and M4 retries.
+Hypothesis: Microchip/Atmel maXTouch (possible 0x4A/0x4B address,
+little-endian pointer). UNCONFIRMED. Board markings/physical bus capture
+or convincing object-table response required.
+
+Diagnostic opt-in fake I2C replies 00 and FF DO NOT BOOT:
+They advance real M4 firmware through ADC0+ADC1 CTRL writes
+ 0x2, 0x0, 0x100 on both units; previous ADC0 abort is gone.
+But they then produce shared IPC 0xEEEEEEEE and A7 PC 0x60179A7C
+(a literal self-loop). The A7 comparison at 0x601786CC sends this
+value to a diagnostic/error-management branch via 0x6001EE68.
+With NO slave, IPC is 0 and A7 was sampled at 0x601BA02C.
+These are bounded real-QEMU observations, NOT a working menu.
+Source confirmed in commit 3ab9801bfa3d4df7f2298ec5bbdcc364452036bc
+ https://github.com/TheRainbowPhoenix/EXeSX/actions/runs/39442236778
+
+REBUILD FROM PRIVATE USER OSUP.BIN or OSUPD.bin
+Linux x86_64 + Python 3:
+ curl -fL https://raw.githubusercontent.com/TheRainbowPhoenix/EXeSX/main/scripts/recover_exesx.py -o recover_exesx.py
+ python3 recover_exesx.py /path/to/OSUP.BIN --workdir ./exesx-recovered --seconds 2
+Recovery downloads/checksums the firmware-FREE native QEMU release;
+locally validates/extracts the user's ROM into private/a7-firmware.elf;
+runs experimental dual-core QEMU; saves results/latest logs.
+ --mode source builds from source; --mode local --qemu /path/to/qemu
+works with an existing QEMU binary. DO NOT PUBLISH extracted ROM.
+
+RAW FIRMWARE RUN
+ EXESX_EXPERIMENTAL_M4_BOOT=1 python3 scripts/run_firmware.py private/a7-firmware.elf --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini --seconds 2
+Tracked CPU context, IPC, source SHA and I2C test input matter.
+
+MODULAR DEVELOPMENT / TOOLS
+ hw/arm/exesx.c                          QEMU machine
+ hw/arm/exesx-imx7ulp*.inc               small device modules
+ profiles/imx7ulp-early-boot.ini          runtime peripheral/RAM map
+ plugins/memtrace.c                      standalone trace .so
+ scripts/fuzz_mmio.py                    GDB RSP + QMP savevm/loadvm
+ scripts/analyze_lpi2c_trace.py          decode actual MTDR reads/writes
+ scripts/compare_i2c_boot.py             compare no-slave and probe replies
+ scripts/probe_adc.py                    firmware-free ARM ADC behavior test
+ scripts/probe_m4_handoff.py             firmware-free real ARM M4 handoff
+ scripts/integrate_qemu.py               install machine in pinned QEMU
+ scripts/recover_exesx.py                complete recovery workflow
+Secure Cortex-A7 CP15 and experimental MMIO regfile VMState serialization
+were fixed so QEMU snapshot rollback can be validated. Each I2C case must
+start from identical CPU/RAM/IO state. MMIO fuzz is useful for branch
+hypotheses; fake accepted values do not imply true hardware behavior.
+
+PRIMARY HARDWARE REFERENCES
+NXP MCIMX7U5_CM4 bases:
+ https://github.com/nxp-mcuxpresso/mcux-devices-imx/blob/main/i.MX7ULP/MCIMX7U5/MCIMX7U5_cm4_COMMON.h
+NXP register layout headers:
+ https://github.com/nxp-mcuxpresso/mcux-devices-imx/tree/main/i.MX7ULP/periph
+NXP actual LPI2C register definitions:
+ https://github.com/nxp-mcuxpresso/mcux-devices-imx/blob/main/i.MX7ULP/periph/PERI_LPI2C.h
+NXP ADC register definitions:
+ https://github.com/nxp-mcuxpresso/mcux-devices-imx/blob/main/i.MX7ULP/periph/PERI_ADC.h
+NXP SDK clock gates:
+ https://github.com/zephyrproject-rtos/hal_nxp/blob/a8b437ef366ff9a6f9bee3377dc189c4d2623f5b/mcux/mcux-sdk-ng/devices/i.MX/i.MX7ULP/MCIMX7U5/drivers/fsl_clock.h
+NXP U-Boot device tree:
+ https://github.com/nxp-imx/uboot-imx/blob/master/arch/arm/dts/imx7ulp.dtsi
+NXP public IAR reference implementation:
+ https://github.com/nxp-mcuxpresso/mcuxsdk-examples/blob/3151bc057b8924db54c7395d39b213c05ab94dc3/_boards/evkmcimx7ulp/iar/lpm_asm.s
+Linux LPI2C driver:
+ https://github.com/torvalds/linux/blob/master/drivers/i2c/busses/i2c-imx-lpi2c.c
+Microchip maXTouch I2C app note (hypothesis research only):
+ https://ww1.microchip.com/downloads/en/Appnotes/MXTAN0213_Interfacing_with_maXTouch_Touchscreen_Controllers_00002428A.pdf
+Linux Atmel maXTouch driver:
+ https://github.com/torvalds/linux/blob/master/drivers/input/touchscreen/atmel_mxt_ts.c
+
+NEXT ACTIONS
+1. Identify or faithfully simulate external 0x4B slave after observing the
+   firmware's complete read sizes, expected packet/CRC and interrupts;
+   avoid permanent fake 00/FF success replies.
+2. Decode successful IPC response vs 0xEEEEEEEE error marker; verify M4
+   initialization protocol, MU and interrupts.
+3. Prove actual OS 0x60400000 entry and eForce uITRON kernel scheduling.
+4. Model storage, LCDIF guest framebuffer, panel timing and touch; obtain
+   only REAL guest-generated boot/menu screenshots.
+5. Browser/WASM wrapper only after native boot milestones.
+
+DOCUMENTATION CONFIDENCE
+This is a consolidation of previously executed experiments and cited
+technical documentation. It does not claim a new successful boot test.
+Proprietary firmware and RAM snapshots must stay off GitHub.
