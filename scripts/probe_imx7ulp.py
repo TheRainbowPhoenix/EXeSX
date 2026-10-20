@@ -126,6 +126,21 @@ def probe_elf():
     store(1,0,0x18)
     ldr(2,0,0x18)
     store(2,7,84)
+    # ARM GICv2: CPU IAR returns 0x3ff when no pending interrupts.
+    # BIOS early virtual aliases (0x1000/0x2000) must match actual
+    # i.MX7ULP physical GIC registers (0x40021000/0x40022000).
+    literal(0,0x2000)
+    ldr(2,0,0x0c)
+    store(2,7,88)    # low GICC_IAR == 0x3ff
+    literal(0,0x40022000)
+    ldr(2,0,0x0c)
+    store(2,7,92)    # physical GICC_IAR == 0x3ff
+    literal(0,0x1000)
+    ldr(2,0,4)
+    store(2,7,96)    # low distributor TYPER
+    literal(0,0x40021000)
+    ldr(2,0,4)
+    store(2,7,100)   # actual distributor TYPER
     ins(0xeafffffe)   # final infinite loop
     for n,reg,value in literals:
         pos=len(op)*4
@@ -162,23 +177,23 @@ def main():
                           text=True)
     try:
         time.sleep(0.65)
-        commands=''.join(f'xp /1wx 0x{OUT+i*4:08x}\n' for i in range(22))+'quit\n'
+        commands=''.join(f'xp /1wx 0x{OUT+i*4:08x}\n' for i in range(26))+'quit\n'
         output,_=proc.communicate(commands,timeout=12)
     finally:
         if proc.poll() is None:
             proc.kill();proc.wait()
     values=[]
-    for i in range(22):
+    for i in range(26):
         match=re.search(r'(?im)^0*'+f'{OUT+i*4:08x}'+
                         r':\s+0x([0-9a-f]+)',output)
         if not match:
             raise AssertionError(f'Missing guest result {i}: {output[-1200:]}')
         values.append(int(match.group(1),16))
     expected=[0x10,0,0x10,0xc0000000,0xc0000000,0x20100]
-    expected += [0x2000,0,0x6000,0xabcd,0x01000001,0,0x01000001,0x5d,0x9d,0,8,0xffffffff,0x40000,0x10000000]
-    if values[:6]+values[8:]!=expected:
+    expected += [0x2000,0,0x6000,0xabcd,0x01000001,0,0x01000001,0x5d,0x9d,0,8,0xffffffff,0x40000,0x10000000,0x3ff,0x3ff]
+    if values[:6]+values[8:24]!=expected or values[24]!=values[25] or not (values[24] & 0x1f)==4:
         raise AssertionError(f'Guest outputs: {[hex(v) for v in values]}')
-    print('PASS: ARM guest PCC0/PCC2, GPIO, PCTLA, TSTMRB, SIM DGO ACK/W1C, SCG1 oscillator/PLL PFD and TPM6 control/modulo and PMC1/PMC0 VLPS')
+    print('PASS: ARM guest PCC0/PCC2, GPIO, PCTLA, TSTMRB, SIM DGO ACK/W1C, SCG1 oscillator/PLL PFD and TPM6 control/modulo PMC1/PMC0 VLPS and GICv2 physical/low aliases')
     print('Guest results:',*[hex(v) for v in values])
 
 if __name__=='__main__':
