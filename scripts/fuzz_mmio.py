@@ -169,18 +169,28 @@ def check_snapshot(g,pc):
     g.qmp.hmp("savevm before_mmio")
     if "before_mmio" not in g.qmp.hmp("info snapshots"):
         return {"usable":False,"reason":"savevm failed"}
+    # Intentionally mutate a modelled MMIO register after saving. A PC-only
+    # or ROM-only check would fail to detect stale C device state.
+    tamper = (~int.from_bytes(bytes.fromhex(oldmmio), "little")) & 0xffffffff
+    tamper_hex=struct.pack("<I",tamper).hex()
+    write=g.rsp.request("M4102603c,4:"+tamper_hex)
+    observed=g.rsp.request("m4102603c,4")
     g.rsp.setreg(15,pc+4)
     g.qmp.hmp("loadvm before_mmio")
     newpc=g.rsp.reg(15)
     newcode=g.rsp.request("m60049920,4")
     newmmio=g.rsp.request("m4102603c,4")
+    device_test=(write=="OK" and observed==tamper_hex and oldmmio!=tamper_hex)
     ok=(oldpc==newpc and oldcode==newcode and oldmmio==newmmio
-        and not newcode.startswith("E") and not newmmio.startswith("E"))
+        and device_test and not newcode.startswith("E")
+        and not newmmio.startswith("E"))
     return {"usable":ok,"saved_pc":f"0x{oldpc:08x}","restored_pc":f"0x{newpc:08x}",
             "code_before":oldcode,"code_after":newcode,
             "mmio_before":oldmmio,"mmio_after":newmmio,
-            "reason":"guest virtual reads checked" if ok else
-            "loadvm broke ARM secure MMU mapping; fallback to cold replay",
+            "mmio_tamper_observed":observed,
+            "mmio_serialization_verified":device_test and oldmmio==newmmio,
+            "reason":"CPU, guest MMU, RAM and mutable MMIO readback verified" if ok else
+            "loadvm failed CPU/MMU/device state validation; cold replay required",
             "snapshot_bytes":(Path(g.tmp.name)/"snapshot.qcow2").stat().st_size}
 
 def disassemble(elf):
@@ -254,15 +264,11 @@ def main():
         chosen=[x for x in chosen if x[0] in names]
         if len(chosen)!=len(names):p.error("invalid --only name")
     chosen=chosen[:args.limit]
-    # Existing provisional C MMIO registers have no VMState serialization.
-    # Until they do, even a CPU-valid loadvm can leak mutated register values.
-    # Cold replay makes every case truly independent, just slower.
     events=[]
-    for name,value in chosen:
-        with Guest(args,args.out,"case-"+name) as g:
-            g.break_at(pc)
-            original_r0=g.rsp.reg(0)
-            outcome,trace=g.inject_and_trace(pc,value,args.steps)
+    backend="cold_replay_to_breakpoint"
+    def run_case(g,name,value):
+        original_r0=g.rsp.reg(0)
+        outcome,trace=g.inject_and_trace(pc,value,args.steps)
         row={"case":name,"injected_value":f"0x{value:08x}",
              "source_pc":f"0x{pc:08x}","mmio_address":f"0x{REGISTERS[args.site]:08x}",
              "r0_at_break":f"0x{original_r0:08x}",
@@ -270,6 +276,27 @@ def main():
         events.append(row)
         first=next((f"{x['pc']} -> {x['next']}" for x in trace if x["branch"]),None)
         print(f"{name}: {value:#010x}; branch={first}; end={outcome}",flush=True)
+    if snapshot.get("usable"):
+        # Fresh instance owns the snapshot throughout all trials. The file
+        # created by the earlier validation instance has been cleaned up.
+        with Guest(args,args.out,"fast-snapshot-fuzz",True) as g:
+            g.break_at(pc)
+            repeat_check=check_snapshot(g,pc)
+            if not repeat_check.get("usable"):
+                raise RuntimeError("snapshot unexpectedly failed repeat validation")
+            backend="qemu_savevm_loadvm_per_trial"
+            for name,value in chosen:
+                g.qmp.hmp("loadvm before_mmio")
+                if g.rsp.reg(15)!=pc or g.rsp.request("m4102603c,4")!=repeat_check["mmio_before"]:
+                    raise RuntimeError("snapshot verification failed in the experiment loop")
+                run_case(g,name,value)
+    else:
+        # Old QEMU builds may silently lose secure CP15/MMU registers on
+        # loadvm. Never let a broken rollback corrupt differential results.
+        for name,value in chosen:
+            with Guest(args,args.out,"case-"+name) as g:
+                g.break_at(pc)
+                run_case(g,name,value)
     baseline=[e["pc"] for e in events[0]["trace"]] if events else []
     for event in events:
         seq=[e["pc"] for e in event["trace"]]
@@ -280,7 +307,7 @@ def main():
     report={"site":args.site,"read_pc":f"0x{pc:08x}",
             "address":f"0x{REGISTERS[args.site]:08x}",
             "snapshot_validation":snapshot,
-            "rollback_method":"full_emulator_cold_replay_to_identical_breakpoint",
+            "rollback_method":backend,
             "injection":"RSP: set ARM r1 to candidate; advance PC by 4 past only the LDR",
             "hardware_confirmed":False,"cases":events}
     (args.out/"results.json").write_text(json.dumps(report,indent=2)+"\n")
@@ -295,8 +322,9 @@ def main():
         lines.append(f"| {e['injected_value']} | {branch} | {e['first_divergence_step']} | {e['outcome']} |")
     lines+=["","## Native ARM disassembly","", "```asm",asm.strip(),"```",
             "","A QEMU checkpoint is actually created and loadvm attempted before the trial sweep.",
-            "QEMU 10.1 in this setup fails secure MMU restoration; the runner detects this",
-            "and restarts the entire emulated machine for independent case state.",
+            "Snapshot restoration is used only if ROM, secure MMU and deliberate MMIO",
+            "register mutations all pass before/after rollback validation.",
+            "Older QEMU builds are automatically cold-replayed for independence.",
             "No LCD or OS boot is claimed."]
     (args.out/"report.md").write_text("\n".join(lines)+"\n")
     print("Wrote",args.out/"results.json",args.out/"report.md",flush=True)
