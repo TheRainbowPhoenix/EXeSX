@@ -42,7 +42,31 @@ The older captured status `SR=0x04F00000 CR=0xFF000000` was a status *manufactur
 
 The **manufacturer-supported low-level protocol** is: transmitter waits for TE, writes TRn; receiver tests RF, reads RRn to release RF and set peer TE; enabled RF causes the receiver IRQ; GIP doorbell flags are W1C. The higher-level meaning of Casio command words 0..6, startup completion, semaphores and OS boot sequencing is **proprietary firmware behavior**, not specified by the MU block manual.
 
+## Measured corrected native build: real firmware unlock
+
+Compiled source from GitHub Actions run [39505114951](https://github.com/TheRainbowPhoenix/EXeSX/actions/runs/39505114951), **CI success**. Downloaded native artifact `exesx-qemu-native-c40d531c75084b880f4343e867f906b9a2f422e6`, verified the extracted tarball SHA256 **`a96f0ab4ba673a8b1b47ce0baf1374f8b13e921f9175a291fde90ca0d04d0edc`** against the included `SHA256SUMS`. Native build source stamp `c40d531c75084b880f4343e867f906b9a2f422e6` is GitHub's PR merge/test ref. The original baseline QEMU source stamp was `aa5f55b0d4513d2f2847903a9aae16c5d4993f7e`. Same real SHA-validated original OSUP, extracted locally via `prepare_osup.py`.
+
+**Cold boot comparison** (separate QEMU processes, ~1.1 seconds wall-clock per sample), both artificial I²C register mirrors at `0x4B` and `0x40` enabled, and actual A7/M4 ROM execution:
+
+| Native model | Experimental MU IRQ | M4 IRQ22 entries logged | Rejected TR2 writes | A7 sampled PC | Shared IPC `0x2F028000` |
+| --- | --- | ---: | ---: | --- | --- |
+| Before corrected mapping | 0 | 0 | 5 | `0x60179A7C` | `0xEEEEEEEE` |
+| Before corrected mapping | 1 | **78,665** | **5** | `0x60179A7C` | `0xEEEEEEEE` |
+| **Corrected NXP MU v1 mapping** | 0 | 0 | **0** | `0x60179A7C` | `0xEEEEEEEE` |
+| **Corrected NXP MU v1 mapping** | 1 | **2** | **0** | `0x60179A7C` | `0xEEEEEEEE` |
+
+The count is a bounded log measurement, not a cycle-exact comparison; the reduction is nevertheless several orders of magnitude. A MU receiver message initially posted on TR2 is now consumed, permitting a second TR2 word `0x00000001`; the old model logged five ignored attempts for `1..5`. M4 actual SR/CR snapshot probe `scripts/probe_mu_irq.py --entries 2` on the corrected QEMU printed first entry **MUA SR `0x02F00000`, CR `0xFF000000`, RF channel [2]**, then second entry **MUA SR `0x00F00000`, CR `0xFF000000`, no currently asserted MU receive or GIP flags**. Thus the remaining second latched NVIC entry is not an ongoing level IRQ storm. Snapshot rollback of M4 PC and both MU states passed. The ARM regression `scripts/probe_mu_v1_channels.py` reports PASS for all four channels and GIP clear.
+
+**The genuine boot is NOT solved.** The A7 remains in kernel idle and the diagnostic M4→A7 IPC word remains `0xEEEEEEEE`. With experimental MU IRQ delivery enabled, the newly unblocked M4 advances through an early DMA0 write `0x41008000=0x90` and then hits a **new and precise** Cortex-M4 fault at `0x41070004`. Native QEMU reports **CFSR `0x00008200` (PRECISERR/BFARVALID), HFSR `0x40000000`, BFAR `0x41070004`**; a private GDB breakpoint on the actual M4 HardFault entry `0x1FFE14E2` confirmed the registers. Thumb disassembly localizes the exact bus read to **`0x1FFD4C7E: ldr r0,[r1]`**, with `r1=0x41070004`, inside a function starting at `0x1FFD4C64`.
+
+NXP's own `MCIMX7U5_cm4_COMMON.h` maps **`SNVS_BASE=0x41070000`**. Official `PERI_SNVS.h` names offset `+0x4` **`SNVS_HPCOMR`** (High-Power Command Register), and `+0x8` **`SNVS_HPCR`**. The faulting code first reads HPCOMR, sets bit `0x10` (**LP_SWR**, low-power-section software reset request), reads until self-cleared, then writes HPCR=1 and sets `0x500` in HPCOMR. It will require a careful bounded SNVS model, not an arbitrary successful read or security-state forgery. Official source:
+
+- https://github.com/nxp-mcuxpresso/mcux-devices-imx/blob/main/i.MX7ULP/MCIMX7U5/MCIMX7U5_cm4_COMMON.h
+- https://github.com/nxp-mcuxpresso/mcux-devices-imx/blob/main/i.MX7ULP/periph/PERI_SNVS.h
+
+This **new peripheral blocker** only became visible after correcting the MU channel flags. Do not conflate the SNVS BusFault with the prior MU IRQ storm. Model only real observed SNVS offsets/command self-clear semantics with firmware-free ARM tests before adding anything to the default machine.
+
 ## Required before claiming an unlock
 
-Build/test the corrected QEMU in CI, then run a clean firmware comparison with `EXESX_EXPERIMENTAL_MU_IRQ=0/1`, both diagnostic I²C mirrors, tracking MU TR2 busy attempts, **correctly decoded RF/RIE channels**, IRQ22 rate and A7 progress/OS entry. A smaller number of interrupts is not proof of a boot. Do not force an IRQ clear, fake an RR read, or claim display text. The original private firmware and emulator file layout must match checksum checks.
+CI and the first real cold-run comparison are now complete (see above). For further study run another clean firmware comparison with `EXESX_EXPERIMENTAL_MU_IRQ=0/1`, both diagnostic I²C mirrors, tracking MU TR2 busy attempts, **correctly decoded RF/RIE channels**, IRQ22 rate and A7 progress/OS entry. A smaller number of interrupts is not proof of a boot. Do not force an IRQ clear, fake an RR read, or claim display text. The original private firmware and emulator file layout must match checksum checks.
 
