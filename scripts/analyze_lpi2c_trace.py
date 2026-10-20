@@ -21,6 +21,10 @@ def analyze(trace: str):
     by_bus = {}
     for m in MTDR.finditer(trace):
         addr = int(m.group(1), 16)
+        # Only MTDR at controller base +0x60. Other control/data
+        # writes share the log prefix but are not bus transactions.
+        if (addr & 0xfff) != 0x60:
+            continue
         bits = int(m.group(2), 16)
         cmd = (bits >> 8) & 7
         data = bits & 0xff
