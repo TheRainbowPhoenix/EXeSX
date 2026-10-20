@@ -66,8 +66,11 @@ static MemTxResult exesx_imx7ulp_read(EXeSXProfileWindow *w,
     }
     if (!strcmp(w->kind, "imx7ulp-pcc")) {
         /* Only the gate registers observed in the BIOS, not full clock tree. */
-        if (off == 0x3c || off == 0xfc || off == 0x100) {
-            *value = w->regfile[index];
+        if ((w->base == 0x41026000 &&
+             (off == 0x3c || off == 0xfc || off == 0x100)) ||
+            (w->base == 0x403f0000 && off == 0x40)) {
+            /* Present bit 31 (PR) is read-only; all listed modules exist. */
+            *value = w->regfile[index] | UINT32_C(0x80000000);
             return MEMTX_OK;
         }
         return MEMTX_ERROR;
@@ -102,11 +105,13 @@ static MemTxResult exesx_imx7ulp_write(EXeSXProfileWindow *w,
         }
         w->regfile[index] = bits;
     } else if (!strcmp(w->kind, "imx7ulp-pcc")) {
-        if (off != 0x3c && off != 0xfc && off != 0x100) {
+        if (!((w->base == 0x41026000 &&
+               (off == 0x3c || off == 0xfc || off == 0x100)) ||
+              (w->base == 0x403f0000 && off == 0x40))) {
             return MEMTX_ERROR;
         }
-        /* CGC bit 30 is writable; INUSE bit 31 is read-only. */
-        w->regfile[index] = bits & ~UINT32_C(0x80000000);
+        /* CGC bit 30 writable; INUSE bit 29 / PR bit 31 read-only. */
+        w->regfile[index] = bits & ~UINT32_C(0xa0000000);
     } else {
         return MEMTX_ERROR;
     }
