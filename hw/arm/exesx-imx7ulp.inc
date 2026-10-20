@@ -28,6 +28,7 @@ static bool exesx_imx7ulp_kind(const char *kind)
            g_strcmp0(kind, "imx7ulp-smc") == 0 ||
            g_strcmp0(kind, "imx7ulp-sim") == 0 ||
            g_strcmp0(kind, "imx7ulp-scg1") == 0 ||
+           g_strcmp0(kind, "imx7ulp-scg0") == 0 ||
            g_strcmp0(kind, "imx7ulp-tpm") == 0 ||
            g_strcmp0(kind, "imx7ulp-pmc1") == 0 ||
            g_strcmp0(kind, "imx7ulp-pmc0") == 0 ||
@@ -154,7 +155,8 @@ static MemTxResult exesx_imx7ulp_read(EXeSXProfileWindow *w,
     if (!strcmp(w->kind, "imx7ulp-tpm")) {
         return exesx_tpm_read(w, off, value, size);
     }
-    if (!strcmp(w->kind, "imx7ulp-scg1")) {
+    if (!strcmp(w->kind, "imx7ulp-scg1") ||
+        !strcmp(w->kind, "imx7ulp-scg0")) {
         return exesx_scg1_read(w, off, value, size);
     }
     if (!strcmp(w->kind, "imx7ulp-sim")) {
@@ -281,7 +283,8 @@ static MemTxResult exesx_imx7ulp_write(EXeSXProfileWindow *w,
     if (!strcmp(w->kind, "imx7ulp-tpm")) {
         return exesx_tpm_write(w, off, value, size);
     }
-    if (!strcmp(w->kind, "imx7ulp-scg1")) {
+    if (!strcmp(w->kind, "imx7ulp-scg1") ||
+        !strcmp(w->kind, "imx7ulp-scg0")) {
         return exesx_scg1_write(w, off, value, size);
     }
     if (!strcmp(w->kind, "imx7ulp-sim")) {
