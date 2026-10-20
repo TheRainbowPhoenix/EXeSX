@@ -216,12 +216,35 @@ static MemTxResult exesx_imx7ulp_write(EXeSXProfileWindow *w,
         return MEMTX_ERROR;
     }
     if (!strcmp(w->kind, "imx7ulp-sim")) {
-        /* SIM_DGO_GP7 is writable battery-backed GP state. */
+        /*
+         * SIM_DGO_CTRL0/1: GP update request bits 0..5/0..4
+         * set hardware WR_ACK bits 13..18/13..17 once shadowed in
+         * DGO domain. ACK flags are software write-one-to-clear.
+         * Model the transfer as immediately completed; no DGO clock
+         * latency or deep-power state transition has been validated.
+         * Source: NXP i.MX7ULP CMSIS PERI_SIM.h.
+         */
         if (w->base != 0x410a3000 ||
             !exesx_imx7ulp_sim_offset(off) || off == 0x8c) {
             return MEMTX_ERROR;
         }
-        w->regfile[index] = bits;
+        if (off == 0x50 || off == 0x54) {
+            uint32_t update_mask = off == 0x50 ? 0x3f : 0x1f;
+            uint32_t ack_mask = update_mask << 13;
+            uint32_t updates = bits & update_mask;
+            uint32_t old = w->regfile[index];
+            uint32_t ack = (old & ack_mask) & ~(bits & ack_mask);
+            ack |= updates << 13;
+            /* Preserve writable IRQ enables, but not strobe requests. */
+            w->regfile[index] = (bits & ~(update_mask | ack_mask)) |
+                                (ack & ack_mask);
+            qemu_log_mask(LOG_GUEST_ERROR,
+                          "EXeSX SIM DGO update @0x%" HWADDR_PRIx
+                          " requested=0x%x ack=0x%x\\n",
+                          w->base + off, updates, ack);
+        } else {
+            w->regfile[index] = bits;
+        }
         return MEMTX_OK;
     }
     if (!strcmp(w->kind, "imx7ulp-smc")) {
