@@ -17,7 +17,7 @@ import ghidra.program.model.symbol.SourceType;
 
 public class ExesxI2CXrefs extends GhidraScript {
     private final long[] functions = {
-        0x1ffd2e50L, 0x1ffd3270L, 0x1ffd5712L,
+        0x1ffd2e50L, 0x1ffd3270L, 0x1ffd5712L, 0x1ffd4c64L,
         0x1ffd6c48L, 0x1ffd6cb6L, 0x1ffd6cf8L, 0x1ffd6d52L,
         0x1ffd6da0L, 0x1ffd6e28L, 0x1ffd6f4cL, 0x1ffd6f7eL,
         0x1ffd6fa6L, 0x1ffd6fd8L
@@ -25,6 +25,7 @@ public class ExesxI2CXrefs extends GhidraScript {
     private final String[] names = {
         "M4_Kernel_DispatchRegisteredIRQCallbacks",
         "M4_Kernel_CommonInterruptDispatch", "M4_MU_ReceiveAndGIP_IRQHandler",
+        "M4_SNVS_HPCOMR_CommandSequence",
         "M4_LPI2C_ClearState", "M4_LPI2C_CheckErrors",
         "M4_LPI2C_SendStart", "M4_LPI2C_WaitComplete",
         "M4_LPI2C_TransmitBytes", "M4_LPI2C_ReceiveBytes",
