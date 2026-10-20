@@ -11,6 +11,11 @@ source = (root / "hw/arm/exesx.c").read_bytes()
 if target.exists() and target.read_bytes() != source:
     raise SystemExit("Refusing to overwrite changed upstream exesx.c")
 target.write_bytes(source)
+module = root / 'hw/arm/exesx-imx7ulp.inc'
+module_target = qemu / 'hw/arm/exesx-imx7ulp.inc'
+if module_target.exists() and module_target.read_bytes() != module.read_bytes():
+    raise SystemExit('Refusing to overwrite changed upstream exesx-imx7ulp.inc')
+module_target.write_bytes(module.read_bytes())
 line = "arm_ss.add(when: 'CONFIG_ARM_V7M', if_true: files('exesx.c'))"
 content = meson.read_text()
 if line not in content:
