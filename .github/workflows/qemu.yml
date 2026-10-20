@@ -66,8 +66,10 @@ jobs:
           python3 scripts/make_probe.py build/cp15-probe.elf
           python3 scripts/test_qemu.py
       - name: Static checks for modular tools
-        run: python3 -m py_compile scripts/analyze_init_regions.py scripts/make_gdb_commands.py scripts/fuzz_mmio.py
+        run: python3 -m py_compile scripts/analyze_init_regions.py scripts/make_gdb_commands.py scripts/fuzz_mmio.py scripts/recover_exesx.py
           python3 scripts/fuzz_mmio.py --help
+      - name: Check cold-start OSUP recovery launcher
+        run: python3 scripts/recover_exesx.py --help
       - name: Confirm synthetic guest RAM reads/writes at both addresses
         run: |
           python3 scripts/probe_profile.py --qemu build/qemu-system-arm \
@@ -95,7 +97,7 @@ jobs:
           cp -L /usr/lib/x86_64-linux-gnu/libfdt.so.1 dist/exesx-qemu-linux-x86_64/lib/
           cp scripts/qemu-wrapper.sh dist/exesx-qemu-linux-x86_64/
           if test -f /usr/share/doc/libfdt1/copyright; then cp /usr/share/doc/libfdt1/copyright dist/exesx-qemu-linux-x86_64/LIBFDT-COPYRIGHT.txt; fi
-          cp scripts/make_probe.py scripts/test_qemu.py scripts/prepare_osup.py scripts/run_firmware.py scripts/analyze_init_regions.py scripts/make_gdb_commands.py scripts/probe_profile.py scripts/fuzz_mmio.py scripts/probe_imx7ulp.py scripts/probe_m4_handoff.py dist/exesx-qemu-linux-x86_64/
+          cp scripts/make_probe.py scripts/test_qemu.py scripts/prepare_osup.py scripts/run_firmware.py scripts/analyze_init_regions.py scripts/make_gdb_commands.py scripts/probe_profile.py scripts/fuzz_mmio.py scripts/probe_imx7ulp.py scripts/probe_m4_handoff.py scripts/recover_exesx.py dist/exesx-qemu-linux-x86_64/
           cp build/exesx-memtrace.so dist/exesx-qemu-linux-x86_64/
           cp -r profiles dist/exesx-qemu-linux-x86_64/
           cp build/cp15-probe.elf dist/exesx-qemu-linux-x86_64/
