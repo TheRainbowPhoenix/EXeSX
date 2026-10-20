@@ -23,11 +23,13 @@
 
 #define TYPE_EXESX_MACHINE MACHINE_TYPE_NAME("exesx")
 OBJECT_DECLARE_SIMPLE_TYPE(EXeSXState, EXESX_MACHINE)
+typedef struct EXeSXProfileWindow EXeSXProfileWindow;
 typedef struct EXeSXState {
     MachineState parent_obj;
     ARMv7MState m4;
     Clock *m4cpuclk, *m4refclk;
     ARMCPU *a7cpu;
+    EXeSXProfileWindow *mu_a, *mu_b;
     uint64_t cp15_dacr_s_saved;
     uint64_t cp15_ttbr1_s_saved;
     bool m4_released;
@@ -54,7 +56,7 @@ typedef struct EXeSXState {
  * size=0x1000
  * reg.0x54=0x00000000
  */
-typedef struct EXeSXProfileWindow {
+struct EXeSXProfileWindow {
     MemoryRegion mr;
     char *name;
     uint64_t base;
@@ -64,7 +66,7 @@ typedef struct EXeSXProfileWindow {
     EXeSXState *board;
     /* Stable addresses; preserved by VMState on loadvm. */
     uint32_t regfile[0x10000 / sizeof(uint32_t)];
-} EXeSXProfileWindow;
+};
 
 /*
  * i.MX7ULP Single Boot, NXP description:
@@ -287,6 +289,17 @@ static void exesx_load_profile(MemoryRegion *sysmem, EXeSXState *board)
                 (!strcmp(kind, "imx7ulp-tstmr") && w->size != 8)) {
                 error_report("EXeSX i.MX7ULP model window %s invalid size", group);
                 exit(1);
+            }
+            if (g_strcmp0(kind, "imx7ulp-mu") == 0) {
+                if (w->base == 0x41022000) {
+                    board->mu_a = w;
+                } else if (w->base == 0x40220000) {
+                    board->mu_b = w;
+                } else {
+                    error_report("EXeSX MU base unknown: 0x%" PRIx64, w->base);
+                    exit(1);
+                }
+                w->regfile[0x200 / 4] = 15; /* all four TX empty */
             }
             if (g_strcmp0(kind, "imx7ulp-scg0") == 0) {
                 /*
