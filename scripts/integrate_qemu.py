@@ -46,6 +46,11 @@ lptmr_target = qemu / 'hw/arm/exesx-imx7ulp-lptmr.inc'
 if lptmr_target.exists() and lptmr_target.read_bytes() != lptmr_module.read_bytes():
     raise SystemExit('Refusing to overwrite changed upstream exesx-imx7ulp-lptmr.inc')
 lptmr_target.write_bytes(lptmr_module.read_bytes())
+mu_module = root / 'hw/arm/exesx-imx7ulp-mu.inc'
+mu_target = qemu / 'hw/arm/exesx-imx7ulp-mu.inc'
+if mu_target.exists() and mu_target.read_bytes() != mu_module.read_bytes():
+    raise SystemExit('Refusing to overwrite changed upstream exesx-imx7ulp-mu.inc')
+mu_target.write_bytes(mu_module.read_bytes())
 sema_module = root / 'hw/arm/exesx-imx7ulp-sema42.inc'
 sema_target = qemu / 'hw/arm/exesx-imx7ulp-sema42.inc'
 if sema_target.exists() and sema_target.read_bytes() != sema_module.read_bytes():
