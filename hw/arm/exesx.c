@@ -239,6 +239,16 @@ static void exesx_load_profile(MemoryRegion *sysmem)
                 error_report("EXeSX i.MX7ULP model window %s invalid size", group);
                 exit(1);
             }
+            if (g_strcmp0(kind, "imx7ulp-scg1") == 0) {
+                /*
+                 * This image starts at the BIOS entry, not the silicon ROM.
+                 * Supply enabled oscillator defaults normally set by ROM.
+                 */
+                w->regfile[0x14 / 4] = 0x03000000; /* RCCR FIRC */
+                w->regfile[0x100 / 4] = 1; /* SOSCEN */
+                w->regfile[0x200 / 4] = 1; /* SIRCEN */
+                w->regfile[0x300 / 4] = 1; /* FIRCEN */
+            }
             memory_region_init_io(&w->mr, NULL, &exesx_reg_ops, w,
                                   w->name, w->size);
             if (vmstate_register(NULL, k, &exesx_registers_vmstate, w)) {
