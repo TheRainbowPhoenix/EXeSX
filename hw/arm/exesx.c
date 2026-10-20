@@ -30,6 +30,7 @@ typedef struct EXeSXState {
     ARMCPU *a7cpu;
     uint64_t cp15_dacr_s_saved;
     uint64_t cp15_ttbr1_s_saved;
+    bool m4_released;
     MemoryRegion firmware, vectors, sram, ipc, provisional_writable;
 } EXeSXState;
 
@@ -60,9 +61,53 @@ typedef struct EXeSXProfileWindow {
     uint64_t size;
     GHashTable *registers;
     char *kind;
+    EXeSXState *board;
     /* Stable addresses; preserved by VMState on loadvm. */
     uint32_t regfile[0x10000 / sizeof(uint32_t)];
 } EXeSXProfileWindow;
+
+/*
+ * i.MX7ULP Single Boot, NXP description:
+ * CM4 ROM waits on SIM0_DGO_GP7; CA7 copies the CM4 image to SRAM,
+ * writes the CM4 entrypoint to SIM0_DGO_GP7, then ROM transfers control.
+ *
+ * We do NOT ship the SoC ROM, so this opt-in release starts the real
+ * firmware's M4 reset vector at the firmware-provided SRAM vector table.
+ * This is the ROM boot handoff, NOT an invented mailbox response.
+ * Must be gated behind EXESX_EXPERIMENTAL_M4_BOOT=1 while the rest of
+ * hardware (M4 peripherals, IPC, external flash) is incomplete.
+ */
+static void exesx_m4_rom_handoff(EXeSXState *s, uint32_t entry)
+{
+    ARMCPU *m4 = s->m4.cpu;
+    CPUState *cs;
+    uint32_t vector_entry, vector_sp;
+
+    if (g_strcmp0(g_getenv("EXESX_EXPERIMENTAL_M4_BOOT"), "1") ||
+        !m4 || s->m4_released) {
+        return;
+    }
+
+    vector_sp = ldl_phys(&address_space_memory, 0x1ffd0000);
+    vector_entry = ldl_phys(&address_space_memory, 0x1ffd0004);
+    if ((entry & 1) == 0 || entry != vector_entry ||
+        vector_sp < 0x1ffd0000 || vector_sp >= 0x20010000) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "EXeSX M4 handoff deferred: GP7=0x%08x,"
+                      " vector SP=0x%08x PC=0x%08x\\n",
+                      entry, vector_sp, vector_entry);
+        return;
+    }
+
+    cs = CPU(m4);
+    cs->start_powered_off = false;
+    cpu_reset(cs);
+    cs->halted = 0;
+    s->m4_released = true;
+    qemu_cpu_kick(cs);
+    error_report("EXeSX EXPERIMENTAL M4 ROM handoff: MSP=0x%08x PC=0x%08x",
+                 vector_sp, vector_entry);
+}
 
 #include "exesx-imx7ulp.inc"
 
@@ -107,6 +152,7 @@ static const VMStateDescription exesx_cp15_vmstate = {
     .fields = (const VMStateField[]) {
         VMSTATE_UINT64(cp15_dacr_s_saved, EXeSXState),
         VMSTATE_UINT64(cp15_ttbr1_s_saved, EXeSXState),
+        VMSTATE_BOOL(m4_released, EXeSXState),
         VMSTATE_END_OF_LIST()
     },
 };
@@ -193,7 +239,7 @@ static uint64_t exesx_config_number(GKeyFile *cfg, const char *group,
     return v;
 }
 
-static void exesx_load_profile(MemoryRegion *sysmem)
+static void exesx_load_profile(MemoryRegion *sysmem, EXeSXState *board)
 {
     const char *filename = g_getenv("EXESX_MEMORY_PROFILE");
     g_autoptr(GKeyFile) cfg = g_key_file_new();
@@ -226,6 +272,7 @@ static void exesx_load_profile(MemoryRegion *sysmem)
         w->size = exesx_config_number(cfg, group, "size");
         w->name = g_strdup_printf("exesx.profile.%s", group);
         w->kind = g_strdup(kind);
+        w->board = board;
         if (!w->size || w->size > 256 * MiB ||
             w->base + w->size > UINT64_C(0x100000000) ||
             (w->base & 3) || (w->size & 3)) {
@@ -351,7 +398,7 @@ static void exesx_init(MachineState *ms)
                            8 * MiB, &error_fatal);
     memory_region_add_subregion(mem, 0x2f000000, &s->ipc);
     memory_region_add_subregion(mem, 0x62000000, ms->ram);
-    exesx_load_profile(mem);
+    exesx_load_profile(mem, s);
 
     /*
      * Real QEMU GICv2: A7 secure distributor/CPU interface plus IRQ/FIQ.
