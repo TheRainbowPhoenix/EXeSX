@@ -12,6 +12,7 @@
  */
 #include "qemu/timer.h"
 #include "exesx-imx7ulp-scg.inc"
+#include "exesx-imx7ulp-tpm.inc"
 
 static bool exesx_imx7ulp_kind(const char *kind)
 {
@@ -23,6 +24,7 @@ static bool exesx_imx7ulp_kind(const char *kind)
            g_strcmp0(kind, "imx7ulp-smc") == 0 ||
            g_strcmp0(kind, "imx7ulp-sim") == 0 ||
            g_strcmp0(kind, "imx7ulp-scg1") == 0 ||
+           g_strcmp0(kind, "imx7ulp-tpm") == 0 ||
            g_strcmp0(kind, "imx7ulp-wdog") == 0 ||
            g_strcmp0(kind, "imx7ulp-tstmr") == 0;
 }
@@ -111,6 +113,9 @@ static MemTxResult exesx_imx7ulp_read(EXeSXProfileWindow *w,
     uint32_t index = off / 4;
     if (size != 4 || (off & 3) || off >= w->size) {
         return MEMTX_ERROR;
+    }
+    if (!strcmp(w->kind, "imx7ulp-tpm")) {
+        return exesx_tpm_read(w, off, value, size);
     }
     if (!strcmp(w->kind, "imx7ulp-scg1")) {
         return exesx_scg1_read(w, off, value, size);
@@ -219,6 +224,9 @@ static MemTxResult exesx_imx7ulp_write(EXeSXProfileWindow *w,
     uint32_t bits = (uint32_t)value;
     if (size != 4 || (off & 3) || off >= w->size) {
         return MEMTX_ERROR;
+    }
+    if (!strcmp(w->kind, "imx7ulp-tpm")) {
+        return exesx_tpm_write(w, off, value, size);
     }
     if (!strcmp(w->kind, "imx7ulp-scg1")) {
         return exesx_scg1_write(w, off, value, size);
