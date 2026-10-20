@@ -45,6 +45,20 @@ The probe takes a QMP savevm snapshot at IRQ entry 1 and restores it after captu
 
 The i.MX7ULP [MU SR field layout](https://community.nxp.com/t5/i-MX-Processors/imx7ulp-different-values-fro-MUA-SR-from-CA7-and-CM4/td-p/1393066) and [NXP i.MX7ULP manual, Chapter 9](https://manuals.plus/m/3fcef56ef531d2f11af138e90b262f740cb4b850405f230406bb863805f74d1c.pdf) support the 4-bit **TE, RF, GIP** nibbles and masked RIEn behavior. Thus the model's **basic** status and IRQ-level calculation are consistent with this specific trace; this is not evidence that *all* MU register semantics are correct.
 
+## Verified A7 sender for the second MU IRQ
+
+A real GDB hardware **write watchpoint** on the A7-side MUB TR0 `0x40220020` stopped A7 at **PC `0x60177EC0`** between the first and second M4 IRQ22 entries. Registers: **`r0=0x40220020`, `r4=0x00000006`, `r6=0`**. SHA-verified A7 ARM disassembly proves:
+
+```armasm
+0x60177DFC  push  {r2,r3,r4,r5,r6,r7,r8,lr}  ; A7_MU_TransmitDescriptor
+...
+0x60177EB8  mov   r0, #0x40000020
+0x60177EBC  orr   r0, r0, #0x00220000        ; r0 = 0x40220020
+0x60177EC0  str   r4, [r0,r6,lsl #2]          ; TR[r6] = message 6, r6=0
+```
+
+A7 earlier sent value **0** into TR2 `0x40220028`, and its next **1..5** attempted TR2 messages were rejected as busy in the emulator. It then sent **6** to TR0, explaining the independently observed change `MUB.TE=0xB→0xA`, `MUA.RF=0x4→0x5` between the first and second IRQ22 entries. This sender has been added to the [A7 Ghidra names](../reverse/a7_kernel_named_sites.tsv). A QEMU model in which RR0/RR2 are never read will leave both slots full; it may reflect unfinished M4 callback initialization, delayed receive dispatch, or a model mismatch, none yet confirmed as the root cause.
+
 ## Re-run against your firmware, privately
 
 ```sh
