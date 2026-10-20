@@ -120,11 +120,11 @@ static MemTxResult exesx_imx7ulp_read(EXeSXProfileWindow *w,
                                       unsigned size)
 {
     uint32_t index = off / 4;
-    if (size != 4 || (off & 3) || off >= w->size) {
-        return MEMTX_ERROR;
-    }
     if (!strcmp(w->kind, "imx7ulp-sema42")) {
         return exesx_sema42_read(w, off, value, size);
+    }
+    if (size != 4 || (off & 3) || off >= w->size) {
+        return MEMTX_ERROR;
     }
     if (!strcmp(w->kind, "imx7ulp-lpit")) {
         return exesx_lpit_read(w, off, value, size);
@@ -246,11 +246,11 @@ static MemTxResult exesx_imx7ulp_write(EXeSXProfileWindow *w,
 {
     uint32_t index = off / 4;
     uint32_t bits = (uint32_t)value;
-    if (size != 4 || (off & 3) || off >= w->size) {
-        return MEMTX_ERROR;
-    }
     if (!strcmp(w->kind, "imx7ulp-sema42")) {
         return exesx_sema42_write(w, off, value, size);
+    }
+    if (size != 4 || (off & 3) || off >= w->size) {
+        return MEMTX_ERROR;
     }
     if (!strcmp(w->kind, "imx7ulp-lpit")) {
         return exesx_lpit_write(w, off, value, size);
