@@ -41,7 +41,7 @@ def elf():
     struct.pack_into('<2I',m4,0,0x20001c00,0x1ffd0101)
     struct.pack_into('<6H2I',m4,0x100,0x4802,0x4903,0x6001,0xe7fe,
                      0xbf00,0xbf00,RESULT,MAGIC)
-    ident=b'\\x7fELF\\x01\\x01\\x01'+bytes(9)
+    ident=b'\x7fELF\x01\x01\x01'+bytes(9)
     head=struct.pack('<16sHHIIIIIHHHHHH',ident,2,40,1,A7,52,0,
                      0x05000000,52,32,2,0,0,0)
     offset0=0x100
@@ -70,13 +70,13 @@ def run(qemu,profile,elffile,enabled):
                           text=True)
     try:
         time.sleep(0.75)
-        output,_=proc.communicate(f'xp /1wx 0x{RESULT:x}\\nquit\\n',
+        output,_=proc.communicate(f'xp /1wx 0x{RESULT:x}\nquit\n',
                                   timeout=12)
     finally:
         if proc.poll() is None:
             proc.kill()
             proc.wait()
-    match=re.search(r'(?im)^0*'+f'{RESULT:x}'+r':\\s+0x([0-9a-f]+)',output)
+    match=re.search(r'(?im)^0*'+f'{RESULT:x}'+r':\s+0x([0-9a-f]+)',output)
     if not match:
         raise AssertionError('Missing QEMU monitor result: '+output[-1600:])
     return int(match.group(1),16),output
@@ -93,7 +93,7 @@ def main():
     val_on,on=run(args.qemu,args.profile,args.elf,True)
     if val_off!=0 or val_on!=MAGIC:
         raise AssertionError(f'M4 handoff failed: disabled={val_off:#x}, '
-                             f'enabled={val_on:#x}\\n'+on[-1400:])
+                             f'enabled={val_on:#x}\n'+on[-1400:])
     print('PASS: M4 ran real Thumb code and wrote shared DRAM only after GP7 handoff')
     print(f'disabled=0x{val_off:08x}, enabled=0x{val_on:08x}')
 
