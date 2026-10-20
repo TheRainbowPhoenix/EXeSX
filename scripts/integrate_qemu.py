@@ -41,6 +41,11 @@ lpit_target = qemu / 'hw/arm/exesx-imx7ulp-lpit.inc'
 if lpit_target.exists() and lpit_target.read_bytes() != lpit_module.read_bytes():
     raise SystemExit('Refusing to overwrite changed upstream exesx-imx7ulp-lpit.inc')
 lpit_target.write_bytes(lpit_module.read_bytes())
+sema_module = root / 'hw/arm/exesx-imx7ulp-sema42.inc'
+sema_target = qemu / 'hw/arm/exesx-imx7ulp-sema42.inc'
+if sema_target.exists() and sema_target.read_bytes() != sema_module.read_bytes():
+    raise SystemExit('Refusing to overwrite changed upstream exesx-imx7ulp-sema42.inc')
+sema_target.write_bytes(sema_module.read_bytes())
 line = "arm_ss.add(when: 'CONFIG_ARM_V7M', if_true: files('exesx.c'))"
 content = meson.read_text()
 if line not in content:
