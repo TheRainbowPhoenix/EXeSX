@@ -162,10 +162,21 @@ def recover(osup: Path, work: Path, mode: str, qemu_arg: Path | None,
         prepare = installed / "prepare_osup.py"
         runner = installed / "run_firmware.py"
     else:
-        root = Path(__file__).resolve().parents[1] if mode == "local" else obtain_source(work, force)
-        qemu = (qemu_arg or (root / "build" / "qemu-system-arm")).resolve()
-        prepare = root / "scripts" / "prepare_osup.py"
-        runner = root / "scripts" / "run_firmware.py"
+        if mode == "local":
+            # Also support invoking the script from inside the packaged
+            # release (flat layout), not just the repository scripts/ dir.
+            script_dir = Path(__file__).resolve().parent
+            root = (script_dir if (script_dir / "prepare_osup.py").is_file()
+                    else script_dir.parent)
+        else:
+            root = obtain_source(work, force)
+        flat = (root / "prepare_osup.py").is_file()
+        qemu = (qemu_arg or (root / "qemu-system-arm" if flat
+                             else root / "build" / "qemu-system-arm")).resolve()
+        prepare = root / ("prepare_osup.py" if flat
+                          else "scripts/prepare_osup.py")
+        runner = root / ("run_firmware.py" if flat
+                         else "scripts/run_firmware.py")
     if qemu_arg:
         qemu = qemu_arg.resolve()
     profile = (profile_arg or root / "profiles" / "imx7ulp-early-boot.ini").resolve()
