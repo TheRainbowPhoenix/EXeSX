@@ -64,6 +64,26 @@ NXP's own `MCIMX7U5_cm4_COMMON.h` maps **`SNVS_BASE=0x41070000`**. Official `PER
 - https://github.com/nxp-mcuxpresso/mcux-devices-imx/blob/main/i.MX7ULP/MCIMX7U5/MCIMX7U5_cm4_COMMON.h
 - https://github.com/nxp-mcuxpresso/mcux-devices-imx/blob/main/i.MX7ULP/periph/PERI_SNVS.h
 
+### Interpreting the next M4 SNVS routine safely
+
+The SHA-matched M4 function `0x1FFD4C64` is now called `M4_SNVS_HPCOMR_CommandSequence` in the private ELF/Ghidra symbol map. Its observed instructions:
+
+```text
+0x1FFD4C7E  ldr  r0, [r1]        ; r1 = SNVS_BASE+0x04, read HPCOMR; faults now
+0x1FFD4C80  orr  r0, r0, #0x10   ; NXP HPCOMR.LP_SWR low-power reset command
+0x1FFD4C84  str  r0, [r1]
+0x1FFD4C86  ldr  r0, [r1]        ; polls LP_SWR deassertion
+0x1FFD4C8C  movs r0, #1
+0x1FFD4C8E  str  r0, [r1, #4]    ; SNVS.HPCR RTC_EN
+0x1FFD4C90  ldr  r0, [r1]
+0x1FFD4C92  orr  r0, r0, #0x500  ; SW_SV and SW_LPSV command bits
+0x1FFD4C96  str  r0, [r1]
+```
+
+NXP `PERI_SNVS.h` identifies `LP_SWR (bit4)` as a reset request, `SW_SV (bit8)` as a software security violation, and `SW_LPSV (bit10)` as an LP software security violation. `SNVS_HP_SetSoftwareSecurityViolation()` is documented in the NXP SDK. Therefore a naive SNVS RW register mirror or an always-zero security-status result **would be speculative and could conceal a real boot-security dependency**. We have not determined which silicon lifecycle mode Casio expects. NXP additionally documents SNVS state-machine compatibility concerns on certain i.MX7ULP revisions, but **no specific revision or erratum has been linked to this ROM**.
+
+A future isolated opt-in SNVS test must prove, in guest ARM instructions, the command/self-clearing behavior, status/lock protections, and precise fault behavior for unsupported offsets. It must not force a trusted security state, fabricate an RTC or change real OSUP bytes. The current default M4 BusFault is useful evidence.
+
 This **new peripheral blocker** only became visible after correcting the MU channel flags. Do not conflate the SNVS BusFault with the prior MU IRQ storm. Model only real observed SNVS offsets/command self-clear semantics with firmware-free ARM tests before adding anything to the default machine.
 
 ## Required before claiming an unlock
