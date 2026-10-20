@@ -1,5 +1,8 @@
 # A7 kernel naming + first M4 MU IRQ22 state — 2026-10-20
 
+> **Superseded channel labels (2026-10-20):** This is a historical capture made with EXeSX's incorrectly numbered MU v1 RF/TE flags. Actual NXP MU v1 uses nibble bit `(3 - channel)`, so an RF mask of `0x4` is **channel 1**, not channel 2, and `0x1` is **channel 3**, not channel 0. The claimed channel-0 omission/storm was an emulator bug and is not silicon behavior. The corrected real-firmware run cuts 78,665 IRQ22 entries to 2 and reveals the separate SNVS.HPCOMR fault. See [corrected study](2026-10-20-imx7ulp-mu-v1-bit-order.md).
+
+
 This is **measured private DY357/XD-SX9850 firmware** in native EXeSX/QEMU 10.1.0, not evidence of hardware authenticity or OS text/LCD output. The user's checksum-validated OSUP source is SHA256 `d5791bec1c7739315fb6113b5d6890a21f6c454fcf7a05a0381cfaaa70808fb0`. The verified BIOS section SHA256 is `eb7dafa1b544bbb8d79081866af280e6c0f88197de9f635c6887f8486155da66`. **No ROM, guest RAM dump, debugger log or snapshot is committed**.
 
 ## Reusable kernel names — use uC3 as an API dictionary, not a firmware match

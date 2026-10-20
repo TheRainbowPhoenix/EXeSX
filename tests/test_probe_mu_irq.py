@@ -10,10 +10,18 @@ class MuStatusTests(unittest.TestCase):
         x=decode(0x04f00000,0xff000000)
         self.assertEqual((x["rf"],x["rien"],x["gip"]),(4,15,0))
         self.assertEqual(x["irq_sources"],{"tx_empty":0,"rx_full":4,"general":0})
+        self.assertEqual(x["irq_source_channels"]["rx_full"],[1])  # Reinterprets older trace as ch1
     def test_second_and_repeated_irq_is_receive_channel_zero(self):
         x=decode(0x05f00000,0xfb000000)
         self.assertEqual((x["rf"],x["rien"],x["gip"]),(5,11,0))
         self.assertEqual(x["irq_sources"],{"tx_empty":0,"rx_full":1,"general":0})
+        self.assertEqual(x["irq_source_channels"]["rx_full"],[3])  # Formerly misreported as ch0
+    def test_corrected_mu_v1_channels(self):
+        x=decode(0x02f00000,0xff000000)
+        self.assertEqual(x["irq_source_channels"]["rx_full"],[2])
+        y=decode(0x0af00000,0xfd000000)
+        self.assertEqual(y["irq_source_channels"]["rx_full"],[0])
+
     def test_no_interrupt_when_receive_interrupt_disabled(self):
         x=decode(0x05f00000,0xf0000000)
         self.assertEqual(x["irq_sources"]["rx_full"],0)

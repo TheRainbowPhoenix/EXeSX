@@ -14,6 +14,17 @@
 #define EXESX_MU_RF_INDEX (0x204 / 4)
 #define EXESX_MU_GIP_INDEX (0x208 / 4)
 
+/* NXP MU v1 channel status: 0=>bit3, 1=>bit2, 2=>bit1, 3=>bit0.
+ * See Linux imx-mailbox.c IMX_MU_xSR_RFn/IMX_MU_xCR_RIEn macros.
+ * RRn and TRn remain indexed in ascending address order.
+ */
+static uint32_t exesx_mu_v1_mask(unsigned chan)
+{
+    g_assert(chan < 4);
+    return 1U << (3 - chan);
+}
+
+
 static bool exesx_mu_valid_base(uint64_t base)
 {
     return base == UINT64_C(0x41022000) ||
@@ -72,10 +83,10 @@ static MemTxResult exesx_mu_read(EXeSXProfileWindow *w, hwaddr off,
     } else if (off >= 0x40 && off <= 0x4c) {
         chan = (off - 0x40) / 4;
         *value = w->regfile[off / 4];
-        if (w->regfile[EXESX_MU_RF_INDEX] & (1U << chan)) {
-            w->regfile[EXESX_MU_RF_INDEX] &= ~(1U << chan);
+        if (w->regfile[EXESX_MU_RF_INDEX] & (exesx_mu_v1_mask(chan))) {
+            w->regfile[EXESX_MU_RF_INDEX] &= ~(exesx_mu_v1_mask(chan));
             if (peer) {
-                peer->regfile[EXESX_MU_TE_INDEX] |= 1U << chan;
+                peer->regfile[EXESX_MU_TE_INDEX] |= exesx_mu_v1_mask(chan);
             }
             exesx_mu_update_irq(w);
             if (peer) {
@@ -111,7 +122,7 @@ static MemTxResult exesx_mu_write(EXeSXProfileWindow *w, hwaddr off,
     peer = exesx_mu_peer(w);
     if (off >= 0x20 && off <= 0x2c) {
         chan = (off - 0x20) / 4;
-        if (!(w->regfile[EXESX_MU_TE_INDEX] & (1U << chan))) {
+        if (!(w->regfile[EXESX_MU_TE_INDEX] & (exesx_mu_v1_mask(chan)))) {
             /*
              * TE=0: no room for another message. Do not convert a
              * non-ready TX write into a synchronous ARM Data Abort.
@@ -125,10 +136,10 @@ static MemTxResult exesx_mu_write(EXeSXProfileWindow *w, hwaddr off,
             return MEMTX_OK;
         }
         w->regfile[off / 4] = bits;
-        w->regfile[EXESX_MU_TE_INDEX] &= ~(1U << chan);
+        w->regfile[EXESX_MU_TE_INDEX] &= ~(exesx_mu_v1_mask(chan));
         if (peer) {
             peer->regfile[(0x40 + 4 * chan) / 4] = bits;
-            peer->regfile[EXESX_MU_RF_INDEX] |= 1U << chan;
+            peer->regfile[EXESX_MU_RF_INDEX] |= exesx_mu_v1_mask(chan);
         }
     } else if (off == 0x60) {
         /* Pending general-purpose interrupt flags are write-one-to-clear. */
