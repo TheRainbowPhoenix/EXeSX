@@ -103,3 +103,18 @@ The previous DMAMUX1 stub incorrectly treated 32 channels as **32 adjacent bytes
 NXP's [PERI_DMA.h](https://github.com/nxp-mcuxpresso/mcux-devices-imx/blob/main/i.MX7ULP/periph/PERI_DMA.h) maps SERQ to **DMA1 +0x1B** and CERQ to **+0x1A**; each accepts a byte containing a channel index or an all-channels action. The corrected, A7-only model updates `ERQ` request-enable bits accordingly; a request enable **does not run a DMA TCD, copy bytes, or set DONE/IRQ**. Source `DMA_CR=0x90` has EMLM bit7 set; because NBYTES `0x000CA800` has neither DMLOE nor SMLOE, its minor transfer byte count remains `0xCA800` under the mapped NBYTES_MLOFFNO encoding.
 
 These changes are tested by actual synthetic ARM instructions, checking CHCFG8 at offset `0x20`, reserved-bit masking, byte-wide SERQ channel 15 and CERQ, and ERQ bit15 set/clear. The private original firmware rerun after this fix determines whether either abort is resolved and what controller request/completion requirement remains; **hardware execution is still absent**.
+
+
+## Validated private differential after correcting DMAMUX1 and SERQ
+
+The native [PR #24 CI run 39680149090](https://github.com/TheRainbowPhoenix/EXeSX/actions/runs/39680149090) **passed all 35 workflow steps**, including guest ARM DMAMUX1 CHCFG8 word-stride, SERQ/CERQ request-enable readback, genuine QEMU eMMC smoke tests, and all original no-card checks.
+
+A fresh private, unmodified original-DY357 cold run with its exact same diagnostic flags, user-provided OSUP-derived ELF, and synthetic eMMC, using the tested PR #24 native build:
+
+- The previous `DFAR=0x40210020` DMAMUX1 CHCFG8 abort and `DFAR=0x4008001B` byte SERQ abort are **absent**.
+- Actual DMA1 control log confirms `SERQ ch=15 ERQ=0x00008000`; the request is enabled **without** inventing DMA transfers or CSR.DONE.
+- The next actual A7 Data Abort is `DFSR=0x0808`, **`DFAR=0xB0000000`**, observed twice. ARM instructions `0x6001514C` and `0x6001535C` are both **16-bit stores** (`STRH`) to a base register set to `0xB0000000`. The i.MX7ULP has an external FlexBus peripheral-memory interface, but **we do not yet know the DY357's attached chip select/device, signal connections or read/write protocol**. No blanket zero-filled RAM is mapped at that location; doing so would hide the missing physical device.
+- After eight seconds, the A7 is once again in the abort-mode DMA status waiter `0x601B82B8..0x601B82D0`, with channel 15 `CSR=0x000A` (DONE=0) and unchanged `0x13ED` retry sentinel. No fully implemented DMA engine is present.
+- Unlike the earlier run with the incorrect DMAMUX register layout, this corrected-controller run **did not issue CMD17 in the eight-second window**. This is a different control-flow dependency, not a regression in CMD17's implemented card response. The earlier boot1 sector arguments 0 and 32 remain separately verified observations from the old bounded trace.
+
+**Next required hardware investigation:** identify which FlexBus chip-select and external device occupies `0xB0000000` from original BIOS `CSAR/CSMR/CSCR` configuration and the observed halfword write protocol. Separately implement correctly **triggered** eDMA1 memory-to-memory transfers from validated TCDs (including request enable, active/done transitions, memory copies, interrupts and error semantics). Do not enable arbitrary external RAM or mark DONE without executing real data movement. **No OS entry or LCD text yet.**
