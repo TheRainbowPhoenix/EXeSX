@@ -31,6 +31,20 @@ The preceding measured A7 Data Abort was on NXP USDHC1 `CMD_ARG` **0x40380008** 
 
 For the captured initial call, the original inputs `r4=r5=r6=r8=0` yield **CMD0, argument 0, no response expected and no data**. Thus the next missing feature was not simply a register mirror: the firmware is actively entering SD/eMMC command submission. The exact physical medium type and contents remain unknown.
 
+## First native real-OSUP run: intervening PROT_CTRL was missing
+
+Native [run 39590649690](https://github.com/TheRainbowPhoenix/EXeSX/actions/runs/39590649690) passed the first 28-word real-ARM CMD0/CMD8 regression. Downloaded that exact native artifact, checked the SHA256 manifest, and ran the original local OSUP **without modifying any firmware bytes**, with existing explicitly diagnostic I²C/SNVS settings and GPIOB7 input high. A7 progressed beyond `CMD_ARG +0x08` but then took a *new precise Data Abort* **DFSR `0x1808`, DFAR `0x40380028`** at original ROM **`0x600178C8: str r0,[r7,#0x20]`**. This is **USDHC1 `PROT_CTRL`**, not a card response.
+
+The immediately preceding original instructions compute `r0=0x00008820`: the NXP [PERI_USDHC.h](https://github.com/nxp-mcuxpresso/mcux-devices-imx/blob/main/i.MX7ULP/periph/PERI_USDHC.h) `PROT_CTRL.EMODE` bits5:4 encode **little-endian mode `0x20`**; the extra `0x8800` bits are reserved and should read as zero/write-ignore. A narrowly scoped naturally aligned 32-bit PROT_CTRL register now records only the official register mask `0x7F1F03FF`. It **does not force test-card detect**, DMA requests or a peripheral interrupt.
+
+The real-ARM regression now writes `0x8820` and checks readback `0x20` *before* sending CMD0. This new original-firmware fix must pass native CI and another ROM differential before merging.
+
+## Stronger media identification from callsites
+
+Original SHA-verified ARM disassembly of **`0x60017988`** shows a complete initialization command sequence through `0x6001788C`: **CMD0 → CMD1 → CMD2 → CMD3 → CMD9 → CMD7**, followed by **CMD6** through a helper at `0x60017918`. `CMD1 SEND_OP_COND` is MMC/eMMC's OCR negotiation; after CMD1 the caller reads USDHC1 `CMDRSP0` (+0x10) and checks **bit31, device power-up-ready (OCR_BUSY)** at `0x60017A00`. A standard removable SD initialization generally uses CMD8/ACMD41 instead. Thus the A7 firmware **expects an MMC/eMMC-class protocol at USDHC1**, not an arbitrarily modeled SD card. We have not established a physically mounted eMMC, CID/CSD/EXT_CSD values, or contents of its storage.
+
+Relevant reuse options: [QEMU's SDHCI host model](https://github.com/qemu/qemu/blob/master/hw/sd/sdhci.c), [QEMU's eMMC card type](https://qemu.googlesource.com/qemu/+/25fef09ce17ac1ae22638a0b57d97c2bd5cd7d83/include/hw/sd/sd.h) (TYPE_EMMC), [NXP USDHC register reference](https://github.com/nxp-mcuxpresso/mcux-devices-imx/blob/main/i.MX7ULP/periph/PERI_USDHC.h), [MCUXpresso USDHC API](https://mcuxpresso.nxp.com/api_doc/dev/1581/group__usdhc.html), and Linux's [i.MX eSDHC host driver](https://github.com/torvalds/linux/blob/master/drivers/mmc/host/sdhci-esdhc-imx.c). A generic SDHCI controller cannot be dropped into these MMIO windows without checking i.MX7ULP's register layout, DMA, IRQ, and card attachment semantics.
+
 ## Narrow USDHC1 host-side behavior
 
 NXP's official [i.MX7ULP PERI_USDHC.h](https://github.com/nxp-mcuxpresso/mcux-devices-imx/blob/main/i.MX7ULP/periph/PERI_USDHC.h) defines `CMD_ARG +0x08`, `CMD_XFR_TYP +0x0C`, response type `[17:16]`, data present bit21, and command index `[29:24]`. The [MCUXpresso USDHC driver](https://mcuxpresso.nxp.com/api_doc/dev/1581/group__usdhc.html) distinguishes no-response commands from card-response commands, and `INT_STATUS.CC` (bit0) from completion of data/card transfers.
