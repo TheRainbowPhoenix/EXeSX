@@ -32,7 +32,7 @@ def make_elf():
     literal(7, RESULTS)
     literal(0, 0x40380024)   # Same r0 value as the original Casio loop
     ldr(2, 0, 8)             # 0x60017134: LDR r2,[r0,#8]
-    emit(0xe3822401)        # 0x60017138: ORR r2,r2,#0x01000000
+    emit(0xe3822740)        # 0x60017138: ORR r2,r2,#0x01000000
     strw(2, 0, 8)            # 0x6001713c: STR r2,[r0,#8]
     ldr(2, 0, 0)            # 0x60017140: LDR r2,[r0]
     strw(2, 7, 0)            # Preserve status instead of infinite loop
