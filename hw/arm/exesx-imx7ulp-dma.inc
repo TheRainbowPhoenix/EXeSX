@@ -65,6 +65,7 @@ static MemTxResult exesx_dma0_read(EXeSXProfileWindow *w, hwaddr off,
 static MemTxResult exesx_dma0_write(EXeSXProfileWindow *w, hwaddr off,
                                    uint64_t value, unsigned size)
 {
+    uint32_t bits = (uint32_t)value;
     if (exesx_dma1_tcd_access(w, off, size)) {
         uint32_t shift = (off & 3) * 8;
         uint32_t mask = ((UINT64_C(1) << (size * 8)) - 1) << shift;
