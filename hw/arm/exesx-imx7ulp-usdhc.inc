@@ -38,6 +38,9 @@ static MemTxResult exesx_usdhc0_write(EXeSXProfileWindow *w,
  * means no command completion, transfer completion, or insertion events.
  */
 #define EXESX_USDHC1_IRQ_VALID UINT32_C(0x157f51ff)
+/* PERI_USDHC.h PROT_CTRL: direction/endian/DMA/blockgap/wakeup/bursts;
+ * undefined bits are read-as-zero and write-ignored. */
+#define EXESX_USDHC1_PROT_CTRL_MASK UINT32_C(0x7f1f03ff)
 
 static MemTxResult exesx_usdhc1_read(EXeSXProfileWindow *w,
                                     hwaddr off, uint64_t *value,
@@ -51,8 +54,11 @@ static MemTxResult exesx_usdhc1_read(EXeSXProfileWindow *w,
         /* Host SD clock stable, but NO card present and NO data ready. */
         *value = UINT32_C(0x00000008);
         return MEMTX_OK;
+    case 0x08: /* CMD_ARG: argument from A7 to SD command wire */
+    case 0x0c: /* CMD_XFR_TYP: most recently initiated command */
+    case 0x28: /* PROT_CTRL: bus/endian/byte order configuration */
     case 0x2c:
-    case 0x30: /* INT_STATUS, no event sources implemented */
+    case 0x30: /* INT_STATUS: no removable card/media attached */
     case 0x34: /* INT_STATUS_EN */
     case 0x38: /* INT_SIGNAL_EN */
     case 0x44: /* WTMK_LVL: read/write FIFO watermark parameters */
@@ -74,6 +80,35 @@ static MemTxResult exesx_usdhc1_write(EXeSXProfileWindow *w,
         return MEMTX_ERROR;
     }
     switch (off) {
+    case 0x28: /* PROT_CTRL: no fake card-detect test-level change */
+        w->regfile[off / 4] = bits & EXESX_USDHC1_PROT_CTRL_MASK;
+        return MEMTX_OK;
+    case 0x08: /* CMD_ARG: staging only; not a card response */
+        w->regfile[off / 4] = bits;
+        return MEMTX_OK;
+    case 0x0c: { /* CMD_XFR_TYP: a write launches an SD/MMC command */
+        unsigned index = (bits >> 24) & 0x3f;
+        unsigned response_type = (bits >> 16) & 3;
+        uint32_t argument = w->regfile[0x08 / 4];
+
+        w->regfile[off / 4] = bits;
+        /* NXP CMD0 (GO_IDLE_STATE) has no response and no data:
+         * the HOST can finish sending its command without any medium.
+         * This is NOT a card reply or proof that a card is inserted.
+         * Do not fake completion for CMD8/CMD1/etc, which require
+         * external media and have real response/timeout behavior.
+         */
+        if (index == 0 && argument == 0 && response_type == 0 &&
+            !(bits & UINT32_C(0x00200000)) &&
+            (w->regfile[0x34 / 4] & UINT32_C(1))) {
+            w->regfile[0x30 / 4] |= UINT32_C(1); /* host CMD complete */
+        }
+        qemu_log_mask(LOG_UNIMP,
+                      "EXeSX USDHC1 CMD%u ARG=0x%08x XFR=0x%08x "
+                      "response=%u no-media (no card response)\n",
+                      index, argument, bits, response_type);
+        return MEMTX_OK;
+    }
     case 0x2c:
         /* NXP SYS_CTRL RSTA/RSTC/RSTD/RSTT are reset command bits
          * that self-clear. Other enabled clock divisors remain stored.

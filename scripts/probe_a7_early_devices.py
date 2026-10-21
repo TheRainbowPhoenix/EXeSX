@@ -82,6 +82,25 @@ def make_elf():
     strw(1, 0, 0x38)                # INT_SIGNAL_EN
     ldr(2, 0, 0x38); strw(2, 7, 76)
     ldr(2, 0, 0x30); strw(2, 7, 80)  # No CC/TC/card-insert signaled
+    lit(1, 0x8820)
+    strw(1, 0, 0x28)                # Real BIOS PROT_CTRL initial mode
+    ldr(2, 0, 0x28); strw(2, 7, 112) # Only EMODE=0x20 defined; reserved ignored
+    lit(1, 0)
+    strw(1, 0, 0x08)                # CMD0 with argument 0
+    strw(1, 0, 0x0c)                # CMD0 RSPTYP=0, no data
+    ldr(2, 0, 0x30); strw(2, 7, 84)  # CC: host emitted no-reply CMD0
+    ldr(2, 0, 0x08); strw(2, 7, 88)  # command argument stored
+    ldr(2, 0, 0x0c); strw(2, 7, 92)  # command index/type stored
+    lit(1, 1)
+    strw(1, 0, 0x30)                # W1C host CC
+    ldr(2, 0, 0x30); strw(2, 7, 96)
+    lit(1, 0x1aa)
+    strw(1, 0, 0x08)                # CMD8 requires real SD response
+    lit(1, 0x08020000)
+    strw(1, 0, 0x0c)                # CMD8 RSPTYP=2, no card
+    ldr(2, 0, 0x08); strw(2, 7, 100)
+    ldr(2, 0, 0x0c); strw(2, 7, 104)
+    ldr(2, 0, 0x30); strw(2, 7, 108) # never forge CC/card response
     emit(0xeafffffe)
     for index, reg, value in literals:
         offset = len(words)*4 - (index*4+8)
@@ -113,19 +132,19 @@ def main():
                             stderr=subprocess.STDOUT,text=True)
     try:
         time.sleep(0.5)
-        script="".join(f"xp /1wx 0x{OUT+4*i:08x}\n" for i in range(21))+"quit\n"
+        script="".join(f"xp /1wx 0x{OUT+4*i:08x}\n" for i in range(29))+"quit\n"
         output,_=guest.communicate(script,timeout=15)
     finally:
         if guest.poll() is None: guest.kill();guest.wait()
     actual=[]
-    for i in range(21):
+    for i in range(29):
         m=re.search(r"(?im)^0*"+f"{OUT+i*4:08x}"+r":\s+0x([0-9a-f]+)",output)
         if not m: raise AssertionError("Missing guest ARM output: "+output[-1600:])
         actual.append(int(m.group(1),16))
-    expected=[8,0x90,0,0xaabbccdd,0x1234,0x95,0x302,0xa1b2c3d4,0xc3,0,0x100,0,0,8,0x00800000,0,0x08200820,0,0x157f51ff,0x157f51ff,0]
+    expected=[8,0x90,0,0xaabbccdd,0x1234,0x95,0x302,0xa1b2c3d4,0xc3,0,0x100,0,0,8,0x00800000,0,0x08200820,0,0x157f51ff,0x157f51ff,0,1,0,0,0,0x1aa,0x08020000,0,0x20]
     if actual != expected:
         raise AssertionError(f"Mixed-width A7 startup MMIO mismatch: {list(map(hex,actual))}")
     print("PASS A7 ARM USDHC0/1 host clocks with no card, DMA1/TCD, DMAMUX1 and LPSPI2 controls")
-    print("No card data, DMA transfer or SPI replies have been emulated.")
+    print("PASS CMD0 host-only no-response complete; CMD8 retains argument but no card/response/IRQ.")
 
 if __name__=="__main__": main()
