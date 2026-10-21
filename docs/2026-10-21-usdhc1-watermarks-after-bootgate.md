@@ -33,6 +33,14 @@ All reserved bits read zero. In the limited emulator, these settings are stored 
 
 This is verified by the native firmware-free real-ARM test `scripts/probe_a7_early_devices.py`, which now writes the exact original value and reads it back. A new private ROM differential after CI will determine the next *real* A7/MMIO blocker and whether original firmware reaches an SD command.
 
+## Completed native CI and original-ROM differential
+
+Native [GitHub Actions run 39576514641](https://github.com/TheRainbowPhoenix/EXeSX/actions/runs/39576514641) **SUCCESS**. The extracted native QEMU artifact SHA256 manifest verified; independently re-ran the real guest ARM WTMK configuration test, **PASS**.
+
+The SAME original private OSUP and diagnostic I²C/SNVS options, with `EXESX_GPIOB_INPUT_MASK=0x80` and **no debugger register injection**, confirmed M4 gate `0xFFFFFFFF`, A7 `r0=1` at `0x6004A19C`, and A7 normal startup at `0x6004A1BC`. The old A7 fault at `0x40380044` is now gone. The next precise A7 Data Abort occurred at **DFSR `0x1008`, DFAR `0x40380030`**, NXP USDHC1 **`INT_STATUS`**, a W1C interrupt/error-status register. No OS entry or LCD activity was confirmed.
+
+Next, model only documented, observed USDHC1 interrupt status clearing and enable control without fabricating `CC` command-complete, `TC` transfer-complete, `CINS` card-insertion, or any card reply. Trace the first actual guest SD command once access reaches `CMD_XFR_TYP`. Do not claim successful storage or a boot based solely on fewer Data Aborts.
+
 ## Hardware/firmware-reference chain
 
 - [NXP i.MX7ULP official PERI_USDHC.h](https://github.com/nxp-mcuxpresso/mcux-devices-imx/blob/main/i.MX7ULP/periph/PERI_USDHC.h): authority for offset/bit masks and burst length restrictions
