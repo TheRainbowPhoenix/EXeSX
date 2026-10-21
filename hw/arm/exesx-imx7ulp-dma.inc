@@ -64,6 +64,13 @@ static MemTxResult exesx_dma0_write(EXeSXProfileWindow *w, hwaddr off,
         uint32_t mask = ((UINT64_C(1) << (size * 8)) - 1) << shift;
         w->regfile[off / 4] = (w->regfile[off / 4] & ~mask) |
                               (((uint32_t)value << shift) & mask);
+        if (!g_strcmp0(g_getenv("EXESX_TRACE_DMA1_TCD"), "1")) {
+            qemu_log_mask(LOG_UNIMP,
+                          "EXeSX DMA1 TCD WRITE ch=%u field=0x%02" HWADDR_PRIx
+                          " width=%u data=0x%08x (NO DMA execution)\n",
+                          (unsigned)((off - 0x1000) / 32),
+                          (off - 0x1000) % 32, size, (uint32_t)value);
+        }
         return MEMTX_OK;
     }
     if ((w->base != UINT64_C(0x41008000) &&
