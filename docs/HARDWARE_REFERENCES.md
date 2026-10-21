@@ -36,6 +36,12 @@ Source catalog for the QEMU 10.1.0 Casio XD-SX9850/DY357 Cortex-A7 + Cortex-M4 r
 - [NXP USDHC SDK API](https://mcuxpresso.nxp.com/api_doc/dev/1581/group__usdhc.html) — `PRES_STATE.SDSTB` (stable clock) is distinct from `CINST` (actual card inserted)
 - [Live A7 USDHC→DMA1→DMAMUX1→LPSPI2 study](2026-10-21-a7-usdhc-dma-bringup.md) — private-firmware addresses, exact instructions, model limits and next tests; no proprietary firmware uploaded
 
+## SNVS high-power real-time counter and DMA status
+
+- [NXP PERI_SNVS.h](https://github.com/nxp-mcuxpresso/mcux-devices-imx/blob/main/i.MX7ULP/periph/PERI_SNVS.h) — HP RTC counter MSB/LSB offsets `+0x24/+0x28` and control register `HPCR.RTC_EN`
+- [NXP PERI_DMA.h](https://github.com/nxp-mcuxpresso/mcux-devices-imx/blob/main/i.MX7ULP/periph/PERI_DMA.h) — A7 DMA1 `CR.ACTIVE` bit **31**, eDMA TCD control/state
+- [Private M4 SNVS RTC follow-up](2026-10-21-snvs-rtc-m4-followup.md) — exact 0x41070024 bus read, virtual elapsed-time emulation and limitations
+
 ## Current investigation reports
 
 - [Real firmware MU v1 correction](2026-10-20-imx7ulp-mu-v1-bit-order.md) — 78,665 to 2 IRQ22 entries with MU interrupt enabled, still no proven OS entry.

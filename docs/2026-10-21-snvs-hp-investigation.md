@@ -1,5 +1,7 @@
 # SNVS high-power early-boot fault and bounded model — 2026-10-21
 
+> **Later corrected diagnosis:** The apparent A7 IRQ return PC `0x20002028` did not cause the subsequent Data Abort. The actual A7 DFAR was **USDHC0 `0x40370024`**; this has been modeled and tested alongside the next DMA1/DMAMUX1/LPSPI2 startup registers. See [verified A7 fault ladder](2026-10-21-a7-usdhc-dma-bringup.md). A still later *M4* fault accesses SNVS high-power RTC `HPRTCMR` at `0x41070024`; see [RTC investigation](2026-10-21-snvs-rtc-m4-followup.md).
+
 **Status:** controlled emulation experiment. Genuine Casio XD-SX9850 firmware binary provided privately; its updater SHA256 is d5791bec1c7739315fb6113b5d6890a21f6c454fcf7a05a0381cfaaa70808fb0. No ROM, ELF, snapshots or private execution logs are checked into GitHub.
 
 ## Silicon-verified register identity
