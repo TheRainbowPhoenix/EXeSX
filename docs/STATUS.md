@@ -1,18 +1,21 @@
-# EXeSX measured status — 2026-10-21
+# EXeSX measured bring-up status — 2026-10-21
 
-**No Casio OS entry, LCD pixels, or on-screen text have been verified.** All native runs use the original privately supplied SHA-verified OSUP; firmware, snapshots and credentials are excluded from public GitHub.
+**No genuine Casio OS entry, LCD pixels or text have been verified.** All real firmware experiments used the original locally SHA-verified proprietary OSUP. No firmware, private traces, snapshots or user credentials are in GitHub.
 
-## Verified milestones
+## Confirmed functional advances
 
-- Native Cortex-A7 BIOS and Cortex-M4 firmware execute in QEMU 10.1.0 with custom i.MX7ULP MMIO and GPIO/ADC/DMA/MU support. Off-chip I²C 0x4B/0x40 devices remain unidentified; only **opt-in synthetic mirrors** can bypass their NACKs.
-- The i.MX7ULP **MU v1 status-bit numbering bug** was corrected using the explicit upstream Linux i.MX7ULP mailbox driver. M4 IRQ22 storms fell from 78,665 to 2 in bounded real firmware, and five busy A7 TR2 sends fell to zero. [Full MU evidence](2026-10-20-imx7ulp-mu-v1-bit-order.md).
-- M4 SNVS high-power command registers `HPCOMR` and `HPCR` now have a strict documented subset. **Software security-violation commands remain rejected by default**, or can be ignored **only with explicit research-mode opt-in**. Neither setting models a valid SNVS security lifecycle. [SNVS HP investigation](2026-10-21-snvs-hp-investigation.md).
-- **Corrected A7 Abort diagnosis:** the earlier IRQ-return-to-0x20002028 theory was wrong. The fault was at **USDHC0 PRES_STATE 0x40370024** (A7 instruction 0x60034F18), polling the stable-host-clock bit. Bounded early models for USDHC0, A7 DMA1/TCD storage, DMAMUX1 byte/word access, and LPSPI2 control now permit a real 4-second run without A7 Data Abort. **There is no simulated SD card, DMA transfer, or SPI device.** [A7 peripheral ladder](2026-10-21-a7-usdhc-dma-bringup.md).
-- **New M4 fault:** SNVS HP RTC MSB read at **0x41070024**, code around 0x1FFD4D46 (paired with LSB at 0x41070028), after A7 peripheral progress. An evidence-based **32.768-kHz QEMU virtual-time RTC high/low read subset** is under native test. No wall clock, calendar, secure time, tamper, wake or alarm is fabricated. [M4 HP RTC follow-up](2026-10-21-snvs-rtc-m4-followup.md).
-- The repeatedly sampled A7 DMA1 CR read at **0x601CBC34** tests **bit 31, DMA_CR.ACTIVE**, a documented engine-active status. In the early-control-only model, no channel runs and the flag stays clear. That loop alone is not a proven deadlock.
+- Cortex-A7 BIOS executes and releases M4 firmware. The i.MX7ULP MU v1 channel-bit ordering was corrected against Linux's actual imx7ulp mailbox driver: experimental M4 IRQ22 storm fell from 78,665 to 2 entries, and rejected TR2 sends from 5 to 0 in bounded runs. Off-chip I²C 0x4B and 0x40 chips remain unidentified; their optional register mirrors are **diagnostic inventions**.
+- SNVS high-power `HPCOMR`/ `HPCR` now have a manufacturer-defined command subset. The real security lifecycle is **NOT modeled**; writes requesting software security-violation pulses are rejected unless `EXESX_SNVS_DIAGNOSTIC_SECURITY_PULSES=1` is explicitly set for a private research-only run.
+- A bounded, snapshot-safe **32.768-kHz relative SNVS HP RTC** is now available at `HPRTCMR` `0x41070024`/`HPRTCLR` `0x41070028`, gated by `RTC_EN`. This removed the observed M4 BusFault at 0x41070024 in a subsequent real OSUP run. No host calendar/secure clock is emulated. [RTC investigation](2026-10-21-snvs-rtc-m4-followup.md).
+- The earlier A7 Data Abort was at USDHC0 `0x40370024`, **not a corrupt IRQ return to 0x20002028**. Clock-ready-only USDHC0, DMA1 TCD/register storage, DMAMUX1 packed 8/16/32-bit register access, and LPSPI2 CR startup controls passed native ARM tests. No SD card, DMA transfer or SPI message is simulated. [A7 MMIO ladder](2026-10-21-a7-usdhc-dma-bringup.md).
+- A second A7 Data Abort, `0x403800C0`, was identified as **USDHC1.VEND_SPEC**. Merged [PR #14](https://github.com/TheRainbowPhoenix/EXeSX/pull/14) models only vendor SDCLK-on bit8, SYS_CTRL reset/clock controls, host stable/no-card status and MIX_CTRL storage. It accepts an observed firmware write of 0xF to reserved SYS_CTRL low bits as RAZ/WI. Real OSUP advances beyond this controller setup, with native CI all green. [USDHC1 study](2026-10-21-usdhc1-mmdc-lowpower.md).
 
-## Next verification
+## Current concrete roadblock — deliberate A7 DDR suspend entry
 
-Run the patched HP RTC against the same private OSUP with diagnostic I²C and explicitly diagnostic SNVS pulses; compare M4 fault register/PC, A7 DFSR/DFAR, actual OS entry `0x60400000`, and next unsupported MMIO access. Keep all unsupported peripheral operations explicit; do not insert fictitious card data, DMA completions, security states, or UI success.
+The next A7 Data Abort is **DFAR `0x40AB0404`**, a read of NXP **MMDC0.MAPSR**, the DDR power-saving control/status register. The private A7 firmware has copied a routine into internal RAM `0x2F02B000`; its disassembly explicitly requests `MAPSR.LPMD` bit20, polls `MAPSR.LPACK` bit24, then executes **`WFI` in a loop**. This is a *deliberate low-power/suspend path*, not proven OS startup.
 
-**Primary external references:** [manufacturer and upstream hardware reference index](HARDWARE_REFERENCES.md).
+**Do not force a fake MMDC LPACK and call it a boot.** It would merely send this code to WFI. Determine the real reason the firmware selects suspend, which PMC/SMC/LLWU/GIC wake event is missing, and whether the main OS should already have entered a different path. [Precise disassembly and NXP sources](2026-10-21-usdhc1-mmdc-lowpower.md).
+
+Other observed facts: `MainTask` runs and semaphore31 cycles; the kernel optional idle callback is intentionally null; DMA1 `CR.ACTIVE` is **bit31** and reads at 0x601CBC34 do not alone demonstrate a hang. Both the original M4 IPC `0xEEEEEEEE` marker and lack of guest display remain unresolved.
+
+**Authoritative references:** [manufacturer/upstream hardware reference catalog](HARDWARE_REFERENCES.md). 
