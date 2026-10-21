@@ -57,6 +57,14 @@ Source catalog for the QEMU 10.1.0 Casio XD-SX9850/DY357 Cortex-A7 + Cortex-M4 r
 - [NXP A7/M4 power-mode timing case](https://community.nxp.com/t5/i-MX-Processors/A7-M4-timing-issue-using-power-mode-switch-example/td-p/1065463) — GPIO/LPTMR wake in demo use cases, **not a confirmed GPIOB7 Casio wakeup**
 - [Original-OSUP M4 GPIOB7→A7 shared permission investigation](2026-10-21-gpiob7-boot-permission.md) — exact Thumb, ARM and cross-core watchpoint traces; MMDC low-power is a consequence of the gate being false
 
+## First SD/eMMC command-transaction references
+
+- [NXP i.MX7ULP PERI_USDHC.h](https://github.com/nxp-mcuxpresso/mcux-devices-imx/blob/main/i.MX7ULP/periph/PERI_USDHC.h) — `CMD_ARG` +0x08, `CMD_XFR_TYP` +0x0C, `INT_STATUS` +0x30 W1C, `INT_STATUS_EN` +0x34, `INT_SIGNAL_EN` +0x38, `WTMK_LVL` +0x44; no card response may be invented
+- [Linux i.MX7ULP USDHC/eSDHC driver](https://github.com/torvalds/linux/blob/master/drivers/mmc/host/sdhci-esdhc-imx.c) — SDHCI command/interrupt, reset, watermarks and i.MX-specific quirks (requires port validation)
+- [QEMU SDHCI controller implementation](https://gitlab.com/qemu-project/qemu/-/blob/master/hw/sd/sdhci.c) — possible reusable *actual* USDHC-compatible command/card engine, but verify i.MX7ULP-specific register differences, IRQ wiring, backing-card semantics, and licensing
+- [USDHC1 first CMD0/zero-argument boundary](2026-10-21-usdhc1-irq-control.md) — firmware-verified CTRL/interrupt/W1C progression
+- [USDHC1 WTMK watermark disassembly](2026-10-21-usdhc1-watermarks-after-bootgate.md) — firmware write 0x08200820 before first command
+
 ## Current investigation reports
 
 - [Real firmware MU v1 correction](2026-10-20-imx7ulp-mu-v1-bit-order.md) — 78,665 to 2 IRQ22 entries with MU interrupt enabled, still no proven OS entry.
