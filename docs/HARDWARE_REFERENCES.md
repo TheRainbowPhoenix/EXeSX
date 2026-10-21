@@ -65,6 +65,20 @@ Source catalog for the QEMU 10.1.0 Casio XD-SX9850/DY357 Cortex-A7 + Cortex-M4 r
 - [USDHC1 first CMD0/zero-argument boundary](2026-10-21-usdhc1-irq-control.md) — firmware-verified CTRL/interrupt/W1C progression
 - [USDHC1 WTMK watermark disassembly](2026-10-21-usdhc1-watermarks-after-bootgate.md) — firmware write 0x08200820 before first command
 
+## Verified MMC/eMMC startup and next emulator implementation sources
+
+- [NXP i.MX7ULP USDHC register definitions — PERI_USDHC.h](https://github.com/nxp-mcuxpresso/mcux-devices-imx/blob/main/i.MX7ULP/periph/PERI_USDHC.h) — `PROT_CTRL`, `CMD_ARG`, `CMD_XFR_TYP`, `CMDRSP0-3`, `INT_STATUS.CC/CTOE`, `SYS_CTRL` and clock/status fields
+- [NXP MCUXpresso USDHC driver](https://mcuxpresso.nxp.com/api_doc/dev/1581/group__usdhc.html) — command/no-response/48-bit/136-bit response types, response error handling and real transfers
+- [QEMU upstream SDHCI controller](https://github.com/qemu/qemu/blob/master/hw/sd/sdhci.c) — reusable command/response/data-controller implementation; i.MX7ULP-specific MMIO and IRQ differences remain unresolved
+- [QEMU SD card and TYPE_EMMC device API](https://qemu.googlesource.com/qemu/+/25fef09ce17ac1ae22638a0b57d97c2bd5cd7d83/include/hw/sd/sd.h) — **separate eMMC device exists**; use a backed image and real device protocol, not arbitrary 0xff/0x00 sectors or invented OCR
+- [Linux i.MX eSDHC driver](https://github.com/torvalds/linux/blob/master/drivers/mmc/host/sdhci-esdhc-imx.c) — host reset/clock/CMD response/bus power differences relevant to adapting QEMU SDHCI
+- [Linux MMC core host definitions](https://github.com/torvalds/linux/blob/master/include/linux/mmc/mmc.h) — standard MMC CMD0/CMD1/CMD2/CMD3/CMD9/CMD7/CMD6 command IDs and OCR/CID/CSD semantics
+- [JEDEC eMMC 5.1 standard, JESD84-B51](https://www.jedec.org/standards-documents/docs/jesd84-b51) — normative eMMC protocol source where accessible; do not assume Casio uses exactly v5.1 without hardware evidence
+- [Original Casio A7 MMC identification disassembly](2026-10-21-usdhc1-cmd0-no-media.md) — first CMD0 and CMD1 with live arguments; full software sequence includes CMD2/3/9/7 and CMD6
+- [Native and original-ROM confirmed empty-eMMC-slot timeout behavior](2026-10-21-usdhc1-no-media-timeout.md) — 65 CMD1 retries then CMD7 with absent card, no invented OCR or OS boot
+
+These records confirm the **firmware speaks an MMC/eMMC-class protocol**; they do **not** identify the physical Casio storage package, capacity, CSD contents, partition geometry, or any actual SD/eMMC image.
+
 ## Current investigation reports
 
 - [Real firmware MU v1 correction](2026-10-20-imx7ulp-mu-v1-bit-order.md) — 78,665 to 2 IRQ22 entries with MU interrupt enabled, still no proven OS entry.
