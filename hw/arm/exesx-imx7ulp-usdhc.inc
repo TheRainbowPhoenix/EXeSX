@@ -72,9 +72,16 @@ static MemTxResult exesx_usdhc1_write(EXeSXProfileWindow *w,
          * We have no attached card, buffer or command FSM to reset.
          */
         if (bits & ~EXESX_USDHC1_SYS_CTRL_MASK) {
-            return MEMTX_ERROR;
+            /* Software may write an entire register including reserved
+             * low bits. In this device model they are RAZ/WI rather
+             * than a fabricated bus fault. No transfer is started.
+             */
+            qemu_log_mask(LOG_GUEST_ERROR,
+                          "EXeSX USDHC1 ignored reserved SYS_CTRL bits "
+                          "0x%08x\n", bits & ~EXESX_USDHC1_SYS_CTRL_MASK);
         }
-        w->regfile[off / 4] = bits & ~UINT32_C(0x17000000);
+        w->regfile[off / 4] =
+            bits & EXESX_USDHC1_SYS_CTRL_MASK & ~UINT32_C(0x17000000);
         return MEMTX_OK;
     case 0x48:
         /* MIX_CTRL carries SD card transfer mixing flags, stored for
