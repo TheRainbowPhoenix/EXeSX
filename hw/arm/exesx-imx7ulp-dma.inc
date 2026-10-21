@@ -19,11 +19,32 @@ static bool exesx_dma0_early_reg(hwaddr off)
     }
 }
 
+/* DMA1 A7-side 32-channel TCD registers at +0x1000..+0x13ff.
+ * Store descriptors for inspection only. No TCD engine or data copying.
+ * Linux fsl,imx7ulp-edma binding documents this register window.
+ */
+static bool exesx_dma1_tcd_access(EXeSXProfileWindow *w, hwaddr off,
+                                  unsigned size)
+{
+    return w->base == UINT64_C(0x40080000) &&
+           off >= 0x1000 && off < 0x1400 &&
+           (size == 1 || size == 2 || size == 4) &&
+           (off & (size - 1)) == 0 &&
+           ((off & 3) + size <= 4);
+}
+
 static MemTxResult exesx_dma0_read(EXeSXProfileWindow *w, hwaddr off,
                                   uint64_t *value, unsigned size)
 {
-    if (w->base != 0x41008000 || size != 4 || (off & 3) ||
-        off >= w->size || !exesx_dma0_early_reg(off)) {
+    if (exesx_dma1_tcd_access(w, off, size)) {
+        *value = (w->regfile[off / 4] >> ((off & 3) * 8)) &
+                 ((UINT64_C(1) << (size * 8)) - 1);
+        return MEMTX_OK;
+    }
+    if ((w->base != UINT64_C(0x41008000) &&
+         w->base != UINT64_C(0x40080000)) ||
+        size != 4 || (off & 3) || off >= w->size ||
+        !exesx_dma0_early_reg(off)) {
         return MEMTX_ERROR;
     }
     /* Without descriptors, no channel reports activity/error/interrupt. */
@@ -38,8 +59,17 @@ static MemTxResult exesx_dma0_read(EXeSXProfileWindow *w, hwaddr off,
 static MemTxResult exesx_dma0_write(EXeSXProfileWindow *w, hwaddr off,
                                    uint64_t value, unsigned size)
 {
-    if (w->base != 0x41008000 || size != 4 || (off & 3) ||
-        off >= w->size || !exesx_dma0_early_reg(off) ||
+    if (exesx_dma1_tcd_access(w, off, size)) {
+        uint32_t shift = (off & 3) * 8;
+        uint32_t mask = ((UINT64_C(1) << (size * 8)) - 1) << shift;
+        w->regfile[off / 4] = (w->regfile[off / 4] & ~mask) |
+                              (((uint32_t)value << shift) & mask);
+        return MEMTX_OK;
+    }
+    if ((w->base != UINT64_C(0x41008000) &&
+         w->base != UINT64_C(0x40080000)) ||
+        size != 4 || (off & 3) || off >= w->size ||
+        !exesx_dma0_early_reg(off) ||
         off == 0x04 || off == 0x34) {
         return MEMTX_ERROR;
     }
@@ -50,7 +80,7 @@ static MemTxResult exesx_dma0_write(EXeSXProfileWindow *w, hwaddr off,
         w->regfile[off / 4] = (uint32_t)value;
     }
     qemu_log_mask(LOG_GUEST_ERROR,
-                  "EXeSX DMA0 EARLY_CONTROL @0x%" HWADDR_PRIx
+                  "EXeSX DMA EARLY_CONTROL @0x%" HWADDR_PRIx
                   " data=0x%08x (NO transfers modeled)\n",
                   w->base + off, (uint32_t)value);
     return MEMTX_OK;
