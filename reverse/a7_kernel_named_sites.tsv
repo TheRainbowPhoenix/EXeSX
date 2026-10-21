@@ -40,3 +40,7 @@ address	name	kind	confidence	evidence
 0x601e7144	A7_System_SaveContextThenPowerDown	function	high	Live PC; invokes 0x601cc0dc CPU context save then 0x601cd48c shutdown
 0x601cc0dc	A7_System_SavePrivilegedCpuStackState	function	high	Static saves SP for CPU modes FIQ ABT UND SVC IRQ SYS; live before shutdown
 0x601cd48c	A7_System_DeinitializeAndEnterSRAMSuspend	function	high	Live called by 0x601e7144; powers down subsystems and jumps SRAM trampoline
+0x6001788c	A7_USDHC1_SubmitCommand	function	high	Live original-ROM command-submission routine read/clear INT_STATUS then sets CMD_ARG and CMD_XFR_TYP
+0x600178bc	A7_USDHC1_WriteCommandArgument	site	high	Live GDB original-ROM at STR to 0x40380008, r8=0 first command
+0x600178e0	A7_USDHC1_WriteCommandTransferType	site	medium-high	Static ARM STR to 0x4038000c; full live CMD index pending controller model
+0x600179b0	A7_USDHC1_ConfigureFIFOReadWriteWatermarks	site	high	Live 0x08200820 write to USDHC1 WTMK_LVL 0x40380044
