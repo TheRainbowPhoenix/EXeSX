@@ -59,4 +59,61 @@ New opt-in i.MX7ULP behavior:
 
 Relevant upstream/SDK comparison: [QEMU 10.1.0 `sdhci.c`](https://github.com/qemu/qemu/blob/v10.1.0/hw/sd/sdhci.c), [NXP USDHC transfer flag definitions](https://mcuxpresso.nxp.com/api_doc/dev/1581/group__usdhc.html). The same original ROM and only a private diagnostic 4 KiB RAM window for the previously unidentified external FlexBus target `0xb0000000` allow comparing CMD12 behavior without undoing the more-accurate DMA1/DMAMUX1 fixes. This private window **is not a hardware implementation** and is not committed.
 
-**Actual next original-ROM outcome:** pending a fresh native artifact for this enhanced patch. The prior passing synthetic result by itself does *not* count as a firmware-boot fix.
+**Actual original-ROM outcome** is documented below; synthetic CI alone was not used to claim BIOS progress.
+
+
+## Final private original-ROM differentials after MIX_CTRL + FIFO rollover
+
+**Verified native build:** pinned QEMU 10.1.0 with the opt-in i.MX7ULP modifications, [CI run 39690017476](https://github.com/TheRainbowPhoenix/EXeSX/actions/runs/39690017476) passing all 35 original test steps, plus further FIFO rollover correction tested independently. The original user-owned OSUP-derived ELF and QEMU TYPE_EMMC were used without binary modifications. All disk snapshots/logs are local.
+
+First, the MIX_CTRL fix alone **unblocked real CMD12**:
+
+```
+EXESX USDHC1 CMD12 BEFORE raw=0c030000 trnmod=0032 cmdreg=0d02 prnsts=01ff0a06
+sdhci_send_command CMD12 ARG[0x00020000]
+sdcard_normal_command eMMC STOP_TRANSMISSION CMD12 arg 0x00020000
+EXESX USDHC1 CMD12 AFTER ... prnsts=01ff0000 norint=0003 err=0000
+```
+
+The firmware no longer stalled on the old CMD12 command-complete poll. However, it retried **CMD23(32) → CMD18(LBA64) → CMD13 → CMD12** ten times. Disassembly of genuine read driver `0x600182c0..0x60018444` shows four 32-word FIFO batches per sector, and the ten-attempt wrapper `0x60018c08..0x60018cb0`. The host snapshot after the first 512-byte block still had **BLKCNT=31**, `PRES_STATE` read available, but no new `INT_STATUS.BRR`.
+
+**Identified second root cause:** When QEMU's SDHCI PIO read consumes a 512-byte block, it synchronously prefetches the next actual sector, sets `s->data_count=0` and raises `BRR`. The BIOS then W1C-acks the *last tranche* of the previous block, which clears this already-raised BRR event. The previous EXeSX watermark fix only rearmed if `s->data_count > 0`, so it failed exactly at block rollover. The final correction reasserts BRR when and only when **genuine `SDHC_DATA_AVAILABLE` is set**, `RD_WML` is nonzero and either consumed bytes are an exact watermark multiple **or** the next real buffered sector starts at offset zero. It does not synthesize a new SD-bus data buffer or a fake final interrupt. Existing single-sector final-BRR negative controls still pass. Synthetic guest-ARM now tests **five 32-word tranches spanning two distinct backing sectors**, and full **32 × 512-byte** multiblock PIO completion (BLKCNT zero, TC set, no BRR after final block).
+
+### Original BIOS, after both fixes (five- and ten-second bounded snapshots)
+
+Two independent real multiblock transfers now **complete without issuing CMD12 recovery**:
+
+```text
+CMD17 boot1 LBA 0              # accepted OSUP-derived PVOS header
+CMD23 count 32
+CMD18 boot1 LBA 0x40          # complete 32 sectors
+CMD23 count 32
+CMD18 boot1 LBA 0x60          # complete another 32 sectors
+CMD6 PARTITION_CONFIG 0      # switch from boot1 to user area
+CMD13 / CMD8
+CMD17 user LBA 0
+CMD17 user LBA 0x01AF5FFF   # exactly PVOS capacity field 0x01AF6000 minus 1
+```
+
+Last observed USDHC host is **idle and not inhibited**, `PRES_STATE=0x01ff0008`, `CMD_XFR_TYP=0x11220010` (last genuine CMD17), `INT_STATUS=0x3`. No `sdhci_error`, new A7 Data Abort or invalid MMIO event was observed in these bounded traces. A7 monitor **R15=0x601CBCF8**, a barrier in BIOS housekeeping, consistently after five, six and ten seconds; **this is an observation, not evidence that this exact instruction is a poll or the next causal blocker**.
+
+### Private media A/B/C comparison; do not mistake a hypothesis for installed flash
+
+| Test media (same QEMU and BIOS) | New card command progression | Observed A7 result |
+| --- | --- | --- |
+| Checksum-valid OSUP PVOS at **boot1 LBA0 and 32**, blank remaining eMMC | Two complete CMD18 transfers, switch to user, CMD17 LBA0 and `0x01AF5FFF` | BIOS `0x601CBCF8`, no OS entry |
+| Same PVOS + tentative OSUP IPL at **boot1 LBA64** | Identical commands | Same BIOS `0x601CBCF8`, no OS entry |
+| Same PVOS + OSUP stream from **IPL source offset 0x80000** placed at **user LBA0**, with user rest still blank | Identical commands | Same BIOS `0x601CBCF8`, no OS entry |
+| Fully blank boot1, no PVOS | CMD17 boot1 LBA0, LBA32; **no CMD18** | Independent negative control |
+
+The user-area last-LBA probe uses `0x01AF5FFF`, matching `OSUP.PVOS[0x14]=0x01AF6000` minus one. This suggests a capacity/bounds check, but the caller consuming the returned sector must be disassembled to prove whether the data is being *validated*, rather than just probed. The three candidate media variants differ in real sectors but not in the observed command sequence, so no physical sector placement beyond PVOS has been verified.
+
+### New remaining questions, in order
+
+1. Trace the *post-user-area* result handling of the two CMD17 reads (LBA0 and PVOS-capacity-minus-one), including whether missing installed metadata/content causes a quiet return to BIOS housekeeping, or whether the OS loader waits for another device/service.
+2. Verify whether **any** original OS entry at `0x605e3ad0` executes; the latest bounded monitor snapshot is within BIOS, and no OS framebuffer/text has been observed.
+3. Identify the real FlexBus device at `0xb0000000`. This test still uses a strictly **private diagnostic 4 KiB RAM window** at that address to prevent an earlier abort; it is not a physically grounded device model and is not committed.
+4. Implement actual eDMA1 request-triggered RAM copying and DONE rather than faking controller success; the current firmware trace no longer stalls at that DMA1 status for the bounded storage path, but the engine is incomplete.
+5. Prove installer destination offsets for **user/GP1** and boot1 regions before creating any public flash layout. OSUP does not contain full installed resources.
+
+**No Casio OS boot, LCD pixels or text are claimed. No private input, metadata-sector bytes, disk images, or logs were committed.**
