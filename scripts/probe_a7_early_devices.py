@@ -70,6 +70,9 @@ def make_elf():
     lit(1, 0x0000000f)
     strw(1, 0, 0x2c)                # Actual A7 write includes reserved bits
     ldr(2, 0, 0x2c); strw(2, 7, 60)  # Reserved bits read as zero
+    lit(1, 0x08200820)
+    strw(1, 0, 0x44)                # Actual original-ROM WTMK_LVL write
+    ldr(2, 0, 0x44); strw(2, 7, 64)  # Watermarks 32, burst lengths 8
     emit(0xeafffffe)
     for index, reg, value in literals:
         offset = len(words)*4 - (index*4+8)
@@ -101,16 +104,16 @@ def main():
                             stderr=subprocess.STDOUT,text=True)
     try:
         time.sleep(0.5)
-        script="".join(f"xp /1wx 0x{OUT+4*i:08x}\n" for i in range(16))+"quit\n"
+        script="".join(f"xp /1wx 0x{OUT+4*i:08x}\n" for i in range(17))+"quit\n"
         output,_=guest.communicate(script,timeout=15)
     finally:
         if guest.poll() is None: guest.kill();guest.wait()
     actual=[]
-    for i in range(16):
+    for i in range(17):
         m=re.search(r"(?im)^0*"+f"{OUT+i*4:08x}"+r":\s+0x([0-9a-f]+)",output)
         if not m: raise AssertionError("Missing guest ARM output: "+output[-1600:])
         actual.append(int(m.group(1),16))
-    expected=[8,0x90,0,0xaabbccdd,0x1234,0x95,0x302,0xa1b2c3d4,0xc3,0,0x100,0,0,8,0x00800000,0]
+    expected=[8,0x90,0,0xaabbccdd,0x1234,0x95,0x302,0xa1b2c3d4,0xc3,0,0x100,0,0,8,0x00800000,0,0x08200820]
     if actual != expected:
         raise AssertionError(f"Mixed-width A7 startup MMIO mismatch: {list(map(hex,actual))}")
     print("PASS A7 ARM USDHC0/1 host clocks with no card, DMA1/TCD, DMAMUX1 and LPSPI2 controls")
