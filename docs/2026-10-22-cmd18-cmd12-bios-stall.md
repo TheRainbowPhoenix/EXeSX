@@ -38,3 +38,25 @@ The guest-ARM regression in `scripts/probe_upstream_emmc.py` now issues real eMM
 `OSUP.BIN` includes an updater whose main bulk-sector writer selects logical region0 (user or GP1 depending on EXT_CSD[155] completion bit), **not boot1**. A separate boot1 reader checks `CASIOPVOS800` at LBA0 and falls back to LBA32. Both source-PVOS placements were accepted in earlier original-BIOS runs and allowed CMD18 LBA64; *genuine LBA64+ on-card bytes remain unknown*. No OS entry or LCD framebuffer is claimed until an original-ROM differential confirms it.
 
 **Private verification status:** Requires new native QEMU artifact and original-ROM rerun; synthetic CI by itself does not establish original firmware progression.
+
+
+## Exact original-ROM discrepancy found after first synthetic CI pass
+
+The initial opt-in CMD12 active-multiblock fix passed its **direct CMD18→CMD12 synthetic ARM test**, but a new private original-DY357 firmware run using the identical patched native QEMU still stalled at `0x60017960`. A separate opt-in *read-only* C-model diagnostic `EXESX_TRACE_USDHC1_CMD12=1` with `-d unimp` revealed:
+
+```text
+EXESX USDHC1 CMD12 BEFORE raw=0c030000 trnmod=0000 cmdreg=0d02 prnsts=01ff0a06 clkcon=0207 gate=0 ready=1
+EXESX USDHC1 CMD12 AFTER cmdreg=0c03 trnmod=0000 prnsts=01ff0a06 norint=0000 err=0000 clkcon=0207
+```
+
+Original BIOS function `0x60017918..0x60017958` **reprograms MIX_CTRL around an intermediate CMD13** before submitting CMD12. The upstream i.MX-specific QEMU handler unconditionally assigned `s->trnmod = value & 0xffff` even while `PRES_STATE.CDIHB=1`. It thereby **erased the MULTI flag of the still-active CMD18**. Generic SDHCI's own TRNMOD handler correctly ignores transfer-mode bit writes during `DATA_INHIBIT`, but QEMU's i.MX MIX_CTRL translation bypassed it. The original command guard correctly requires a genuinely in-flight read **and prior multiblock mode**, so restoring that state is the accurate first fix, not loosening the guard on any bus transaction.
+
+New opt-in i.MX7ULP behavior:
+- Return real `MIX_CTRL` transfer-mode readback, instead of QEMU's upstream hardcoded zero.
+- While `CDIHB` is asserted, preserve QEMU's `SDHC_TRNMOD_MASK=0x0037` active data-transfer bits on writes to `USDHC_MIX_CTRL` (in line with generic SDHCI write protection). Other high/non-transfer fields are still writable.
+- The real guest-ARM regression now does **CMD18→32 FIFO words→MIX_CTRL clear attempt→CMD13→MIX_CTRL clear attempt→CMD12**, validates MIX_CTRL readback stayed `0x32`, and demands a *fresh* card response CC+TC rather than inheriting stale CMD13 CC.
+- The real card CMD12 still must be accepted before the host marks the read stopped.
+
+Relevant upstream/SDK comparison: [QEMU 10.1.0 `sdhci.c`](https://github.com/qemu/qemu/blob/v10.1.0/hw/sd/sdhci.c), [NXP USDHC transfer flag definitions](https://mcuxpresso.nxp.com/api_doc/dev/1581/group__usdhc.html). The same original ROM and only a private diagnostic 4 KiB RAM window for the previously unidentified external FlexBus target `0xb0000000` allow comparing CMD12 behavior without undoing the more-accurate DMA1/DMAMUX1 fixes. This private window **is not a hardware implementation** and is not committed.
+
+**Actual next original-ROM outcome:** pending a fresh native artifact for this enhanced patch. The prior passing synthetic result by itself does *not* count as a firmware-boot fix.
