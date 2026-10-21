@@ -64,9 +64,10 @@ are not the i.MX7ULP VEND_SPEC field definition.
 ## Test contract
 
 Native QEMU guest-ARM `scripts/probe_upstream_emmc.py` executes the
-original reset/write/read/test/branch **instruction sequence**, with
-only the address register changed to r6 because the probe uses r0 for
-its subsequent commands. It proves the loop exits under the explicit
+original **six byte-identical** reset/write/read/test/branch ARM opcodes
+(`e5902008 e3822740 e5802008 e5902000 e3120008 0afffffc`),
+with r0 set to the original `0x40380024`; the probe restores r0 to
+its host base after the loop for subsequent commands. It proves the loop exits under the explicit
 root clock before real CMD0/CMD1/CMD2/CMD3/CMD9/CMD7, CMD17 backed
 sector read, and CMD8 EXT_CSD; also checks `SYS_CTRL[3:0]` remain zero.
 
