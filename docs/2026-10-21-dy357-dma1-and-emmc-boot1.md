@@ -90,3 +90,16 @@ Tests: `python3 -m unittest tests.test_dma1_mmc_metadata -v`. Both decoders oper
 The DMA1 descriptor model now supports **explicitly opt-in, write-only TCD logging** (no DMA side effects). In a private QEMU run, set `EXESX_TRACE_DMA1_TCD=1` and include `-d unimp`; each guest TCD write then produces channel index, 32-byte TCD field offset, width and written value. The default log remains unchanged. Polling reads are deliberately not logged to avoid multi-gigabyte log spam. This supplies the missing evidence for identifying the correct *software-trigger or DMAMUX request* rather than faking `TCD_CSR.DONE`.
 
 Local sparse synthetic-card inspection confirmed both **boot1 sector 0 and sector 32 contain 512 bytes of zero**. This is a property of the synthetic test image, not a claim about any physical Casio eMMC. A real device's boot1 contents cannot be inferred from an updater container. Neither those sector bytes nor proprietary ROM bytes are uploaded to Git.
+
+## Next controlled patch: DMAMUX1 CHCFG stride and DMA1 SERQ/CERQ
+
+A second private run of the same original DY357 binary with `-d int,guest_errors,unimp` supplied the *actual A7 exception evidence*:
+
+- `DFSR=0x1008`, `DFAR=0x40210020` — **DMAMUX1 CHCFG8**.
+- `DFSR=0x1808`, `DFAR=0x4008001B` — **DMA1 SERQ**, a byte-wide controller command.
+
+The previous DMAMUX1 stub incorrectly treated 32 channels as **32 adjacent bytes** and rejected offset `0x20`; the NXP [i.MX7ULP PERI_DMAMUX.h](https://github.com/nxp-mcuxpresso/mcux-devices-imx/blob/main/i.MX7ULP/periph/PERI_DMAMUX.h) instead declares **32 32-bit CHCFG registers at four-byte strides**, from `0x0` through `0x7C`. Each CHCFG defines SOURCE[6:0], A_ON bit29, TRIG bit30, ENBL bit31. The corrected model uses that documented register map and read-as-zero/write-ignored behavior for reserved bits.
+
+NXP's [PERI_DMA.h](https://github.com/nxp-mcuxpresso/mcux-devices-imx/blob/main/i.MX7ULP/periph/PERI_DMA.h) maps SERQ to **DMA1 +0x1B** and CERQ to **+0x1A**; each accepts a byte containing a channel index or an all-channels action. The corrected, A7-only model updates `ERQ` request-enable bits accordingly; a request enable **does not run a DMA TCD, copy bytes, or set DONE/IRQ**. Source `DMA_CR=0x90` has EMLM bit7 set; because NBYTES `0x000CA800` has neither DMLOE nor SMLOE, its minor transfer byte count remains `0xCA800` under the mapped NBYTES_MLOFFNO encoding.
+
+These changes are tested by actual synthetic ARM instructions, checking CHCFG8 at offset `0x20`, reserved-bit masking, byte-wide SERQ channel 15 and CERQ, and ERQ bit15 set/clear. The private original firmware rerun after this fix determines whether either abort is resolved and what controller request/completion requirement remains; **hardware execution is still absent**.
