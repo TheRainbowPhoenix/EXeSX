@@ -309,3 +309,58 @@ patch_exact(
     '            }\n'
     '        }\n',
     "RX watermark BRR W1C re-arm")
+
+
+# Explicit CMD12 STOP_TRANSMISSION during i.MX7ULP PIO multiblock reads.
+# The original DY357 BIOS writes CMD_XFR_TYP=0x0c030000 while the previous
+# CMD18 is still active. QEMU generic SDHCI interprets the R1b response
+# with CMDTYP=normal as command-inhibited, silently discards the request,
+# then Casio indefinitely polls INT_STATUS.CC. Only the opt-in i.MX7ULP
+# card-equipped host accepts this legacy plain CMD12 while an actual
+# multi-block READ is active; the real SD bus responds, then the host
+# terminates the in-progress transfer and emits TC. No card or buffer
+# contents are fabricated; generic SDHCI remains unchanged.
+patch_exact(
+    sdhci_source,
+    'static void sdhci_data_transfer(void *opaque);\n'
+    '\n'
+    '#define BLOCK_SIZE_MASK (4 * KiB - 1)\n',
+    'static void sdhci_data_transfer(void *opaque);\n'
+    'static void sdhci_end_transfer(SDHCIState *s);\n'
+    '\n'
+    '#define BLOCK_SIZE_MASK (4 * KiB - 1)\n',
+    "Explicit CMD12 forward declaration")
+patch_exact(
+    sdhci_source,
+    '    sdhci_update_irq(s);\n'
+    '\n'
+    '    if (!timeout && (s->blksize & BLOCK_SIZE_MASK) &&\n',
+    '    sdhci_update_irq(s);\n'
+    '\n'
+    '    /* DY357 emits a normal-type CMD12 even though CMD18 data is\n'
+    '     * still in flight. An actual accepted STOP_TRANSMISSION aborts\n'
+    '     * remaining buffered data; no bytes or card response are faked.\n'
+    '     * Skip AutoCMD12 because the physical card just received CMD12.\n'
+    '     */\n'
+    '    if (!timeout && s->imx7ulp_input_clock && request.cmd == 12 &&\n'
+    '        (s->prnsts & SDHC_DATA_INHIBIT) &&\n'
+    '        (s->prnsts & SDHC_DOING_READ) &&\n'
+    '        (s->trnmod & SDHC_TRNS_MULTI) &&\n'
+    '        !(s->cmdreg & SDHC_CMD_DATA_PRESENT)) {\n'
+    '        s->trnmod &= ~SDHC_TRNS_ACMD12;\n'
+    '        sdhci_end_transfer(s);\n'
+    '    }\n'
+    '\n'
+    '    if (!timeout && (s->blksize & BLOCK_SIZE_MASK) &&\n',
+    "Explicit CMD12 transfer completion after real card command")
+patch_exact(
+    sdhci_source,
+    '        !(SDHC_COMMAND_TYPE(s->cmdreg) == SDHC_CMD_ABORT))))) {\n',
+    '        !(SDHC_COMMAND_TYPE(s->cmdreg) == SDHC_CMD_ABORT) &&\n'
+    '        !(s->imx7ulp_input_clock &&\n'
+    '          (s->cmdreg >> 8) == 12 &&\n'
+    '          !(s->cmdreg & SDHC_CMD_DATA_PRESENT) &&\n'
+    '          (s->prnsts & SDHC_DATA_INHIBIT) &&\n'
+    '          (s->prnsts & SDHC_DOING_READ) &&\n'
+    '          (s->trnmod & SDHC_TRNS_MULTI)))))) {\n',
+    "Allow plain CMD12 only with genuine opt-in multiblock read")
