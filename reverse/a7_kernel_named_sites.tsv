@@ -25,3 +25,7 @@ address	name	kind	confidence	evidence
 0x60177dfc	A7_MU_TransmitDescriptor	function	high	Live MUB TR0 write from descriptor-selected channel with payload r4
 0x60177ec0	A7_MU_WriteTRnSelectedChannel	site	high	Real write watchpoint 0x40220020, A7 r4=6 r6=0
 0x60177dcc	A7_MU_WriteTRnDirect	site	medium-high	Static ARM STR to 0x40220020 plus channel offset; not separately live-captured
+0x60017118	A7_USDHC1_VendorClockStateRead	site	high	Live A7 abort on USDHC1 VEND_SPEC 0x403800c0 then verified modeled register read
+0x600177d4	A7_USDHC1_SystemControlWrite0F	site	high	Real firmware writes 0x0000000f to SYS_CTRL with reserved low bits treated as RAZ/WI
+0x601cd2d4	A7_PM_JumpToSRAMSuspendTrampoline	site	high	ARM LDR pc,[pc,-4] target 0x2f02b0b8 into copied low-power code
+0x601cd5e8	A7_PM_EnterSRAMSuspendAfterShutdown	site	high	Unconditional branch to 0x601cd2d4 after LPIT and other subsystem teardown
