@@ -18,6 +18,7 @@ import ghidra.program.model.symbol.SourceType;
 public class ExesxI2CXrefs extends GhidraScript {
     private final long[] functions = {
         0x1ffd2e50L, 0x1ffd3270L, 0x1ffd5712L, 0x1ffd4c64L,
+        0x1ffd7782L,
         0x1ffd6c48L, 0x1ffd6cb6L, 0x1ffd6cf8L, 0x1ffd6d52L,
         0x1ffd6da0L, 0x1ffd6e28L, 0x1ffd6f4cL, 0x1ffd6f7eL,
         0x1ffd6fa6L, 0x1ffd6fd8L
@@ -26,6 +27,7 @@ public class ExesxI2CXrefs extends GhidraScript {
         "M4_Kernel_DispatchRegisteredIRQCallbacks",
         "M4_Kernel_CommonInterruptDispatch", "M4_MU_ReceiveAndGIP_IRQHandler",
         "M4_SNVS_HPCOMR_CommandSequence",
+        "M4_GPIOB7_UpdateSharedA7BootGate",
         "M4_LPI2C_ClearState", "M4_LPI2C_CheckErrors",
         "M4_LPI2C_SendStart", "M4_LPI2C_WaitComplete",
         "M4_LPI2C_TransmitBytes", "M4_LPI2C_ReceiveBytes",
@@ -33,14 +35,17 @@ public class ExesxI2CXrefs extends GhidraScript {
         "M4_I2C6B_ReadByte_Candidate", "M4_I2C6B_WriteTwoBytes_Candidate"
     };
     private final long[] pool = {
-        0x1ffd6f34L, 0x1ffd6f38L, 0x1ffd6f3cL, 0x1ffd6f48L
+        0x1ffd6f34L, 0x1ffd6f38L, 0x1ffd6f3cL, 0x1ffd6f48L,
+        0x1ffd78c0L, 0x1ffd78c8L
     };
     private final String[] poolNames = {
         "LPI2C2_MSR_ADDR", "LPI2C2_MCR_ADDR",
-        "LPI2C2_MFSR_ADDR", "LPI2C2_MIER_ADDR"
+        "LPI2C2_MFSR_ADDR", "LPI2C2_MIER_ADDR",
+        "GPIOB_PDIR_ADDR", "A7_BOOT_GATE_STRUCT_BASE"
     };
     private final long[] expected = {
-        0x41035014L, 0x41035010L, 0x4103505cL, 0x41035018L
+        0x41035014L, 0x41035010L, 0x4103505cL, 0x41035018L,
+        0x4100f050L, 0x2f029204L
     };
     private Address at(long value) {
         return currentProgram.getAddressFactory().getDefaultAddressSpace().getAddress(value);
