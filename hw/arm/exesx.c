@@ -496,6 +496,14 @@ static void exesx_init(MachineState *ms)
             object_property_add_child(OBJECT(ms), "usdhc1-card-host",
                                       OBJECT(host));
             qdev_prop_set_uint8(host, "sd-spec-version", 3);
+            /* i.MX7ULP USDHC input comes from SCG1/PCC2, not from the
+             * reserved SYS_CTRL low nibble. This opt-in assumption models
+             * a supplied root clock; 0 explicitly tests the gated case.
+             * PCC2/SCG1 gate-to-clock wiring remains a future task.
+             */
+            qdev_prop_set_bit(host, "imx7ulp-input-clock",
+                              g_strcmp0(g_getenv("EXESX_USDHC1_INPUT_CLOCK"),
+                                        "0") != 0);
             /* 3.0V+1.8V, 4/8-bit capable, 512/2048-byte blocks, DMA.
              * This is a guest test-controller capability mask, NOT a
              * measured DY357 i.MX7ULP hardware register reset value.

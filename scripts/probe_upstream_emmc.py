@@ -36,9 +36,27 @@ def make_elf():
     lit(5, 200000)
     emit(0xe2555001)
     emit(0x1afffffd)
+    # Exact instruction words from original SHA-verified DY357 A7
+    # 0x60017134, 38, 3c, 40, 44, 48. In this probe, r0 points to
+    # PRES_STATE during the poll, then restores the host base for CMD0+.
+    lit(4, 0x40380000)
+    lit(0, 0x40380024)
+    ldr(2, 0, 8)            # e5902008 LDR r2,[r0,#8]
+    emit(0xe3822740)        # e3822740 ORR r2,r2,#0x01000000
+    strw(2, 0, 8)           # e5802008 STR r2,[r0,#8]
+    poll_at = len(ins)
+    ldr(2, 0, 0)            # e5902000 LDR r2,[r0]
+    emit(0xe3120008)        # e3120008 TST r2,#8
+    branch_at = len(ins)
+    emit(0)                 # 0afffffc BEQ to poll_at
+    ins[branch_at] = 0x0a000000 | ((poll_at - (branch_at+2)) & 0xffffff)
+    assert ins[branch_at] == 0x0afffffc
+    strw(2, 7, 80)          # Only reached after root clock becomes stable
+    emit(0xe1a00004)        # MOV r0,r4, subsequent real eMMC MMIO base
     ldr(2,0,0x24); strw(2,7,0)
     lit(1,0x0000000f)
-    strw(1,0,0x2c)          # SYS_CTRL host SDCLK bits (Casio setup)
+    strw(1,0,0x2c)          # Reserved i.MX7ULP nibble: RAZ/WI, not a clock
+    ldr(2,0,0x2c); strw(2,7,84) # Readback: bits[3:0] must be zero
     lit(1,0x157f51ff)
     strw(1,0,0x34)          # normal + error status enabled
     lit(1,0x8820)
@@ -149,15 +167,20 @@ def main():
                           stderr=subprocess.STDOUT,text=True)
     try:
         time.sleep(1.0)
-        commands="".join(f"xp /1wx 0x{OUT+4*i:08x}\n" for i in range(20))+"quit\n"
+        commands="".join(f"xp /1wx 0x{OUT+4*i:08x}\n" for i in range(22))+"quit\n"
         output,_=qemu.communicate(commands,timeout=20)
     finally:
         if qemu.poll() is None:qemu.kill();qemu.wait()
     values=[]
-    for i in range(20):
+    for i in range(22):
         m=re.search(r"(?im)^0*"+f"{OUT+4*i:08x}"+r":\s+0x([0-9a-f]+)",output)
         if not m:raise AssertionError(f"Missing guest result {i}. Output:\n{output[-3500:]}")
         values.append(int(m.group(1),16))
+    if not values[20] & 0x8:
+        raise AssertionError("Casio RSTA→PRES_STATE.SDSTB poll never completed")
+    if values[21] & 0xf:
+        raise AssertionError("i.MX7ULP reserved SYS_CTRL low nibble became "
+                             f"generic SDHCI clocks: {values[21]:#x}")
     if not values[0]&0x10000 or not values[4]&0x10000:
         raise AssertionError(f"Attached upstream eMMC not visible: {[hex(x) for x in values]}")
     if not values[1]&1:
