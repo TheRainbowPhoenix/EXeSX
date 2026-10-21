@@ -97,7 +97,7 @@ jobs:
             --profile profiles/imx7ulp-early-boot.ini
       - name: Verify A7 early USDHC DMA1 DMAMUX1 and LPSPI2 ARM guest
         run: |
-          python3 scripts/probe_a7_early_devices.py scripts/probe_snvs_hp_rtc.py --qemu build/qemu-system-arm \
+          python3 scripts/probe_a7_early_devices.py --qemu build/qemu-system-arm \
             --profile profiles/imx7ulp-early-boot.ini
       - name: Verify NXP SNVS HP reset command and RTC enable from real ARM guest
         run: |
