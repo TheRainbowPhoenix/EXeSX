@@ -364,3 +364,38 @@ patch_exact(
     '          (s->prnsts & SDHC_DOING_READ) &&\n'
     '          (s->trnmod & SDHC_TRNS_MULTI)))))) {\n',
     "Allow plain CMD12 only with genuine opt-in multiblock read")
+
+
+# Optional one-shot CMD12 diagnostics on the opt-in real i.MX7ULP host.
+# Read-only logging of C model fields allows real-OSUP differential to
+# distinguish DAT inhibit from command-type, mixer, or clock gating.
+# The default emulator never logs these. Enable with:
+# EXESX_TRACE_USDHC1_CMD12=1 and QEMU -d unimp.
+patch_exact(
+    sdhci_source,
+    '            sdhci_write(opaque, offset, val | s->trnmod, size);\n'
+    '            s->clkcon = saved_clkcon;\n',
+    '            bool trace_stop = s->imx7ulp_input_clock &&\n'
+    '                (((uint32_t)val >> 24) & 0x3f) == 12 &&\n'
+    '                !g_strcmp0(g_getenv("EXESX_TRACE_USDHC1_CMD12"), "1");\n'
+    '            if (trace_stop) {\n'
+    '                qemu_log_mask(LOG_UNIMP,\n'
+    '                    "EXESX USDHC1 CMD12 BEFORE raw=%08x trnmod=%04x"\n'
+    '                    " cmdreg=%04x prnsts=%08x clkcon=%04x gate=%d"\n'
+    '                    " ready=%d\\n",\n'
+    '                    (uint32_t)val, s->trnmod, s->cmdreg, s->prnsts,\n'
+    '                    s->clkcon,\n'
+    '                    !!(s->prnsts & SDHC_IMX_CLOCK_GATE_OFF),\n'
+    '                    !!(s->prnsts & SDHC_DATA_AVAILABLE));\n'
+    '            }\n'
+    '            sdhci_write(opaque, offset, val | s->trnmod, size);\n'
+    '            if (trace_stop) {\n'
+    '                qemu_log_mask(LOG_UNIMP,\n'
+    '                    "EXESX USDHC1 CMD12 AFTER cmdreg=%04x"\n'
+    '                    " trnmod=%04x prnsts=%08x norint=%04x err=%04x"\n'
+    '                    " clkcon=%04x\\n",\n'
+    '                    s->cmdreg, s->trnmod, s->prnsts,\n'
+    '                    s->norintsts, s->errintsts, s->clkcon);\n'
+    '            }\n'
+    '            s->clkcon = saved_clkcon;\n',
+    "Opt-in original BIOS CMD12 reject-path diagnostics")
