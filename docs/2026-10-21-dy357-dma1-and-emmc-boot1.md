@@ -83,3 +83,10 @@ python3 scripts/inspect_dma1_tcd.py private/monitor.txt --channel 15 \
 ```
 
 Tests: `python3 -m unittest tests.test_dma1_mmc_metadata -v`. Both decoders operate on *metadata*, not proprietary contents. Data-copy and DONE behavior remain intentionally **unimplemented** until request activation is independently established. **No Casio OS execution, LCD pixels, or text output has been verified.**
+
+
+## Reproducible transfer-trigger instrumentation
+
+The DMA1 descriptor model now supports **explicitly opt-in, write-only TCD logging** (no DMA side effects). In a private QEMU run, set `EXESX_TRACE_DMA1_TCD=1` and include `-d unimp`; each guest TCD write then produces channel index, 32-byte TCD field offset, width and written value. The default log remains unchanged. Polling reads are deliberately not logged to avoid multi-gigabyte log spam. This supplies the missing evidence for identifying the correct *software-trigger or DMAMUX request* rather than faking `TCD_CSR.DONE`.
+
+Local sparse synthetic-card inspection confirmed both **boot1 sector 0 and sector 32 contain 512 bytes of zero**. This is a property of the synthetic test image, not a claim about any physical Casio eMMC. A real device's boot1 contents cannot be inferred from an updater container. Neither those sector bytes nor proprietary ROM bytes are uploaded to Git.
