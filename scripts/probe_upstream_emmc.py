@@ -131,6 +131,32 @@ def make_elf():
         if (word + 1) % 32 == 0:
             lit(1,0x20); strw(1,0,0x30)
             ldr(2,0,0x30); strw(2,7,108 + (word//32)*4)
+    # Original DY357 after recognizing PVOS: CMD23(count32), CMD18(LBA64),
+    # then CMD12 with CMDTYP NORMAL and R1b while data is still in flight.
+    # Use *real* QEMU eMMC buffered sectors and actual CMD12 response.
+    lit(1,0xffffffff); strw(1,0,0x30)
+    lit(1,32); strw(1,0,0x08)
+    lit(1,0x17020000); strw(1,0,0x0c)  # CMD23 SET_BLOCK_COUNT
+    ldr(2,0,0x30); strw(2,7,124)      # index 31: CMD23 CC
+    lit(1,0xffffffff); strw(1,0,0x30)
+    lit(1,0x00200200); strw(1,0,0x04) # 32 x 512 B
+    lit(1,0x32); strw(1,0,0x48)       # MIX_CTRL multi | blkcnt | read
+    lit(1,64); strw(1,0,0x08)
+    lit(1,0x12220000); strw(1,0,0x0c) # CMD18 READ_MULTIPLE_BLOCK
+    ldr(2,0,0x30); strw(2,7,128)      # index 32: CMD18 CC + BRR
+    ldr(2,0,0x24); strw(2,7,132)      # index 33: DATA_INHIBIT true
+    for _ in range(32):
+        ldr(2,0,0x20)                 # genuine 128 B card data
+    lit(1,0x20); strw(1,0,0x30)       # W1C BRR
+    lit(1,0x0c030000); strw(1,0,0x0c) # NORMAL-type CMD12, R1b
+    ldr(2,0,0x30); strw(2,7,136)      # index 34: CC + TC, real CMD12
+    ldr(2,0,0x24); strw(2,7,140)      # index 35: DATA_INHIBIT cleared
+    ldr(2,0,0x04); strw(2,7,144)      # index 36: remaining blockcount
+    lit(1,0xffffffff); strw(1,0,0x30)
+    lit(1,0x00020000); strw(1,0,0x08)
+    lit(1,0x0d020000); strw(1,0,0x0c) # CMD13 SEND_STATUS after CMD12
+    ldr(2,0,0x30); strw(2,7,148)      # index 37: next normal command CC
+    ldr(2,0,0x10); strw(2,7,152)      # index 38: card status R1
     emit(0xeafffffe)
     for pos,reg,value in literals:
         off=len(ins)*4-(pos*4+8)
@@ -177,12 +203,12 @@ def main():
                           stderr=subprocess.STDOUT,text=True)
     try:
         time.sleep(1.0)
-        commands="".join(f"xp /1wx 0x{OUT+4*i:08x}\n" for i in range(31))+"quit\n"
+        commands="".join(f"xp /1wx 0x{OUT+4*i:08x}\n" for i in range(39))+"quit\n"
         output,_=qemu.communicate(commands,timeout=20)
     finally:
         if qemu.poll() is None:qemu.kill();qemu.wait()
     values=[]
-    for i in range(31):
+    for i in range(39):
         m=re.search(r"(?im)^0*"+f"{OUT+4*i:08x}"+r":\s+0x([0-9a-f]+)",output)
         if not m:raise AssertionError(f"Missing guest result {i}. Output:\n{output[-3500:]}")
         values.append(int(m.group(1),16))
@@ -223,7 +249,21 @@ def main():
         raise AssertionError(f"Wrong EXT_CSD.SEC_COUNT {values[19]:#x}, "
                              f"expected {(SAMSUNG_USER_BYTES//512):#x}; "
                              "boot partitions must not count as user sectors")
-    print("PASS native QEMU i.MX USDHC1+eMMC CMD0/1/2/3/9/7/17/8, "
+    if not (values[31] & 1):
+        raise AssertionError("Genuine CMD23 set-block-count not acknowledged")
+    if (values[32] & 0x21) != 0x21 or not (values[33] & 0x2):
+        raise AssertionError("CMD18 must start real multi-block buffered read: "
+                             + repr([hex(v) for v in values[31:34]]))
+    if (values[34] & 0x3) != 0x3:
+        raise AssertionError("Normal-type CMD12 must obtain real card CC and "
+                             "terminate pending transfer (TC): "
+                             + repr([hex(v) for v in values[34:37]]))
+    if values[35] & 0x0a02:
+        raise AssertionError("CMD12 did not clear inhibit/read/data-available "
+                             f"bits: {values[35]:#x}")
+    if not values[37] & 1:
+        raise AssertionError("Card did not accept CMD13 after real CMD12 stop")
+    print("PASS native QEMU i.MX USDHC1+eMMC CMD0/1/2/3/9/7/17/8/23/18/12/13, "
           "attached card and real user-sector data:", [hex(x) for x in values])
     print(f"QEMU eMMC EXT_CSD_REV={values[18]&255} "
           "(not guaranteed Samsung eMMC 5.1=8); "
