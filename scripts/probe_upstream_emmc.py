@@ -89,9 +89,11 @@ def make_elf():
     ldr(2,0,0x20); strw(2,7,60)       # first marker word
     ldr(2,0,0x20); strw(2,7,64)       # second marker word
     ldr(2,0,0x24); strw(2,7,68)
-    # Read real QEMU TYPE_EMMC EXT_CSD via CMD8, including SEC_COUNT.
-    # The remainder of the first CMD17 buffer needn't be consumed once
-    # the card has been selected for the next transfer; verify in CI.
+    # The full 512-byte FIFO transfer MUST complete before MMC CMD8.
+    # Two data-port words were already checked; drain the remaining 126.
+    for _ in range(126):
+        ldr(2,0,0x20)
+    # Now the host can receive the next real 512-byte EXT_CSD block.
     lit(1,0x00010200); strw(1,0,0x04)
     lit(1,0x10); strw(1,0,0x48)
     lit(1,0xffffffff); strw(1,0,0x30)
