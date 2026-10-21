@@ -34,6 +34,10 @@ static MemTxResult exesx_usdhc0_write(EXeSXProfileWindow *w,
 #define EXESX_USDHC1_BASE UINT64_C(0x40380000)
 #define EXESX_USDHC1_VEND_SPEC_MASK UINT32_C(0x8000810e)
 #define EXESX_USDHC1_SYS_CTRL_MASK UINT32_C(0x1f8ffff0)
+/* Explicit NXP PERI_USDHC.h INT_STATUS valid bits; no virtual card
+ * means no command completion, transfer completion, or insertion events.
+ */
+#define EXESX_USDHC1_IRQ_VALID UINT32_C(0x157f51ff)
 
 static MemTxResult exesx_usdhc1_read(EXeSXProfileWindow *w,
                                     hwaddr off, uint64_t *value,
@@ -48,6 +52,9 @@ static MemTxResult exesx_usdhc1_read(EXeSXProfileWindow *w,
         *value = UINT32_C(0x00000008);
         return MEMTX_OK;
     case 0x2c:
+    case 0x30: /* INT_STATUS, no event sources implemented */
+    case 0x34: /* INT_STATUS_EN */
+    case 0x38: /* INT_SIGNAL_EN */
     case 0x44: /* WTMK_LVL: read/write FIFO watermark parameters */
     case 0x48:
     case 0xc0:
@@ -83,6 +90,13 @@ static MemTxResult exesx_usdhc1_write(EXeSXProfileWindow *w,
         }
         w->regfile[off / 4] =
             bits & EXESX_USDHC1_SYS_CTRL_MASK & ~UINT32_C(0x17000000);
+        return MEMTX_OK;
+    case 0x30: /* INT_STATUS W1C; no card/command event to set flags */
+        w->regfile[off / 4] &= ~(bits & EXESX_USDHC1_IRQ_VALID);
+        return MEMTX_OK;
+    case 0x34: /* INT_STATUS_EN: mask documented status source bits */
+    case 0x38: /* INT_SIGNAL_EN: mask documented IRQ source bits */
+        w->regfile[off / 4] = bits & EXESX_USDHC1_IRQ_VALID;
         return MEMTX_OK;
     case 0x44: /* WTMK_LVL: RD/WR_WML 8-bit, RD/WR_BRST_LEN 5-bit */
         w->regfile[off / 4] =
