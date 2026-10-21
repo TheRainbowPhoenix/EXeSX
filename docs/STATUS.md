@@ -1,6 +1,9 @@
 # EXeSX measured bring-up status — 2026-10-21
 
-**No genuine Casio OS entry, LCD pixels or text have been verified.** All real firmware experiments used the original locally SHA-verified proprietary OSUP. No firmware, private traces, snapshots or user credentials are in GitHub.
+**No genuine Casio OS entry, LCD pixels or text have been verified.**
+
+**New candidate-board evidence (2026-10-21):** Photographs of **PWB-DY890-1**, which is **not confirmed to be the original DY357 target board**, reveal NXP `MCIMX7U5DVP07SD` **mask 2N54W = B2**; ESMT M54D1G3232A **128 MiB LPDDR2 (volatile, not eMMC)**; ROHM BU26154 **audio codec with resistive-touch ADC** (I²C option `0x1A/0x1B`, **not** unknown `0x4B`); and Microchip ATWINC1510 **SPI Wi-Fi**. The nearby third large BGA is **not legibly identified as eMMC**. [Photos-based component report](2026-10-21-pwb-dy890-pcb-identification.md) and [datasheet references](HARDWARE_REFERENCES.md). No assumption about physical storage contents, actual GPIO wiring or target board RAM configuration has been changed.
+ All real firmware experiments used the original locally SHA-verified proprietary OSUP. No firmware, private traces, snapshots or user credentials are in GitHub.
 
 ## Confirmed functional advances
 
