@@ -27,6 +27,31 @@
 #include "exesx-imx7ulp-lpspi.inc"
 #include "exesx-imx7ulp-sema42.inc"
 
+/* External GPIOB pins exist on real hardware; the default model has
+ * none attached. Research-only static electrical input levels are opt-in
+ * and never turn an output pin into an input or fabricate an interrupt.
+ * NXP PERI_GPIO.h PDIR+0x10 / PDDR+0x14 and GPIOB_BASE=0x4100f040.
+ *
+ * The M4 firmware at 0x1ffd778e tests GPIOB.PDIR bit7 to decide whether
+ * to set A7 boot-gate word 0x2f029284 (0xffffffff or 0). The real Casio
+ * board's attached signal and active polarity are still unverified.
+ */
+static uint32_t exesx_gpiob_external_input_mask(void)
+{
+    const char *source = g_getenv("EXESX_GPIOB_INPUT_MASK");
+    char *end;
+    uint64_t value;
+    if (!source || !*source) {
+        return 0;
+    }
+    value = g_ascii_strtoull(source, &end, 0);
+    if (*end != '\0' || value > UINT32_MAX) {
+        error_report("EXeSX EXESX_GPIOB_INPUT_MASK invalid (expect 0..0xffffffff)");
+        exit(1);
+    }
+    return (uint32_t)value;
+}
+
 static bool exesx_imx7ulp_kind(const char *kind)
 {
     return g_strcmp0(kind, "imx7ulp-pcc") == 0 ||
@@ -259,9 +284,15 @@ static MemTxResult exesx_imx7ulp_read(EXeSXProfileWindow *w,
         case 0x0c: /* PTOR */
             *value = 0;
             return MEMTX_OK;
-        case 0x10: /* PDIR: output pins loop back, no input attached */
-            *value = w->regfile[0] & w->regfile[0x14 / 4];
+        case 0x10: { /* PDIR: read pin voltage, not output latch alone */
+            uint32_t output_direction = w->regfile[0x14 / 4];
+            uint32_t output_levels = w->regfile[0] & output_direction;
+            uint32_t external_inputs =
+                w->base == UINT64_C(0x4100f040) ?
+                exesx_gpiob_external_input_mask() : 0;
+            *value = output_levels | (external_inputs & ~output_direction);
             return MEMTX_OK;
+        }
         case 0x14: /* PDDR */
             *value = w->regfile[index];
             return MEMTX_OK;

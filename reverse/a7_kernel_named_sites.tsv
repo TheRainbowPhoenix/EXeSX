@@ -29,3 +29,14 @@ address	name	kind	confidence	evidence
 0x600177d4	A7_USDHC1_SystemControlWrite0F	site	high	Real firmware writes 0x0000000f to SYS_CTRL with reserved low bits treated as RAZ/WI
 0x601cd2d4	A7_PM_JumpToSRAMSuspendTrampoline	site	high	ARM LDR pc,[pc,-4] target 0x2f02b0b8 into copied low-power code
 0x601cd5e8	A7_PM_EnterSRAMSuspendAfterShutdown	site	high	Unconditional branch to 0x601cd2d4 after LPIT and other subsystem teardown
+0x60010c80	A7_BootPermission_CheckM4SharedGate	function	high	A7 calls 0x6001d47c and returns true iff M4-written 0x2f029284 is nonzero
+0x6001d47c	A7_BootPermission_ReadSharedGateBool	function	high	Loads word 0x2f029204+0x80 and normalizes nonzero to one
+0x6004a19c	A7_MainTask_BranchIfBootGateDenied	site	high	Real r0=0 branches from MainTask startup toward shutdown
+0x6004a1ac	A7_MainTask_SecondaryStartupCheck	site	high	After diagnostic first-flag bypass second check returned one
+0x6004a1b4	A7_MainTask_ShutdownWhenGateDenied	site	high	Real A7 breakpoint, calls function 0x600117a0
+0x6004a1bc	A7_MainTask_ProceedWithNormalStartup	site	high	Only reached in controlled r0=1 diagnostic, not yet proven with physical input
+0x600117a0	A7_System_PrepareShutdown	function	high	Called by MainTask denied-boot path; eventually calls context-save and DDR suspend
+0x60011858	A7_System_InvokeShutdownContextThunk	site	high	BL 0x601e7144 in shutdown preparation
+0x601e7144	A7_System_SaveContextThenPowerDown	function	high	Live PC; invokes 0x601cc0dc CPU context save then 0x601cd48c shutdown
+0x601cc0dc	A7_System_SavePrivilegedCpuStackState	function	high	Static saves SP for CPU modes FIQ ABT UND SVC IRQ SYS; live before shutdown
+0x601cd48c	A7_System_DeinitializeAndEnterSRAMSuspend	function	high	Live called by 0x601e7144; powers down subsystems and jumps SRAM trampoline
