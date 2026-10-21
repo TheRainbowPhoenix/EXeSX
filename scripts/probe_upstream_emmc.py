@@ -96,6 +96,9 @@ def make_elf():
     lit(1,0x07030000); strw(1,0,0x0c)  # CMD7 (select)
     ldr(2,0,0x30); strw(2,7,48)
     ldr(2,0,0x10); strw(2,7,52)
+    # NXP i.MX7ULP USDHC FIFO: original DY357 uses RD_WML=32 words.
+    lit(1,0x08200820); strw(1,0,0x44)
+    ldr(2,0,0x44); strw(2,7,88)
     # A genuine CMD17 PIO read must return a known byte pattern from
     # user sector zero, which starts after the two boot partitions.
     lit(1,0x00010200); strw(1,0,0x04)  # 1 × 512-byte block
@@ -107,20 +110,27 @@ def make_elf():
     ldr(2,0,0x20); strw(2,7,60)       # first marker word
     ldr(2,0,0x20); strw(2,7,64)       # second marker word
     ldr(2,0,0x24); strw(2,7,68)
-    # The full 512-byte FIFO transfer MUST complete before MMC CMD8.
-    # Two data-port words were already checked; drain the remaining 126.
-    for _ in range(126):
-        ldr(2,0,0x20)
+    # A genuine 512-byte FIFO remains available in four 32-word tranches.
+    # A W1C BRR acknowledgment after each 128-byte tranche must permit
+    # another BRR, but only while real unread sector bytes remain.
+    for batch in range(4):
+        for _ in range(30 if batch == 0 else 32):
+            ldr(2,0,0x20)
+        lit(1,0x20); strw(1,0,0x30)  # W1C BRR at batch boundary
+        ldr(2,0,0x30); strw(2,7,92 + batch*4)
     # Now the host can receive the next real 512-byte EXT_CSD block.
     lit(1,0x00010200); strw(1,0,0x04)
     lit(1,0x10); strw(1,0,0x48)
     lit(1,0xffffffff); strw(1,0,0x30)
     lit(1,0); strw(1,0,0x08)
     lit(1,0x08220000); strw(1,0,0x0c)  # MMC SEND_EXT_CSD
-    for word in range(54):
+    for word in range(128):
         ldr(2,0,0x20)
         if word == 48: strw(2,7,72)  # EXT_CSD_REV offset 192
         if word == 53: strw(2,7,76)  # SEC_COUNT offsets 212..215
+        if (word + 1) % 32 == 0:
+            lit(1,0x20); strw(1,0,0x30)
+            ldr(2,0,0x30); strw(2,7,108 + (word//32)*4)
     emit(0xeafffffe)
     for pos,reg,value in literals:
         off=len(ins)*4-(pos*4+8)
@@ -167,15 +177,23 @@ def main():
                           stderr=subprocess.STDOUT,text=True)
     try:
         time.sleep(1.0)
-        commands="".join(f"xp /1wx 0x{OUT+4*i:08x}\n" for i in range(22))+"quit\n"
+        commands="".join(f"xp /1wx 0x{OUT+4*i:08x}\n" for i in range(31))+"quit\n"
         output,_=qemu.communicate(commands,timeout=20)
     finally:
         if qemu.poll() is None:qemu.kill();qemu.wait()
     values=[]
-    for i in range(22):
+    for i in range(31):
         m=re.search(r"(?im)^0*"+f"{OUT+4*i:08x}"+r":\s+0x([0-9a-f]+)",output)
         if not m:raise AssertionError(f"Missing guest result {i}. Output:\n{output[-3500:]}")
         values.append(int(m.group(1),16))
+    if values[22] != 0x08200820:
+        raise AssertionError(f"WTMK_LVL register lost configured watermark: {values[22]:#x}")
+    for i in (23, 24, 25, 27, 28, 29):
+        if not (values[i] & 0x20):
+            raise AssertionError(f"Missing repeated FIFO BRR at sample {i}: "
+                                 +repr([hex(v) for v in values]))
+    if values[26] & 0x20 or values[30] & 0x20:
+        raise AssertionError("Spurious BRR after actual end of a 512-byte block")
     if not values[20] & 0x8:
         raise AssertionError("Casio RSTA→PRES_STATE.SDSTB poll never completed")
     if values[21] & 0xf:
