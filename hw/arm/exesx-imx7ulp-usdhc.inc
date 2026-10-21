@@ -48,6 +48,7 @@ static MemTxResult exesx_usdhc1_read(EXeSXProfileWindow *w,
         *value = UINT32_C(0x00000008);
         return MEMTX_OK;
     case 0x2c:
+    case 0x44: /* WTMK_LVL: read/write FIFO watermark parameters */
     case 0x48:
     case 0xc0:
         *value = w->regfile[off / 4];
@@ -82,6 +83,10 @@ static MemTxResult exesx_usdhc1_write(EXeSXProfileWindow *w,
         }
         w->regfile[off / 4] =
             bits & EXESX_USDHC1_SYS_CTRL_MASK & ~UINT32_C(0x17000000);
+        return MEMTX_OK;
+    case 0x44: /* WTMK_LVL: RD/WR_WML 8-bit, RD/WR_BRST_LEN 5-bit */
+        w->regfile[off / 4] =
+            bits & UINT32_C(0x1fff1fff);
         return MEMTX_OK;
     case 0x48:
         /* MIX_CTRL carries SD card transfer mixing flags, stored for
