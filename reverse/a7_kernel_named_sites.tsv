@@ -42,5 +42,12 @@ address	name	kind	confidence	evidence
 0x601cd48c	A7_System_DeinitializeAndEnterSRAMSuspend	function	high	Live called by 0x601e7144; powers down subsystems and jumps SRAM trampoline
 0x6001788c	A7_USDHC1_SubmitCommand	function	high	Live original-ROM command-submission routine read/clear INT_STATUS then sets CMD_ARG and CMD_XFR_TYP
 0x600178bc	A7_USDHC1_WriteCommandArgument	site	high	Live GDB original-ROM at STR to 0x40380008, r8=0 first command
-0x600178e0	A7_USDHC1_WriteCommandTransferType	site	medium-high	Static ARM STR to 0x4038000c; full live CMD index pending controller model
+0x600178e0	A7_USDHC1_WriteCommandTransferType	site	high	Static ARM STR to 0x4038000c and genuine native-ROM CMD0/CMD1 traces verify actual submission
 0x600179b0	A7_USDHC1_ConfigureFIFOReadWriteWatermarks	site	high	Live 0x08200820 write to USDHC1 WTMK_LVL 0x40380044
+0x600178c8	A7_USDHC1_SetProtocolLittleEndian	site	high	Actual original-ROM str PROT_CTRL=0x8820 at 0x40380028; reserved bits ignored and EMODE=0x20
+0x600178ec	A7_USDHC1_WaitCommandCompleteOrTimeout	site	high	Actual A7 CMD1 request polling INT_STATUS; no-card model terminates with CTOE
+0x60017988	A7_MMC_IdentifyCardAndNegotiateOCR	function	high	Original ARM disassembly CMD0 CMD1 CMD2 CMD3 CMD9 CMD7, then CMD6; real CMD0/CMD1 verified
+0x600179fc	A7_MMC_ReadCMD1OCRResponse	site	high	Loads USDHC1 CMDRSP0 after CMD1, then tests OCR_BUSY bit31
+0x60017a00	A7_MMC_CheckOCRPowerUpReady	site	high	TST CMDRSP0 bit31 after CMD1, conditional retry when absent
+0x60017ae4	A7_MMC_RetryCMD1OnOCRNotReady	site	high	No-media firmware retries CMD1 after real timeouts, 65 CMD1 in bounded 2s run
+0x60017b48	A7_MMC_InitializeControllerAndCard	function	high	Calls MMC identification routine 0x60017988 and branches into error/cleanup when no card
