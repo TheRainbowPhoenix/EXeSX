@@ -80,3 +80,29 @@ Only a private native run with the original file and explicit diagnostic
 I2C/SNVS/GPIO flags can establish whether `0x60017144` is passed and
 whether the *real Casio firmware* reaches CMD0/CMD1 or the OS section.
 Never upload the OSUP, ROM slices, eMMC dumps or private traces to GitHub.
+
+
+## Private original-DY357 firmware differential — actually executed
+
+The source OSUP used here has SHA-256 `d5791bec1c7739315fb6113b5d6890a21f6c454fcf7a05a0381cfaaa70808fb0`. Extracted with repository `prepare_osup.py` into the checksum-validated BIOS and OS ELF; **no source firmware, ELF or trace was uploaded**. Identical 5-second old/new runs used the synthetic reference-size sparse eMMC and identical opt-in diagnostic flags:
+
+`EXESX_EXPERIMENTAL_M4_BOOT=1`,
+`EXESX_EXPERIMENTAL_MU_IRQ=1`,
+`EXESX_GPIOB_INPUT_MASK=0x80`,
+`EXESX_I2C4B_REGISTER_MIRROR=1`,
+`EXESX_I2C40_REGISTER_MIRROR=1`,
+`EXESX_SNVS_DIAGNOSTIC_SECURITY_PULSES=1`,
+`EXESX_USDHC1_EMMC=1`,
+and `profiles/imx7ulp-early-boot.ini`.
+
+* **Before port:** native QEMU artifact from run 39648471273; A7 decoded original `0x60017140/44` and remained in its SDSTB loop. No original CMD0/CMD1 observed.
+* **After port:** new native QEMU 10.1.0 artifact from [run 39669985642](https://github.com/TheRainbowPhoenix/EXeSX/actions/runs/39669985642) (**SUCCESS**, including real ARM RSTA/SDSTB, negative gate, eMMC sector, and no-media regressions). A7 passed `0x60017144` and entered original `0x60017988` MMC logic. The QEMU SDHCI/eMMC traces **from this real DY357 firmware**, not a synthetic ARM guest, confirmed **CMD0 arg 0**, **CMD1 arg `0x40ff8000`** and R3 `0xc0ffff00`, then CMD2, CMD3 RCA `0x00020000`, CMD9, CMD7, CMD6, CMD13 and CMD8 (SEND_EXT_CSD).
+* **New observed bounded stall:** original A7 PC `0x60018784`; after `CMD8`, the firmware is polling `USDHC1.INT_STATUS` `0x40380030` waiting for a buffer-ready/error condition. The live host at this moment reports `PRES_STATE=0x01ff0a0a`, `SYS_CTRL=0x008d0800`, `VEND_SPEC=0x100`, `CMD_XFR_TYP=0x08220010`, `INT_STATUS=0x1`. No original OS section execution or LCD text is verified.
+
+### Next likely root cause: uSDHC FIFO watermark, not CMD1
+
+Disassembly of unmodified BIOS `0x60018758–0x6001878c` shows the guest reading **32 32-bit data-port words** (128 bytes) from `USDHC1.DATA_BUFF_ACC_PORT` `0x40380020`, clearing `INT_STATUS.BRR` bit5 with write-one-to-clear `0x20`, then polling `INT_STATUS` until the next ready/error event before another 32-word batch. At the bounded observation the batch index was 1, consistent with the first 128-byte batch completed.
+
+The original firmware earlier writes `WTMK_LVL=0x08200820`, specifically **RD_WML=32 words**, while QEMU 10.1.0's `usdhc_write` **ignores `USDHC_WTMK_LVL`**. Its generic SDHCI PIO model announces buffer-ready for an entire block, not yet proven to reassert BRR each 32-word watermark as this Casio path expects. That mismatch is the **leading, source-supported explanation**, not yet a separately fixed peripheral. Next task: implement/regress correct i.MX7ULP watermark-boundary BRR behavior in QEMU without faking a data block or completion and compare real firmware again.
+
+Synthetic backing has no authentic Casio user sectors and the eMMC identification is QEMU's, so later failures may expose contents/CID mismatches. **Do not claim real OS boot or screen pixels.**
