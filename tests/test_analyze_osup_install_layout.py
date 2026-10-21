@@ -2,6 +2,7 @@
 import importlib.util
 from pathlib import Path
 import struct
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,6 +28,8 @@ def fixture():
     write32(data, 0x38, 0x64000100)
     for _, (addr, opcode) in layout.UPDATER_OPCODES.items():
         write32(data, addr-0x64000000, opcode)
+    write32(data, 0x7b80, 0x6401df44)
+    data[0x1df44:0x1df50] = b"CASIOPVOS800"
     ipos = 0x80000
     data[ipos:ipos+len(layout.IPLSIG)] = layout.IPLSIG
     write32(data, ipos+0x20, 0x5000)
@@ -62,6 +65,14 @@ class OSUPLayoutTests(unittest.TestCase):
         self.assertEqual([x["source_sector_relative_to_ipl"]
                           for x in result["components"]], [1536, 1538, 1540])
         self.assertEqual([x["boot1_lba"] for x in result["boot1_hypotheses"]], [0, 32])
+        self.assertTrue(all(x["possible_osup_offset"] == 0xe0000
+                            for x in result["boot1_hypotheses"]))
+        self.assertTrue(all(x["expected_signature"] == "CASIOPVOS800"
+                            for x in result["boot1_hypotheses"]))
+        self.assertEqual(result["boot1_reader"]["partition_access"], 2)
+        self.assertEqual(result["boot1_reader"]["next_observed_cmd18_lba"], 64)
+        self.assertEqual(result["bulk_writer"]["physical_partition_if_ext_csd155_bit0_clear"], "user")
+        self.assertFalse(result["bulk_writer"]["boot1_write_proven"])
         self.assertTrue(all("UNVERIFIED" in x["status"]
                             for x in result["boot1_hypotheses"]))
         self.assertGreater(result["components"][2]["declared_minus_stored_bytes"], 0)
@@ -85,6 +96,37 @@ class OSUPLayoutTests(unittest.TestCase):
         refresh_trailer(data)
         with self.assertRaisesRegex(ValueError, "opcode"):
             layout.analyze(data)
+
+    def test_boot1_part_selector_opcode_revision_is_checked(self):
+        data = fixture()
+        data[0x75e0] ^= 1
+        refresh_trailer(data)
+        with self.assertRaisesRegex(ValueError, "opcode"):
+            layout.analyze(data)
+
+    def test_boot1_reader_signature_pointer_is_checked(self):
+        data = fixture()
+        write32(data, 0x7b80, 0x6404f40a)
+        refresh_trailer(data)
+        with self.assertRaisesRegex(ValueError, "signature pointer"):
+            layout.analyze(data)
+
+    def test_synthetic_sparse_pvos_primary_and_backup_only(self):
+        data = fixture()
+        pvos = data[0xe0000:0xe0200]
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "test-sparse.raw"
+            layout.write_private_pvos_test_image(target, pvos, "both")
+            self.assertEqual(target.stat().st_size, layout.QEMU_SYNTHETIC_SIZE)
+            with target.open("rb") as stream:
+                stream.seek(layout.BOOT_SIZE)
+                self.assertEqual(stream.read(512), pvos)
+                stream.seek(layout.BOOT_SIZE + 32 * 512)
+                self.assertEqual(stream.read(512), pvos)
+                stream.seek(layout.BOOT_SIZE + 64 * 512)
+                self.assertEqual(stream.read(512), bytes(512))
+            with self.assertRaises(FileExistsError):
+                layout.write_private_pvos_test_image(target, pvos, "both")
 
     def test_invalid_ipl_header_is_rejected(self):
         data=fixture()
