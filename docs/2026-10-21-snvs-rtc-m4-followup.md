@@ -22,6 +22,12 @@ This is *relative elapsed time only*: there is no calendar date, host wall-clock
 
 A firmware-free `scripts/probe_snvs_hp_rtc.py` runs real ARM instructions to enable RTC, read the high/low pair, execute a bounded delay loop, read again, disable, delay again, and verify the count **advanced only while enabled**. Included in GitHub native CI and packaged diagnostics.
 
+## Completed native and original-OSUP validation
+
+The native GitHub Actions [RTC run 39565779140](https://github.com/TheRainbowPhoenix/EXeSX/actions/runs/39565779140) passed the real ARM RTC count/freeze test and all existing synthetic peripheral regressions. [PR #13](https://github.com/TheRainbowPhoenix/EXeSX/pull/13) was merged. A separate native original-OSUP run with synthetic off-chip I²C mirrors and **explicitly diagnostic** SNVS security pulses found **no M4 BusFault in 2.5 or 5 seconds** after the earlier 0x41070024 fault. This is not a real secured clock or OS boot.
+
+The newly exposed A7 Data Abort, DFAR **`0x403800C0`**, belongs to USDHC1 `VEND_SPEC`. Merged PR #14 models the observed clock/reset register path, and the subsequent original-OSUP run reaches **MMDC0.MAPSR at `0x40AB0404`**. The [confirmed copied low-power routine](2026-10-21-usdhc1-mmdc-lowpower.md) requests MMDC low-power mode, waits for LPACK, then reaches an A7 WFI loop. That deliberately chosen suspend path is now the important next research question, not the SNVS RTC itself.
+
 ## Next experiment / evidence boundaries
 
 After passing synthetic native CI, compare the locally supplied firmware on the previous and newly compiled QEMU for identical windows and environment settings. Specifically observe M4 BusFault (`BFAR/CFSR`), MCU timer read consistency, any new M4 interrupt, A7 Abort data fault (`DFAR`), and **actual OS code/entry** rather than inferring boot from an idle-loop sample. Name the next missing peripheral/register precisely if another fault emerges.
