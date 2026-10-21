@@ -114,3 +114,110 @@ content = meson.read_text()
 if line not in content:
     meson.write_text(content.rstrip() + "\n" + line + "\n")
 print("Installed exesx board into", qemu)
+
+
+# The pinned QEMU 10.1.0 i.MX uSDHC maps SYS_CTRL (+0x2c) through
+# standard SDHCI clock bits 0..3. On i.MX7ULP these are reserved (NXP
+# PERI_USDHC.h): SYS_CTRL.RSTA at bit24 performs a synchronous reset,
+# then Casio polls PRES_STATE.SDSTB bit3 without writing SDHCI CLKCON.
+# Only the EXeSX board opts into an externally supplied controller root
+# clock; ordinary i.MX controllers retain upstream semantics.
+def patch_exact(path, before, after, label):
+    contents = path.read_text()
+    if contents.count(before) == 1:
+        path.write_text(contents.replace(before, after))
+    elif after not in contents:
+        raise SystemExit("Unsupported QEMU 10.1.0 " + label + "; refusing blind patch")
+
+sdhci_header = qemu / "include/hw/sd/sdhci.h"
+patch_exact(
+    sdhci_header,
+    "    bool wp_inverted;\n",
+    "    bool wp_inverted;\n"
+    "    /* EXeSX i.MX7ULP board input clock, not a card-detect override. */\n"
+    "    bool imx7ulp_input_clock;\n",
+    "SDHCI input-clock property field")
+
+sdhci_source = qemu / "hw/sd/sdhci.c"
+patch_exact(
+    sdhci_source,
+    '    DEFINE_PROP_BOOL("wp-inverted", SDHCIState,\n'
+    '                     wp_inverted, false),\n',
+    '    DEFINE_PROP_BOOL("wp-inverted", SDHCIState,\n'
+    '                     wp_inverted, false),\n'
+    '    DEFINE_PROP_BOOL("imx7ulp-input-clock", SDHCIState,\n'
+    '                     imx7ulp_input_clock, false),\n',
+    "SDHCI input-clock property")
+patch_exact(
+    sdhci_source,
+    '        if (s->clkcon & SDHC_CLOCK_INT_STABLE) {\n'
+    '            ret |= USDHC_PRNSTS_SDSTB;\n'
+    '        }\n',
+    '        /* i.MX7ULP SDSTB follows its clock input, not reserved\n'
+    '         * SYS_CTRL[3:0] SDHCI-clock aliases. Other i.MX unchanged.\n'
+    '         */\n'
+    '        if ((s->clkcon & SDHC_CLOCK_INT_STABLE) ||\n'
+    '            (s->imx7ulp_input_clock &&\n'
+    '             !(s->prnsts & SDHC_IMX_CLOCK_GATE_OFF))) {\n'
+    '            ret |= USDHC_PRNSTS_SDSTB;\n'
+    '        }\n',
+    "PRES_STATE clock status")
+patch_exact(
+    sdhci_source,
+    '        if (value & USDHC_IMX_FRC_SDCLK_ON) {\n'
+    '            s->prnsts &= ~SDHC_IMX_CLOCK_GATE_OFF;\n'
+    '        } else {\n'
+    '            s->prnsts |= SDHC_IMX_CLOCK_GATE_OFF;\n'
+    '        }\n',
+    '        /* FRC_SDCLK_ON=0 returns control to hardware. It does not\n'
+    '         * disable a supplied i.MX7ULP controller input clock.\n'
+    '         */\n'
+    '        if (s->imx7ulp_input_clock ||\n'
+    '            (value & USDHC_IMX_FRC_SDCLK_ON)) {\n'
+    '            s->prnsts &= ~SDHC_IMX_CLOCK_GATE_OFF;\n'
+    '        } else {\n'
+    '            s->prnsts |= SDHC_IMX_CLOCK_GATE_OFF;\n'
+    '        }\n',
+    "VEND_SPEC FRC clock behavior")
+patch_exact(
+    sdhci_source,
+    '    case USDHC_MIX_CTRL:\n'
+    '        /*\n'
+    '         * So, when SD/MMC stack in Linux tries to write to "Transfer\n',
+    '    case SDHC_CLKCON:\n'
+    '        /* i.MX7ULP SYS_CTRL low nibble is reserved; generic SDHCI\n'
+    '         * CLKCON enable bits do not exist at this guest address.\n'
+    '         * RSTA and the NXP divisor/timeout fields still work.\n'
+    '         */\n'
+    '        if (s->imx7ulp_input_clock) {\n'
+    '            val &= ~UINT32_C(0xf);\n'
+    '        }\n'
+    '        sdhci_write(opaque, offset, val, size);\n'
+    '        break;\n'
+    '    case USDHC_MIX_CTRL:\n'
+    '        /*\n'
+    '         * So, when SD/MMC stack in Linux tries to write to "Transfer\n',
+    "SYS_CTRL i.MX7ULP reserved clock bits")
+patch_exact(
+    sdhci_source,
+    '        sdhci_write(opaque, offset, val | s->trnmod, size);\n'
+    '        break;\n'
+    '    case SDHC_BLKSIZE:\n',
+    '        {\n'
+    '            uint16_t saved_clkcon = s->clkcon;\n'
+    '            /* The upstream SDHCI command engine requires its clock\n'
+    '             * bits. Temporarily translate EXeSX input-clock state;\n'
+    '             * never change the guest-visible SYS_CTRL or synthesize\n'
+    '             * a card response. On a missing root, commands remain\n'
+    '             * gated. This is restricted to the opt-in board device.\n'
+    '             */\n'
+    '            if (s->imx7ulp_input_clock &&\n'
+    '                !(s->prnsts & SDHC_IMX_CLOCK_GATE_OFF)) {\n'
+    '                s->clkcon |= SDHC_CLOCK_CHK_MASK;\n'
+    '            }\n'
+    '            sdhci_write(opaque, offset, val | s->trnmod, size);\n'
+    '            s->clkcon = saved_clkcon;\n'
+    '        }\n'
+    '        break;\n'
+    '    case SDHC_BLKSIZE:\n',
+    "SDHCI command clock bridge")
