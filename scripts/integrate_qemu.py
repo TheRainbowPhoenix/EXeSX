@@ -91,6 +91,24 @@ sema_target = qemu / 'hw/arm/exesx-imx7ulp-sema42.inc'
 if sema_target.exists() and sema_target.read_bytes() != sema_module.read_bytes():
     raise SystemExit('Refusing to overwrite changed upstream exesx-imx7ulp-sema42.inc')
 sema_target.write_bytes(sema_module.read_bytes())
+# The QEMU 10.1.0 eMMC model accepts a real sector count in EXT_CSD, but
+# its SD-card-only power-of-two drive-size assertion incorrectly rejects
+# Samsung's published 15,634,268,160-byte eMMC user area. Preserve that
+# assertion for actual SD cards; eMMC may have non-power-of-two density.
+# Exact-source match and idempotence prevent accidentally patching a new
+# upstream revision whose behavior we have not examined.
+sd_card_source = qemu / "hw/sd/sd.c"
+sd_card_text = sd_card_source.read_text()
+sd_restrict = "if (blk_size > 0 && !is_power_of_2(blk_size)) {"
+emmc_relax = ("if (blk_size > 0 && !is_power_of_2(blk_size) &&\n"
+              "            !sd_is_emmc(sd)) {")
+if sd_restrict in sd_card_text:
+    if sd_card_text.count(sd_restrict) != 1 or "static bool sd_is_emmc" not in sd_card_text:
+        raise SystemExit("Unsupported QEMU eMMC-size check; refusing to patch")
+    sd_card_source.write_text(sd_card_text.replace(sd_restrict, emmc_relax))
+elif emmc_relax not in sd_card_text:
+    raise SystemExit("QEMU SD/eMMC density check differs from pinned 10.1.0; refusing to guess")
+
 line = "arm_ss.add(when: 'CONFIG_ARM_V7M', if_true: files('exesx.c'))"
 content = meson.read_text()
 if line not in content:

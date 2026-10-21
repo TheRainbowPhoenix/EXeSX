@@ -30,6 +30,14 @@ The user read the faint third BGA marking as beginning **`KLMAG1J`**, a strong m
 
 **Important distinction:** The third BGA is a **candidate**, the photo board is **DY890**, and the studied updater's target is **DY357**. Neither connection/capacity on DY357 nor the actual media contents has been proven. The existing no-media USDHC1 timeout must remain the default unless a real virtual eMMC backend is intentionally attached.
 
+## Real QEMU eMMC host compatibility: original Casio BIOS SD clock
+
+- [Current original-ROM differential: upstream QEMU USDHC1 `RSTA→SDSTB` clock blocker](2026-10-21-upstream-emmc-clock-mismatch.md) — synthetic real-card CMD0/1/2/3/9/7/17/8 succeeds, but the unchanged Casio A7 waits at `0x60017140` with USDHC1 `SYS_CTRL=0`, `PRES_STATE.SDSTB=0`.
+- [QEMU upstream v3 clock-gates patch, 4 Oct 2026](https://mid.mail-archive.com/qemu-devel@nongnu.org/msg1231901.html) — vendor `VEND_SPEC` clocks, SDSTB and command-path translation for i.MX uSDHC. **Do not assume it directly solves the Casio boot path**; captured vendor register was zero.
+- [QEMU upstream v3 reset/status-enable compatibility patch, 4 Oct 2026](https://mid.mail-archive.com/qemu-devel@nongnu.org/msg1231900.html) — preserve `INT_STATUS_EN` across host reset to prevent polling timeouts; upstream labels it compatibility, not a specified hardware rule.
+- [Pinned QEMU 10.1.0 i.MX uSDHC source](https://github.com/qemu/qemu/blob/v10.1.0/hw/sd/sdhci.c) — existing `usdhc_read/usdhc_write` behavior and `SDHC_CLOCK_INT_STABLE` gate.
+- [NXP i.MX7ULP USDHC header](https://github.com/nxp-mcuxpresso/mcux-devices-imx/blob/main/i.MX7ULP/periph/PERI_USDHC.h) — distinct controller reset bit `SYS_CTRL.RSTA`, clock-ready `PRES_STATE.SDSTB` and vendor registers.
+
 ## Highest priority: i.MX7ULP-specific manufacturer material
 
 | Document | Why we need it | Caveat |

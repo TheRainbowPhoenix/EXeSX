@@ -12,6 +12,9 @@
 #include "hw/qdev-clock.h"
 #include "hw/clock.h"
 #include "hw/qdev-properties.h"
+#include "hw/sd/sdhci.h"
+#include "hw/sd/sd.h"
+#include "system/block-backend.h"
 #include "system/memory.h"
 #include "system/address-spaces.h"
 #include "qemu/error-report.h"
@@ -450,6 +453,76 @@ static void exesx_init(MachineState *ms)
         /* GIC qdev input indices are 0-based SPIs (GIC ID=32+index). */
         s->mu_b_irq = qdev_get_gpio_in(gic, 19);
 
+        /*
+         * Explicitly opt-in real SD/eMMC device path. This is QEMU's
+         * actual i.MX USDHC host + actual eMMC command/data state machine,
+         * not an MMIO table that invents card replies. By default the
+         * existing verified no-media model remains active underneath.
+         *
+         * Use -drive if=none,id=exesx-emmc,file=...,format=raw,snapshot=on
+         * and EXESX_USDHC1_EMMC=1. The user-area image must match the
+         * Samsung KLMAG1JETD-B041 reference geometry exactly. The QEMU
+         * eMMC model has its own implementation-specific limitations:
+         * do not assume its CID/EXT_CSD matches physical Samsung hardware.
+         */
+        if (!g_strcmp0(g_getenv("EXESX_USDHC1_EMMC"), "1")) {
+            BlockBackend *blk = blk_by_name("exesx-emmc");
+            int64_t bytes;
+            DeviceState *host;
+            DeviceState *card;
+            SysBusDevice *host_sbd;
+
+            if (!blk) {
+                error_report("EXeSX eMMC: EXESX_USDHC1_EMMC=1 requires "
+                             "-drive if=none,id=exesx-emmc,file=IMAGE,"
+                             "format=raw,snapshot=on");
+                exit(1);
+            }
+            bytes = blk_getlength(blk);
+            /* QEMU TYPE_EMMC carves boot0 and boot1 from the FIRST
+             * 8 MiB of the backing file. Its ext_csd SEC_COUNT is the
+             * remaining USER area only (Samsung reference: 0x01d1f000
+             * 512-byte sectors). No authenticated RPMB is supported.
+             */
+            if (bytes != INT64_C(15642656768)) {
+                error_report("EXeSX eMMC: Samsung candidate backing must "
+                             "contain boot0 (4 MiB) + boot1 (4 MiB) + "
+                             "user area (15634268160 bytes): expected "
+                             "15642656768 total bytes, got %" PRId64,
+                             bytes);
+                exit(1);
+            }
+            host = qdev_new(TYPE_IMX_USDHC);
+            object_property_add_child(OBJECT(ms), "usdhc1-card-host",
+                                      OBJECT(host));
+            qdev_prop_set_uint8(host, "sd-spec-version", 3);
+            /* 3.0V+1.8V, 4/8-bit capable, 512/2048-byte blocks, DMA.
+             * This is a guest test-controller capability mask, NOT a
+             * measured DY357 i.MX7ULP hardware register reset value.
+             */
+            qdev_prop_set_uint64(host, "capareg", UINT64_C(0x05e80080));
+            host_sbd = SYS_BUS_DEVICE(host);
+            sysbus_realize(host_sbd, &error_fatal);
+            /* The existing exesx-profile window is lower priority, so
+             * default no-media mode is byte-for-byte unchanged.
+             * Only this opt-in process sees real QEMU USDHC MMIO.
+             */
+            memory_region_add_subregion_overlap(
+                mem, UINT64_C(0x40380000),
+                sysbus_mmio_get_region(host_sbd, 0), 1);
+            /* Linux imx7ulp.dtsi: USDHC1 is A7 GIC_SPI 43. */
+            sysbus_connect_irq(host_sbd, 0, qdev_get_gpio_in(gic, 43));
+
+            card = qdev_new(TYPE_EMMC);
+            qdev_prop_set_uint64(card, "boot-partition-size", 4 * MiB);
+            qdev_prop_set_drive_err(card, "drive", blk, &error_fatal);
+            qdev_realize_and_unref(card, qdev_get_child_bus(host, "sd-bus"),
+                                   &error_fatal);
+            error_report("EXeSX experimental eMMC: QEMU i.MX USDHC1 host "
+                         "+ QEMU eMMC card, Samsung-class 16GB image "
+                         "(boot0/boot1/user; RPMB unsupported); "
+                         "guest data is synthetic unless provided by user");
+        }
     }
 
     /* Independent M-profile CPU and NVIC, powered off pending IPC model. */
