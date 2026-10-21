@@ -303,9 +303,136 @@ patch_exact(
     '            uint32_t wml = s->imx7ulp_wtmk_lvl & 0xff;\n'
     '            uint32_t consumed = s->data_count;\n'
     '            uint32_t block = s->blksize & BLOCK_SIZE_MASK;\n'
-    '            if (wml && consumed && consumed < block &&\n'
-    '                consumed % (wml * 4) == 0) {\n'
+    '            if (wml && (consumed == 0 ||\n'
+    '                        (consumed < block &&\n'
+    '                consumed % (wml * 4) == 0))) {\n'
     '                s->norintsts |= SDHC_NIS_RBUFRDY;\n'
     '            }\n'
     '        }\n',
     "RX watermark BRR W1C re-arm")
+
+
+# Explicit CMD12 STOP_TRANSMISSION during i.MX7ULP PIO multiblock reads.
+# The original DY357 BIOS writes CMD_XFR_TYP=0x0c030000 while the previous
+# CMD18 is still active. QEMU generic SDHCI interprets the R1b response
+# with CMDTYP=normal as command-inhibited, silently discards the request,
+# then Casio indefinitely polls INT_STATUS.CC. Only the opt-in i.MX7ULP
+# card-equipped host accepts this legacy plain CMD12 while an actual
+# multi-block READ is active; the real SD bus responds, then the host
+# terminates the in-progress transfer and emits TC. No card or buffer
+# contents are fabricated; generic SDHCI remains unchanged.
+patch_exact(
+    sdhci_source,
+    'static void sdhci_data_transfer(void *opaque);\n'
+    '\n'
+    '#define BLOCK_SIZE_MASK (4 * KiB - 1)\n',
+    'static void sdhci_data_transfer(void *opaque);\n'
+    'static void sdhci_end_transfer(SDHCIState *s);\n'
+    '\n'
+    '#define BLOCK_SIZE_MASK (4 * KiB - 1)\n',
+    "Explicit CMD12 forward declaration")
+patch_exact(
+    sdhci_source,
+    '    sdhci_update_irq(s);\n'
+    '\n'
+    '    if (!timeout && (s->blksize & BLOCK_SIZE_MASK) &&\n',
+    '    sdhci_update_irq(s);\n'
+    '\n'
+    '    /* DY357 emits a normal-type CMD12 even though CMD18 data is\n'
+    '     * still in flight. An actual accepted STOP_TRANSMISSION aborts\n'
+    '     * remaining buffered data; no bytes or card response are faked.\n'
+    '     * Skip AutoCMD12 because the physical card just received CMD12.\n'
+    '     */\n'
+    '    if (!timeout && s->imx7ulp_input_clock && request.cmd == 12 &&\n'
+    '        (s->prnsts & SDHC_DATA_INHIBIT) &&\n'
+    '        (s->prnsts & SDHC_DOING_READ) &&\n'
+    '        (s->trnmod & SDHC_TRNS_MULTI) &&\n'
+    '        !(s->cmdreg & SDHC_CMD_DATA_PRESENT)) {\n'
+    '        s->trnmod &= ~SDHC_TRNS_ACMD12;\n'
+    '        sdhci_end_transfer(s);\n'
+    '    }\n'
+    '\n'
+    '    if (!timeout && (s->blksize & BLOCK_SIZE_MASK) &&\n',
+    "Explicit CMD12 transfer completion after real card command")
+patch_exact(
+    sdhci_source,
+    '        !(SDHC_COMMAND_TYPE(s->cmdreg) == SDHC_CMD_ABORT))))) {\n',
+    '        !(SDHC_COMMAND_TYPE(s->cmdreg) == SDHC_CMD_ABORT) &&\n'
+    '        !(s->imx7ulp_input_clock &&\n'
+    '          (s->cmdreg >> 8) == 12 &&\n'
+    '          !(s->cmdreg & SDHC_CMD_DATA_PRESENT) &&\n'
+    '          (s->prnsts & SDHC_DATA_INHIBIT) &&\n'
+    '          (s->prnsts & SDHC_DOING_READ) &&\n'
+    '          (s->trnmod & SDHC_TRNS_MULTI)))))) {\n',
+    "Allow plain CMD12 only with genuine opt-in multiblock read")
+
+
+# Optional one-shot CMD12 diagnostics on the opt-in real i.MX7ULP host.
+# Read-only logging of C model fields allows real-OSUP differential to
+# distinguish DAT inhibit from command-type, mixer, or clock gating.
+# The default emulator never logs these. Enable with:
+# EXESX_TRACE_USDHC1_CMD12=1 and QEMU -d unimp.
+patch_exact(
+    sdhci_source,
+    '            sdhci_write(opaque, offset, val | s->trnmod, size);\n'
+    '            s->clkcon = saved_clkcon;\n',
+    '            bool trace_stop = s->imx7ulp_input_clock &&\n'
+    '                (((uint32_t)val >> 24) & 0x3f) == 12 &&\n'
+    '                !g_strcmp0(g_getenv("EXESX_TRACE_USDHC1_CMD12"), "1");\n'
+    '            if (trace_stop) {\n'
+    '                qemu_log_mask(LOG_UNIMP,\n'
+    '                    "EXESX USDHC1 CMD12 BEFORE raw=%08x trnmod=%04x"\n'
+    '                    " cmdreg=%04x prnsts=%08x clkcon=%04x gate=%d"\n'
+    '                    " ready=%d\\n",\n'
+    '                    (uint32_t)val, s->trnmod, s->cmdreg, s->prnsts,\n'
+    '                    s->clkcon,\n'
+    '                    !!(s->prnsts & SDHC_IMX_CLOCK_GATE_OFF),\n'
+    '                    !!(s->prnsts & SDHC_DATA_AVAILABLE));\n'
+    '            }\n'
+    '            sdhci_write(opaque, offset, val | s->trnmod, size);\n'
+    '            if (trace_stop) {\n'
+    '                qemu_log_mask(LOG_UNIMP,\n'
+    '                    "EXESX USDHC1 CMD12 AFTER cmdreg=%04x"\n'
+    '                    " trnmod=%04x prnsts=%08x norint=%04x err=%04x"\n'
+    '                    " clkcon=%04x\\n",\n'
+    '                    s->cmdreg, s->trnmod, s->prnsts,\n'
+    '                    s->norintsts, s->errintsts, s->clkcon);\n'
+    '            }\n'
+    '            s->clkcon = saved_clkcon;\n',
+    "Opt-in original BIOS CMD12 reject-path diagnostics")
+
+
+# NXP MIX_CTRL transfer-mode bits are not allowed to change while CDIHB
+# is asserted. Upstream generic SDHCI honors this in SDHC_TRNMOD writes,
+# but its i.MX "MIX_CTRL" translation directly mutates s->trnmod, even
+# between CMD18 and the later CMD12 issued by the real DY357 BIOS.
+# The original ARM accesses MIX_CTRL before CMD13 and CMD12, so a
+# synthetic test that only writes CMD18 followed by CMD12 missed it.
+patch_exact(
+    sdhci_source,
+    '    case USDHC_MIX_CTRL:\n'
+    '        ret = 0;\n'
+    '        break;\n',
+    '    case USDHC_MIX_CTRL:\n'
+    '        ret = s->imx7ulp_input_clock ? s->trnmod : 0;\n'
+    '        break;\n',
+    "Read back opt-in uSDHC MIX_CTRL transfer bits")
+patch_exact(
+    sdhci_source,
+    '        s->trnmod = value & UINT16_MAX;\n'
+    '        break;\n'
+    '    case SDHC_TRNMOD:\n',
+    '        if (s->imx7ulp_input_clock &&\n'
+    '            (s->prnsts & SDHC_DATA_INHIBIT)) {\n'
+    '            /* As with generic SDHC_TRNMOD, the active data\n'
+    '             * transfer cannot be reprogrammed via MIX_CTRL.\n'
+    '             * Permit other non-TRNMOD fields to change.\n'
+    '             */\n'
+    '            s->trnmod = (value & ~SDHC_TRNMOD_MASK) |\n'
+    '                         (s->trnmod & SDHC_TRNMOD_MASK);\n'
+    '        } else {\n'
+    '            s->trnmod = value & UINT16_MAX;\n'
+    '        }\n'
+    '        break;\n'
+    '    case SDHC_TRNMOD:\n',
+    "Preserve active i.MX7ULP MIX_CTRL transfer bits across CMD13/CMD12")
