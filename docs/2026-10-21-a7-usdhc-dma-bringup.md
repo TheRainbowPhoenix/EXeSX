@@ -27,7 +27,7 @@ The abort is a **missing USDHC0 host-controller status register** on the A7, *no
 | `0x40081040` | DMA1 TCD channel 2 | A7 at `0x601B8108` zeroes source and subsequent 16-bit/32-bit descriptor fields; **no data movement** |
 | `0x4021000C` | DMAMUX1 channel configuration byte 12 | Read during DMA/clock setup |
 | `0x40290010` | LPSPI2 `CR` | A7 at `0x601C2254` reads control, requests FIFO/reset behavior, toggles back |
-| `0x601CBC34` | A7 firmware code | Later polls DMA1 `CR` and tests bit23; repeated reads do not alone prove a fault |
+| `0x601CBC34` | A7 firmware code | Later polls DMA1 `CR` and tests bit31; repeated reads do not alone prove a fault |
 
 These are confirmed by the NXP i.MX7ULP [CM4 CMSIS base addresses](https://github.com/nxp-mcuxpresso/mcux-devices-imx/blob/main/i.MX7ULP/MCIMX7U5/MCIMX7U5_cm4_COMMON.h) and the upstream Linux [imx7ulp.dtsi](https://github.com/torvalds/linux/blob/master/arch/arm/boot/dts/nxp/imx/imx7ulp.dtsi), which explicitly maps USDHC0 0x40370000, eDMA1 0x40080000 (0x2000 bytes) and DMAMUX1 0x40210000 (0x1000). [NXP USDHC SDK driver](https://mcuxpresso.nxp.com/api_doc/dev/1581/group__usdhc.html) names `kUSDHC_SdClockStableFlag` and `kUSDHC_CardInsertedFlag` as different bits. [NXP eDMA driver binding](https://kernel.googlesource.com/pub/scm/linux/kernel/git/torvalds/linux/+/7c16f0a4ed1ce7b0dd1c01fc012e5bde89fe7748/Documentation/devicetree/bindings/dma/fsl,edma.yaml) confirms 32 channels.
 
@@ -51,13 +51,13 @@ The last case repeatedly read DMA1 CR (A7 PC `0x601CBC34`); memtrace verified li
 A small evidence-backed startup subset is now available in the EXeSX profile and dedicated MMIO modules, tested using `scripts/probe_a7_early_devices.py` (real synthetic A7 ARM guest). It supports:
 - USDHC0 only `PRES_STATE+0x24 = 0x8`, indicating the internal host clock has stabilized; **no card-present, response, or transfer**. Other registers fault.
 - A7 DMA1 existing early CR/control and **snapshot-backed TCD register storage** for 32 channels, byte/halfword/word access. No channel execution, DMA copy or completion flags.
-- DMAMUX1 `CHCFG[0..31]` byte read/write storage only; no triggered peripheral requests.
+- DMAMUX1 `CHCFG[0..31]` byte-packed read/write storage with naturally aligned 8/16/32-bit MMIO accesses; no triggered peripheral requests.
 - LPSPI2 only CR +0x10 read/write. **No SPI transfer or attached external device**.
 
 **Limits:** USDHC clock readiness is approximated after the BIOS has explicitly enabled PCC2, not modeled cycle-accurately. TCD/DMAMUX state storage alone cannot satisfy real card, DMA or SPI transactions. Unrecognized registers fault. This is early-board discovery, **not a working OS**.
 
-## Next roadblock
+## Follow-up status: next roadblock
 
-Find the entry-condition and source of the repeated DMA1 `CR` status check at A7 PC `0x601CBC34`, as well as any OS-entry breakpoint activity. Determine whether the firmware is simply polling its main event loop or waiting for a real DMA/SPI/card transaction. Only add an actual DMA engine or storage image once it issues a transfer that can be traced and validated.
+The repeated DMA1 `CR` read at A7 PC `0x601CBC34` tests **bit 31, `DMA_CR.ACTIVE`**, confirmed by [NXP PERI_DMA.h](https://github.com/nxp-mcuxpresso/mcux-devices-imx/blob/main/i.MX7ULP/periph/PERI_DMA.h). An idle DMA engine legitimately keeps this bit clear. Real firmware then exposes a **different M4 BusFault at SNVS HPRTCMR (0x41070024)**; see the [SNVS RTC follow-up](2026-10-21-snvs-rtc-m4-followup.md). Determine whether the firmware is simply polling its main event loop or waiting for a real DMA/SPI/card transaction. Only add an actual DMA engine or storage image once it issues a transfer that can be traced and validated.
 
 The maintained [hardware reference library](HARDWARE_REFERENCES.md) collects manufacturer manuals/SDK and Linux sources. Keep all credentials and proprietary files entirely out of GitHub, logs and runnable scripts.
