@@ -145,8 +145,23 @@ def make_elf():
     lit(1,0x12220000); strw(1,0,0x0c) # CMD18 READ_MULTIPLE_BLOCK
     ldr(2,0,0x30); strw(2,7,128)      # index 32: CMD18 CC + BRR
     ldr(2,0,0x24); strw(2,7,132)      # index 33: DATA_INHIBIT true
-    for _ in range(32):
-        ldr(2,0,0x20)                 # genuine 128 B card data
+    # Four 32-word watermarks finish sector64, then W1C of the last
+    # tranche must not swallow the BRR event for already-buffered sector65.
+    # Use short real ARM loops; 160 unrolled loads overflow ARM literal pool.
+    for batch in range(5):
+        if batch == 4:
+            ldr(2,0,0x20)             # first real word from sector 65
+            strw(2,7,188)             # index47, never fabricate media
+            lit(3,31)
+        else:
+            lit(3,32)
+        start = len(ins)
+        ldr(2,0,0x20)
+        emit(0xe2533001)              # SUBS r3,r3,#1
+        pos = len(ins); emit(0)
+        ins[pos] = 0x1a000000 | ((start - (pos + 2)) & 0xffffff)
+        lit(1,0x20); strw(1,0,0x30)
+        ldr(2,0,0x30); strw(2,7,168 + batch*4)  # indexes42..46
     # Original BIOS explicitly tries to clear MIX_CTRL while CMD18 is
     # active, then issues CMD13 followed by CMD12. Before this fix QEMU
     # unconditionally rewrote cached trnmod=0, losing active MULTI.
@@ -196,6 +211,10 @@ def main():
             backing.truncate(EMMC_IMAGE_BYTES)  # sparse, no 16 GB allocation
             backing.seek(2 * EMMC_BOOT_BYTES)
             backing.write(MARKER)
+            backing.seek(2 * EMMC_BOOT_BYTES + 64 * 512)
+            backing.write(b"EXESX-CMD18-REAL-LBA64-TEST")
+            backing.seek(2 * EMMC_BOOT_BYTES + 65 * 512)
+            backing.write(b"EXESX-CMD18-REAL-LBA65-TEST")
     except FileExistsError:
         p.error(f"Refusing to overwrite existing image: {args.image}")
     args.elf.write_bytes(make_elf())
@@ -213,12 +232,12 @@ def main():
                           stderr=subprocess.STDOUT,text=True)
     try:
         time.sleep(1.0)
-        commands="".join(f"xp /1wx 0x{OUT+4*i:08x}\n" for i in range(42))+"quit\n"
+        commands="".join(f"xp /1wx 0x{OUT+4*i:08x}\n" for i in range(48))+"quit\n"
         output,_=qemu.communicate(commands,timeout=20)
     finally:
         if qemu.poll() is None:qemu.kill();qemu.wait()
     values=[]
-    for i in range(42):
+    for i in range(48):
         m=re.search(r"(?im)^0*"+f"{OUT+4*i:08x}"+r":\s+0x([0-9a-f]+)",output)
         if not m:raise AssertionError(f"Missing guest result {i}. Output:\n{output[-3500:]}")
         values.append(int(m.group(1),16))
@@ -259,6 +278,13 @@ def main():
         raise AssertionError(f"Wrong EXT_CSD.SEC_COUNT {values[19]:#x}, "
                              f"expected {(SAMSUNG_USER_BYTES//512):#x}; "
                              "boot partitions must not count as user sectors")
+    for index in range(42,47):
+        if not values[index] & 0x20:
+            raise AssertionError(f"No genuine FIFO BRR after batch {index-42}; "
+                                 f"at block rollover: {values[index]:#x}")
+    if values[47] != int.from_bytes(b"EXES","little"):
+        raise AssertionError("Expected real sector65 contents after rollover, "
+                             f"got {values[47]:#x}")
     for idx in (39, 41):
         if (values[idx] & 0x32) != 0x32:
             raise AssertionError(
