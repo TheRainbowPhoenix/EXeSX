@@ -39,17 +39,6 @@ static MemTxResult exesx_dma0_read(EXeSXProfileWindow *w, hwaddr off,
     if (exesx_dma1_tcd_access(w, off, size)) {
         *value = (w->regfile[off / 4] >> ((off & 3) * 8)) &
                  ((UINT64_C(1) << (size * 8)) - 1);
-        /* Opt-in register trace for privately held firmware analysis.
-         * Reading CSR does NOT complete a DMA transfer.
-         */
-        if (!g_strcmp0(g_getenv("EXESX_TRACE_DMA1_TCD"), "1")) {
-            qemu_log_mask(LOG_UNIMP,
-                          "EXeSX DMA1 TCD READ ch=%u field=0x%02" HWADDR_PRIx
-                          " width=%u data=0x%08x (NO DMA execution)\n",
-                          (unsigned)((off - 0x1000) / 32),
-                          (off - 0x1000) % 32,
-                          size, (uint32_t)*value);
-        }
         return MEMTX_OK;
     }
     if ((w->base != UINT64_C(0x41008000) &&
