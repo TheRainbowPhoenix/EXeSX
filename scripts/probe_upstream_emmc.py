@@ -36,22 +36,23 @@ def make_elf():
     lit(5, 200000)
     emit(0xe2555001)
     emit(0x1afffffd)
-    # Exact original DY357 A7 reset + poll operations, apart from using
-    # r6 for the same PRES_STATE base held by firmware r0 at 0x60017134.
-    # Firmware 0x60017134/38/3c/40/44: LDR/ORR(RSTA)/STR/LDR/TST,
-    # followed by BEQ backwards. Do not pre-enable the generic SDHCI
-    # SYS_CTRL low nibble, which is reserved on i.MX7ULP.
-    lit(6, 0x40380024)
-    ldr(2, 6, 8)            # LDR r2,[r6,#8]   SYS_CTRL
-    emit(0xe3822401)        # ORR r2,r2,#0x01000000   RSTA
-    strw(2, 6, 8)           # STR r2,[r6,#8]
+    # Exact instruction words from original SHA-verified DY357 A7
+    # 0x60017134, 38, 3c, 40, 44, 48. In this probe, r0 points to
+    # PRES_STATE during the poll, then restores the host base for CMD0+.
+    lit(4, 0x40380000)
+    lit(0, 0x40380024)
+    ldr(2, 0, 8)            # e5902008 LDR r2,[r0,#8]
+    emit(0xe3822740)        # e3822740 ORR r2,r2,#0x01000000
+    strw(2, 0, 8)           # e5802008 STR r2,[r0,#8]
     poll_at = len(ins)
-    ldr(2, 6, 0)            # LDR r2,[r6]     PRES_STATE
-    emit(0xe3120008)        # TST r2,#8      SDSTB
+    ldr(2, 0, 0)            # e5902000 LDR r2,[r0]
+    emit(0xe3120008)        # e3120008 TST r2,#8
     branch_at = len(ins)
-    emit(0)                 # BEQ poll_at, filled as PC-relative ARM B
+    emit(0)                 # 0afffffc BEQ to poll_at
     ins[branch_at] = 0x0a000000 | ((poll_at - (branch_at+2)) & 0xffffff)
-    strw(2, 7, 80)          # Reached only after clock stable following RSTA
+    assert ins[branch_at] == 0x0afffffc
+    strw(2, 7, 80)          # Only reached after root clock becomes stable
+    emit(0xe1a00004)        # MOV r0,r4, subsequent real eMMC MMIO base
     ldr(2,0,0x24); strw(2,7,0)
     lit(1,0x0000000f)
     strw(1,0,0x2c)          # Reserved i.MX7ULP nibble: RAZ/WI, not a clock
