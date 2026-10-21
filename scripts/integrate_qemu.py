@@ -399,3 +399,39 @@ patch_exact(
     '            }\n'
     '            s->clkcon = saved_clkcon;\n',
     "Opt-in original BIOS CMD12 reject-path diagnostics")
+
+
+# NXP MIX_CTRL transfer-mode bits are not allowed to change while CDIHB
+# is asserted. Upstream generic SDHCI honors this in SDHC_TRNMOD writes,
+# but its i.MX "MIX_CTRL" translation directly mutates s->trnmod, even
+# between CMD18 and the later CMD12 issued by the real DY357 BIOS.
+# The original ARM accesses MIX_CTRL before CMD13 and CMD12, so a
+# synthetic test that only writes CMD18 followed by CMD12 missed it.
+patch_exact(
+    sdhci_source,
+    '    case USDHC_MIX_CTRL:\n'
+    '        ret = 0;\n'
+    '        break;\n',
+    '    case USDHC_MIX_CTRL:\n'
+    '        ret = s->imx7ulp_input_clock ? s->trnmod : 0;\n'
+    '        break;\n',
+    "Read back opt-in uSDHC MIX_CTRL transfer bits")
+patch_exact(
+    sdhci_source,
+    '        s->trnmod = value & UINT16_MAX;\n'
+    '        break;\n'
+    '    case SDHC_TRNMOD:\n',
+    '        if (s->imx7ulp_input_clock &&\n'
+    '            (s->prnsts & SDHC_DATA_INHIBIT)) {\n'
+    '            /* As with generic SDHC_TRNMOD, the active data\n'
+    '             * transfer cannot be reprogrammed via MIX_CTRL.\n'
+    '             * Permit other non-TRNMOD fields to change.\n'
+    '             */\n'
+    '            s->trnmod = (value & ~SDHC_TRNMOD_MASK) |\n'
+    '                         (s->trnmod & SDHC_TRNMOD_MASK);\n'
+    '        } else {\n'
+    '            s->trnmod = value & UINT16_MAX;\n'
+    '        }\n'
+    '        break;\n'
+    '    case SDHC_TRNMOD:\n',
+    "Preserve active i.MX7ULP MIX_CTRL transfer bits across CMD13/CMD12")
