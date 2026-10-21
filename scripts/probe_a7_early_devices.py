@@ -52,6 +52,21 @@ def make_elf():
     lit(1, 0x302)
     strw(1, 0, 0x10)                  # LPSPI2 CR early control
     ldr(2, 0, 0x10); strw(2, 7, 24)
+    lit(0, 0x40380000)                   # USDHC1, separate host controller
+    ldr(2, 0, 0xc0); strw(2, 7, 36)  # VEND_SPEC reset = 0
+    lit(1, 0x100)
+    strw(1, 0, 0xc0)                # Force SD CLK
+    ldr(2, 0, 0xc0); strw(2, 7, 40)
+    lit(1, 0)
+    strw(1, 0, 0xc0)                # Release forced SD CLK
+    ldr(2, 0, 0xc0); strw(2, 7, 44)
+    lit(1, 0x01000000)
+    strw(1, 0, 0x2c)                # SYS_CTRL.RSTA reset command
+    ldr(2, 0, 0x2c); strw(2, 7, 48)  # resets self-clear
+    ldr(2, 0, 0x24); strw(2, 7, 52)  # SDSTB stable, CINST unset
+    lit(1, 0x00800000)
+    strw(1, 0, 0x48)                # MIX_CTRL register storage; no transfer
+    ldr(2, 0, 0x48); strw(2, 7, 56)
     emit(0xeafffffe)
     for index, reg, value in literals:
         offset = len(words)*4 - (index*4+8)
@@ -83,19 +98,19 @@ def main():
                             stderr=subprocess.STDOUT,text=True)
     try:
         time.sleep(0.5)
-        script="".join(f"xp /1wx 0x{OUT+4*i:08x}\n" for i in range(9))+"quit\n"
+        script="".join(f"xp /1wx 0x{OUT+4*i:08x}\n" for i in range(15))+"quit\n"
         output,_=guest.communicate(script,timeout=15)
     finally:
         if guest.poll() is None: guest.kill();guest.wait()
     actual=[]
-    for i in range(9):
+    for i in range(15):
         m=re.search(r"(?im)^0*"+f"{OUT+i*4:08x}"+r":\s+0x([0-9a-f]+)",output)
         if not m: raise AssertionError("Missing guest ARM output: "+output[-1600:])
         actual.append(int(m.group(1),16))
-    expected=[8,0x90,0,0xaabbccdd,0x1234,0x95,0x302,0xa1b2c3d4,0xc3]
+    expected=[8,0x90,0,0xaabbccdd,0x1234,0x95,0x302,0xa1b2c3d4,0xc3,0,0x100,0,0,8,0x00800000]
     if actual != expected:
         raise AssertionError(f"Mixed-width A7 startup MMIO mismatch: {list(map(hex,actual))}")
-    print("PASS A7 ARM USDHC0 clock stable, no card, DMA1/TCD, DMAMUX1 byte and LPSPI2 CR")
+    print("PASS A7 ARM USDHC0/1 host clocks with no card, DMA1/TCD, DMAMUX1 and LPSPI2 controls")
     print("No card data, DMA transfer or SPI replies have been emulated.")
 
 if __name__=="__main__": main()
