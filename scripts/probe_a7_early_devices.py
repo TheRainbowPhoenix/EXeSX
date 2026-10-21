@@ -40,14 +40,24 @@ def make_elf():
     strw(2, 7, 16)
     lit(0, 0x40210000)
     lit(1, 0x95)
-    emit(0xe5c0100c)                  # strb r1,[r0,#12] DMAMUX1 CHCFG12
+    emit(0xe5c0100c)                  # strb r1,[r0,#12] DMAMUX1 CHCFG3 low byte
     emit(0xe5d0200c)                  # ldrb r2,[r0,#12]
-    strw(2, 7, 20)
+    strw(2, 7, 20)       # CHCFG3.SOURCE bits0..6; bit7 reserved
     lit(1, 0xa1b2c3d4)
-    strw(1, 0, 12)                     # Four CHCFG bytes at once; real Casio read width
-    ldr(2, 0, 12); strw(2, 7, 28)   # Packed little-endian 32-bit readback
+    strw(1, 0, 12)                     # One 32-bit CHCFG3; RAZ/WI reserved
+    ldr(2, 0, 12); strw(2, 7, 28)   # CHCFG3 masked readback
     emit(0xe5d0200d)                   # ldrb r2,[r0,#13]
-    strw(2, 7, 32)                  # CHCFG13 must equal 0xc3
+    strw(2, 7, 32)                  # High byte of CHCFG3 is reserved
+    # Actual i.MX7ULP DMAMUX1 has 32 x uint32 CHCFG, not 32 bytes.
+    lit(1, 0x8000001f)
+    strw(1, 0, 0x20)                 # CHCFG8: enable source 31
+    ldr(2, 0, 0x20); strw(2, 7, 116)
+    lit(0, 0x40080000)
+    lit(1, 15)
+    emit(0xe5c0101b)                 # STRB r1,[r0,#0x1b] DMA1.SERQ ch15
+    ldr(2, 0, 0x0c); strw(2, 7, 120)  # ERQ bit15 enabled (no transfer)
+    emit(0xe5c0101a)                 # STRB r1,[r0,#0x1a] DMA1.CERQ ch15
+    ldr(2, 0, 0x0c); strw(2, 7, 124)  # ERQ bit15 cleared
     lit(0, 0x40290000)
     lit(1, 0x302)
     strw(1, 0, 0x10)                  # LPSPI2 CR early control
@@ -132,19 +142,19 @@ def main():
                             stderr=subprocess.STDOUT,text=True)
     try:
         time.sleep(0.5)
-        script="".join(f"xp /1wx 0x{OUT+4*i:08x}\n" for i in range(29))+"quit\n"
+        script="".join(f"xp /1wx 0x{OUT+4*i:08x}\n" for i in range(32))+"quit\n"
         output,_=guest.communicate(script,timeout=15)
     finally:
         if guest.poll() is None: guest.kill();guest.wait()
     actual=[]
-    for i in range(29):
+    for i in range(32):
         m=re.search(r"(?im)^0*"+f"{OUT+i*4:08x}"+r":\s+0x([0-9a-f]+)",output)
         if not m: raise AssertionError("Missing guest ARM output: "+output[-1600:])
         actual.append(int(m.group(1),16))
-    expected=[8,0x90,0,0xaabbccdd,0x1234,0x95,0x302,0xa1b2c3d4,0xc3,0,0x100,0,0,8,0x00800000,0,0x08200820,0,0x157f51ff,0x157f51ff,0,1,0,0,0,0x1aa,0x08020000,0,0x20]
+    expected=[8,0x90,0,0xaabbccdd,0x1234,0x15,0x302,0xa0000054,0,0,0x100,0,0,8,0x00800000,0,0x08200820,0,0x157f51ff,0x157f51ff,0,1,0,0,0,0x1aa,0x08020000,0,0x20,0x8000001f,0x8000,0]
     if actual != expected:
         raise AssertionError(f"Mixed-width A7 startup MMIO mismatch: {list(map(hex,actual))}")
-    print("PASS A7 ARM USDHC0/1 host clocks with no card, DMA1/TCD, DMAMUX1 and LPSPI2 controls")
+    print("PASS A7 ARM USDHC0/1 host clocks with no card, DMA1/TCD, DMAMUX1 and LPSPI2 controls; DMAMUX1 32-bit CHCFG8 and byte SERQ/CERQ")
     print("PASS CMD0 host-only no-response complete; CMD8 retains argument but no card/response/IRQ.")
 
 if __name__=="__main__": main()

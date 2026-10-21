@@ -41,6 +41,12 @@ static MemTxResult exesx_dma0_read(EXeSXProfileWindow *w, hwaddr off,
                  ((UINT64_C(1) << (size * 8)) - 1);
         return MEMTX_OK;
     }
+    if (w->base == UINT64_C(0x40080000) && size == 1 &&
+        (off == 0x1a || off == 0x1b)) {
+        /* Command registers are write-only and read as zero here. */
+        *value = 0;
+        return MEMTX_OK;
+    }
     if ((w->base != UINT64_C(0x41008000) &&
          w->base != UINT64_C(0x40080000)) ||
         size != 4 || (off & 3) || off >= w->size ||
@@ -59,6 +65,7 @@ static MemTxResult exesx_dma0_read(EXeSXProfileWindow *w, hwaddr off,
 static MemTxResult exesx_dma0_write(EXeSXProfileWindow *w, hwaddr off,
                                    uint64_t value, unsigned size)
 {
+    uint32_t bits = (uint32_t)value;
     if (exesx_dma1_tcd_access(w, off, size)) {
         uint32_t shift = (off & 3) * 8;
         uint32_t mask = ((UINT64_C(1) << (size * 8)) - 1) << shift;
@@ -70,6 +77,32 @@ static MemTxResult exesx_dma0_write(EXeSXProfileWindow *w, hwaddr off,
                           " width=%u data=0x%08x (NO DMA execution)\n",
                           (unsigned)((off - 0x1000) / 32),
                           (off - 0x1000) % 32, size, (uint32_t)value);
+        }
+        return MEMTX_OK;
+    }
+    if (w->base == UINT64_C(0x40080000) && size == 1 &&
+        (off == 0x1a || off == 0x1b)) {
+        /* PERI_DMA.h: CERQ +0x1a and SERQ +0x1b are eight-bit
+         * command registers; ERQ +0x0c has one bit per DMA channel.
+         * Bit7 NOP, bit6 clear/set ALL requests, low five bits channel.
+         * A request enable is NOT an executed TCD or DONE transition.
+         */
+        if (!(bits & 0x80)) {
+            uint32_t channel_mask = (bits & 0x40) ?
+                                    UINT32_MAX :
+                                    (UINT32_C(1) << (bits & 0x1f));
+            if (off == 0x1b) {
+                w->regfile[0x0c / 4] |= channel_mask;
+            } else {
+                w->regfile[0x0c / 4] &= ~channel_mask;
+            }
+            if (!g_strcmp0(g_getenv("EXESX_TRACE_DMA1_TCD"), "1")) {
+                qemu_log_mask(LOG_UNIMP,
+                              "EXeSX DMA1 %s ch=%u ERQ=0x%08x "
+                              "(NO DMA execution)\n",
+                              off == 0x1b ? "SERQ" : "CERQ",
+                              bits & 0x1f, w->regfile[0x0c / 4]);
+            }
         }
         return MEMTX_OK;
     }
