@@ -48,6 +48,15 @@ Source catalog for the QEMU 10.1.0 Casio XD-SX9850/DY357 Cortex-A7 + Cortex-M4 r
 - [NXP i.MX7ULP PERI_MMDC.h](https://github.com/nxp-mcuxpresso/mcux-devices-imx/blob/main/i.MX7ULP/periph/PERI_MMDC.h) — MMDC0 `MAPSR +0x404`, `PSD` bit0, `LPMD` request bit20, `LPACK` acknowledgment bit24
 - [Firmware-confirmed USDHC1/MMDC suspend investigation](2026-10-21-usdhc1-mmdc-lowpower.md) — A7 copied internal-RAM low-power routine requests DDR self-refresh and ends in `WFI`; do not force unverified wakeup
 
+## M4 GPIOB7 startup permission and independent wakeup references
+
+- [NXP PERI_GPIO.h](https://github.com/nxp-mcuxpresso/mcux-devices-imx/blob/main/i.MX7ULP/periph/PERI_GPIO.h) — GPIOB `PDIR` at +0x10 (input voltages), `PDDR` +0x14 (input/output direction)
+- [NXP i.MX7ULP MCIMX7U5 CMSIS base addresses](https://github.com/nxp-mcuxpresso/mcux-devices-imx/blob/main/i.MX7ULP/MCIMX7U5/MCIMX7U5_cm4_COMMON.h) — GPIOB base `0x4100F040`
+- [NXP MCUXpresso EVK power-mode switch demo](https://docs.mcuxpresso.nxp.com/mcuxsdk/26.09.00-pvw1/html/examples/_boards/evkmcimx7ulp/demo_apps/power_mode_switch/example_board_readme.html) — **explicitly separate** A7 boot, wake, shutdown and reboot commands and M4-managed power states; only an architectural example, **not** Casio's proven protocol
+- [NXP i.MX7ULP low-power boot discussion](https://community.nxp.com/t5/i-MX-Processors/i-MX7ULP-in-low-power-boot/m-p/1166065/highlight/true) — dual-boot A7 can remain VLLS while M4 coordinates wake; Casio board assumptions require independent evidence
+- [NXP A7/M4 power-mode timing case](https://community.nxp.com/t5/i-MX-Processors/A7-M4-timing-issue-using-power-mode-switch-example/td-p/1065463) — GPIO/LPTMR wake in demo use cases, **not a confirmed GPIOB7 Casio wakeup**
+- [Original-OSUP M4 GPIOB7→A7 shared permission investigation](2026-10-21-gpiob7-boot-permission.md) — exact Thumb, ARM and cross-core watchpoint traces; MMDC low-power is a consequence of the gate being false
+
 ## Current investigation reports
 
 - [Real firmware MU v1 correction](2026-10-20-imx7ulp-mu-v1-bit-order.md) — 78,665 to 2 IRQ22 entries with MU interrupt enabled, still no proven OS entry.
