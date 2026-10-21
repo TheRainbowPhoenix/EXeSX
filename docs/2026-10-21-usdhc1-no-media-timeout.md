@@ -32,8 +32,16 @@ The no-media model now:
 
 **Important limitation:** The physical emulator currently has no eMMC/SD drive. **This is not a complete, timing-accurate USDHC or a successful eMMC boot.** An image-backed real eMMC device and host command/response/DMA implementation will be required if Casio depends on the storage contents. The separate [QEMU TYPE_EMMC card model](https://qemu.googlesource.com/qemu/+/25fef09ce17ac1ae22638a0b57d97c2bd5cd7d83/include/hw/sd/sd.h) and [QEMU SDHCI controller](https://github.com/qemu/qemu/blob/master/hw/sd/sdhci.c) are possible implementation foundations after checking their i.MX7ULP-specific register mapping and correct backing image.
 
-## Required original-OSUP differential
+## Actual original-OSUP differential completed
 
-Run the *same private ROM* with unchanged I²C and SNVS diagnostic flags and GPIOB7 input high, and verify: the old A7 `PC=0x600178FC` CMD1 poll terminates with CTOE rather than a bus abort or invented ready bit; capture the next A7 branch and whether the firmware retries, returns a no-media error, or reaches alternate boot code. If a new MMIO fault emerges, identify and log it precisely. **No UI or verified Casio OS entry is claimed.**
+**Native CI [run 39592758697](https://github.com/TheRainbowPhoenix/EXeSX/actions/runs/39592758697) succeeded**, including the real ARM CMD1 timeout/W1C/zero-response test. Re-downloaded that exact native artifact, verified `SHA256SUMS`, and independently ran `probe_usdhc1_no_media.py` (PASS).
+
+In a **2.0-second real original-DY357-OSUP cold boot**, unchanged ELF bytes, `EXESX_GPIOB_INPUT_MASK=0x80` and the same explicitly diagnostic I²C/SNVS settings, the A7 USDHC1 command trace contained **one CMD0**, **65 CMD1 requests** (`ARG=0x40FF8000`, `XFR=0x01020000`) and finally **one CMD7** (`ARG=0x00020000`, `XFR=0x07030000`). The earlier endless `0x600178FC` CMD1 status wait has been broken by the legitimate no-card **CTOE** condition. No card OCR or command response was synthesized, and the bounded instruction trace reported **no new A7 MMIO Data Abort**.
+
+This matches the original ROM's recovery logic at `0x60017AE4`: when `CMDRSP0` lacks OCR_BUSY bit31, firmware waits/retries CMD1. A higher-level MMC initialization caller `0x60017B48` branches to its failure/cleanup path when the retries do not produce a real initialized device; the observed later CMD7 should **not** be mistaken for a successful card selection. An independent snapshot around 2s sampled the A7 in a kernel exception context, not the Casio OS. Parsing 7,730 instruction PCs in this run found **zero PCs in the loaded OS section 0x60400000 and above**.
+
+**Actual current blocker:** The BIOS requires a response from a physical or emulated MMC/eMMC device. No suitable card image or controller-to-card backend is attached. A functional emulation path needs QEMU's eMMC card implementation backed by actual media contents (or an explicitly synthetic test image), USDHC1 card/command/response protocol, and eventually data DMA plus IRQ. Continuing to return 'ready' without a real emulated medium would invalidate the experiment. The actual Casio board chip, sector geometry and filesystem format remain unverified.
+
+No proprietary OSUP, RAM snapshots, security credentials, or machine logs are committed to this repository.
 
 See the [master hardware reference library](HARDWARE_REFERENCES.md) and [CMD0/eMMC disassembly](2026-10-21-usdhc1-cmd0-no-media.md).
