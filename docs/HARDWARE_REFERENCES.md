@@ -2,6 +2,22 @@
 
 Source catalog for the QEMU 10.1.0 Casio XD-SX9850/DY357 Cortex-A7 + Cortex-M4 research emulator. Sources below are independent of the proprietary firmware, and **do not prove Casio's external I2C chip identities**. Do not commit OSUP, extracted ELFs, snapshots or private debugger traces.
 
+## Photographed candidate EX-word PWB-DY890 board — new silicon-specific clues
+
+Read [the chip-by-chip photographic investigation](2026-10-21-pwb-dy890-pcb-identification.md) **before assuming this DY890 PCB matches the original DY357 firmware hardware**. Original user photographs and per-device labels are **not published**.
+
+| Primary source | Confirmed implication for this pictured board |
+| --- | --- |
+| [NXP 2N54W mask-set B2 revision notice (202009014I)](https://www.nxp.com/pcn/202009014I) | Actual visible NXP 2N54W mask = **B2** silicon. B2 boot and DDR fixes; do not infer the unseen target board's mask. |
+| [NXP i.MX7ULP B2-specific datasheet](https://www.nxp.com/docs/en/data-sheet/IMX7ULPCECB2.pdf) | Lists MCIMX7U5DVP07SD and the B2 memory/clock limits. |
+| [NXP documentation index (IMX7ULPRMB2 and 2N54W errata)](https://www.nxp.com/products/i.MX7ULP) | Use B2 reference/errata for this PCB instead of silently relying on B1 docs. |
+| [ESMT original M54D1G3232A datasheet](https://www.esmt.com.tw/upload/pdf/ESMT/datasheets/M54D1G3232A.pdf) | **1-Gbit = 128 MiB LPDDR2**, x32, 134-ball BGA, NOT persistent flash/eMMC. |
+| [ROHM BU26154MUV official product page](https://www.rohm.com/products/audio-video/audio-converters/audio-codecs/bu26154muv-product) and [full BU26154 datasheet](https://www.infinite-electronic.kr/datasheet/67-BU26154MUV-E2.pdf) | 24-bit audio codec with **4-wire resistive touch ADC**; 2-wire/I²C slave address `0x1A` or `0x1B` selected by SAD. Not the unexplained 0x4B slave. |
+| [Microchip ATWINC1510 Wi-Fi product](https://www.microchip.com/en-us/product/ATWINC1510-IC) and [developer SPI interface guide](https://developerhelp.microchip.com/xwiki/bin/view/products/wireless-connectivity/Embedded-Wi-Fi/winc1500-overview/) | ATWINC1510 uses host **SPI** + IRQ, wake/reset/enable; on-module flash only for Wi-Fi firmware, not proof of main eMMC. |
+| [ROHM FAQ: some PMIC I²C address 0x4B](https://www.rohm.co.kr/products/faq-search/faqId/2453) and [BD71850 datasheet](https://fscdn.rohm.com/en/products/databook/datasheet/ic/power/switching_regulator_system/bd71850mwv-e.pdf) | **Research lead only**: does NOT prove that BD71850 is on the photographed board or that the currently unreadable `BD70527` marking denotes this chip. |
+
+**Next highest-value physical observation:** a sharp, obliquely illuminated image of the **third faint-marked square BGA close to the i.MX7ULP/ESMT LPDDR2**. It might be system storage, but the identity is not readable, and only confirmed media geometry/content should enter QEMU.
+
 ## Highest priority: i.MX7ULP-specific manufacturer material
 
 | Document | Why we need it | Caveat |
