@@ -14,3 +14,13 @@ The opt-in i.MX7ULP device now stores and reads documented WTMK_LVL fields and r
 The expanded synthetic ARM eMMC regression writes original `0x08200820`, checks register readback, consumes 32-word batches and W1C-acks BRR for CMD17 and CMD8/EXT_CSD. It verifies fresh BRR after the first three boundaries and no false ready event after the final 512-byte block. Existing CMD1 OCR, CID/CSD, user sector marker, SEC_COUNT and no-media tests remain.
 
 **Validation boundary:** CI is guest ARM and synthetic media, not genuine Casio OSUP, and dynamic PCC2 clock-tree connection is still not modeled. Do not claim original firmware success until an independent native private original ROM run reproduces it.
+
+
+## CI and private original-firmware result
+Native QEMU 10.1.0 guest-ARM CI [run 39675448940](https://github.com/TheRainbowPhoenix/EXeSX/actions/runs/39675448940) passed compile, CMD17 synthetic sector, CMD8 real EXT_CSD in 32-word batches with W1C and repeated BRR, root-clock-disabled regression and no-media timeout. Other native regressions also passed.
+
+A separate **5-second private original DY357 firmware execution** used the same SHA-verified OSUP-derived A7/M4 ELF, the same sparse Samsung-reference-size test eMMC and existing opt-in diagnostic board environment as the earlier clock-fix differential. Firmware and traces remain local and uncommitted.
+
+Measured at native QEMU monitor stop: A7 **PC `0x601b82b8`** (BIOS region) rather than previously stalled **`0x60018784`**; USDHC1 command register `CMD_XFR_TYP=0x11220010` = **CMD17** (SINGLE_BLOCK_READ), `PRES_STATE=0x01ff0008`, `SYS_CTRL=0x008d0200`, `INT_STATUS=0x00000003` (CC+TC). Log contains original BIOS addresses beyond `0x60018784` and no new Invalid read/write MMIO entries in the bounded capture. This independently validates progress through EXT_CSD and into a later genuine card-sector read, **not OS boot**. The synthetic eMMC has no Casio sectors. No execution at OS section `0x60400000` or framebuffer/text has been demonstrated.
+
+**What remains unknown:** significance of BIOS poll/control at `0x601b82b8`, later data content expectations, exact SCG1/PCC2 clock gate wiring, real hardware reset timing, Samsung CID/EXT_CSD match, and physical eMMC sectors. No change to the actual proprietary ROM.
