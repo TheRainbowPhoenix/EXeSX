@@ -18,6 +18,18 @@ Read [the chip-by-chip photographic investigation](2026-10-21-pwb-dy890-pcb-iden
 
 **Next highest-value physical observation:** a sharp, obliquely illuminated image of the **third faint-marked square BGA close to the i.MX7ULP/ESMT LPDDR2**. It might be system storage, but the identity is not readable, and only confirmed media geometry/content should enter QEMU.
 
+## New: exact Samsung 16 GB eMMC 5.1 candidate (2026-10-21)
+
+The user read the faint third BGA marking as beginning **`KLMAG1J`**, a strong match for **Samsung KLMAG1JETD-B041**, but did not verify the suffix or physical USDHC1 connection. See the [chip specification and opt-in virtual-device validation plan](2026-10-21-samsung-klmag1jetd-emmc-candidate.md).
+
+- [Samsung eMMC KLMAG1JETD-B041 Rev. 1.21 original datasheet (publicly hosted)](https://manuals.plus/m/73f47e95f7f148c9d063bbf1cc3073bbe86781cc4deea903952521fb7725c585) — **16 GB, eMMC 5.1**, 153 FBGA, `EXT_CSD_REV=8`, `MID=0x15`, OCR voltage/busy/sector-addressing semantics.
+- [Samsung's part-specific product spec archive](https://manuals.plus/m/c541cfe15445324325e0add977ef2fee7a43eda5f5ded9c75c3a6fe22d4fdd6) — 11.5 × 13 × 0.8 mm and 16 GB eMMC 5.1.
+- [Samsung user-density and eMMC hardware partitions table](https://www.pilover.com/wp-content/uploads/2020/05/KLMAG1JETD-B041.pdf) — 16 GB reference **15,634,268,160-byte user area = 30,535,680 × 512-byte sectors**, plus separate **4 MiB × 2 boot areas** and **4 MiB RPMB**. These values describe the datasheet reference model, not a dump of this board.
+- [QEMU 10.1.0 SD/eMMC card model](https://github.com/qemu/qemu/blob/v10.1.0/hw/sd/sd.c) and [SDHCI host controller](https://github.com/qemu/qemu/blob/v10.1.0/hw/sd/sdhci.c) — **next implementation resources**, but USDHC1 MMIO/IRQ/data-transfer integration remains unimplemented. Never fabricate Casio's on-device data.
+- [Linux MMC identity and command definitions](https://github.com/torvalds/linux/blob/master/include/linux/mmc/mmc.h) — CMD1 OCR, CMD2 CID, CMD3 RCA, CMD9 CSD, CMD7 SELECT and CMD6 SWITCH, matching original A7 software sequence.
+
+**Important distinction:** The third BGA is a **candidate**, the photo board is **DY890**, and the studied updater's target is **DY357**. Neither connection/capacity on DY357 nor the actual media contents has been proven. The existing no-media USDHC1 timeout must remain the default unless a real virtual eMMC backend is intentionally attached.
+
 ## Highest priority: i.MX7ULP-specific manufacturer material
 
 | Document | Why we need it | Caveat |
