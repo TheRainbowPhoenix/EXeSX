@@ -32,7 +32,7 @@ class DMAAndMMCMetadataTests(unittest.TestCase):
             dma.decode_tcd({0x400811e0:0x61080000},15)
 
     def test_monitor_ansi_and_width(self):
-        text="\\x1b[0m00000000400811fc: 0x0001000a\\n"
+        text=chr(27)+"[0m00000000400811fc: 0x0001000a"+chr(10)
         self.assertEqual(dma.parse_monitor(text)[0x400811fc],0x1000a)
 
     def test_cmd6_selects_boot1_and_cmd17_is_partition_relative(self):
