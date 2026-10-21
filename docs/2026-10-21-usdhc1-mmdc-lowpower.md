@@ -47,6 +47,8 @@ NXP [MCIMX7U5_cm4_COMMON.h](https://github.com/nxp-mcuxpresso/mcux-devices-imx/b
 
 A7 firmware at `0x601CD2D4` branches to the copied RAM trampoline (`0x2F02B0B8`) after preparing low-power hardware (including LPIT). This is **explicit suspend/low-power control flow**, *not* an OS-entry trampoline.
 
+**Verified caller and classification:** The A7 BIOS reaches `0x601CD5E8: b 0x601CD2D4` after shutdown/power-management cleanup, including LPIT register writes. At `0x601CD2D4: ldr pc,[pc,#-4]`, the literal `0x2F02B0B8` jumps into the copied internal-RAM suspend routine. These are *intentional control-flow instructions*, not an IRQ return/address-corruption artifact. SHA-guarded Ghidra instruction-site names are `A7_PM_EnterSRAMSuspendAfterShutdown` and `A7_PM_JumpToSRAMSuspendTrampoline` in [the A7 kernel symbol table](../reverse/a7_kernel_named_sites.tsv). The precise upstream call chain/condition which selects this shutdown path remains unverified.
+
 **Important: do not add an unconditional MMDC LPACK=1 as a supposed boot fix.** That would only advance this A7 path into an actual `WFI` sleep loop without establishing what wakeup interrupt or initialization state the system expects. Correct next experiment is trace the caller that elects suspend, inspect the clock/PM state and wakeup source (`PMC/SMC/LLWU/GIC`), and determine whether that path is normal idle or a missing wakeup trigger. A later proper MMDC emulation should model self-refresh request/ack only in a justified state, with a separate explicitly diagnostic override if necessary.
 
 ## Source hierarchy
