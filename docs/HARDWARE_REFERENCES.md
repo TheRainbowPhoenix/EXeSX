@@ -42,6 +42,12 @@ Source catalog for the QEMU 10.1.0 Casio XD-SX9850/DY357 Cortex-A7 + Cortex-M4 r
 - [NXP PERI_DMA.h](https://github.com/nxp-mcuxpresso/mcux-devices-imx/blob/main/i.MX7ULP/periph/PERI_DMA.h) — A7 DMA1 `CR.ACTIVE` bit **31**, eDMA TCD control/state
 - [Private M4 SNVS RTC follow-up](2026-10-21-snvs-rtc-m4-followup.md) — exact 0x41070024 bus read, virtual elapsed-time emulation and limitations
 
+## A7 USDHC1 and MMDC0 power-management references
+
+- [NXP i.MX7ULP PERI_USDHC.h](https://github.com/nxp-mcuxpresso/mcux-devices-imx/blob/main/i.MX7ULP/periph/PERI_USDHC.h) — USDHC1 `VEND_SPEC.FRC_SDCLK_ON` bit8 and `SYS_CTRL.RSTA` bit24, plus `PRES_STATE.SDSTB` (host clock only)
+- [NXP i.MX7ULP PERI_MMDC.h](https://github.com/nxp-mcuxpresso/mcux-devices-imx/blob/main/i.MX7ULP/periph/PERI_MMDC.h) — MMDC0 `MAPSR +0x404`, `PSD` bit0, `LPMD` request bit20, `LPACK` acknowledgment bit24
+- [Firmware-confirmed USDHC1/MMDC suspend investigation](2026-10-21-usdhc1-mmdc-lowpower.md) — A7 copied internal-RAM low-power routine requests DDR self-refresh and ends in `WFI`; do not force unverified wakeup
+
 ## Current investigation reports
 
 - [Real firmware MU v1 correction](2026-10-20-imx7ulp-mu-v1-bit-order.md) — 78,665 to 2 IRQ22 entries with MU interrupt enabled, still no proven OS entry.
