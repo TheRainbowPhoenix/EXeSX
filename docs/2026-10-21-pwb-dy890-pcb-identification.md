@@ -15,7 +15,7 @@
 | `ATWINC1510-MR210PB` | [Microchip ATWINC1510 / ATWINC15x0 module](https://www.microchip.com/en-us/product/ATWINC1510-IC) — 2.4-GHz 802.11 b/g/n Wi-Fi network coprocessor, **SPI host** plus GPIO/IRQ/WAKE/RESET. [Microchip developer guide](https://developerhelp.microchip.com/xwiki/bin/view/products/wireless-connectivity/Embedded-Wi-Fi/winc1500-overview/). | High | Strong candidate for future LPSPI host-device and IRQ emulation. Module's own embedded flash is for Wi-Fi firmware, **not proof of the missing system eMMC**. No claim Wi-Fi must initialize before UI boot. |
 | `BD70527`, smaller `223 H45` | **Unknown.** This marking does not unambiguously identify a publicly verified device/datasheet from current research. | Low | Do not call it the board PMIC or assign an I²C address until a clear photo/full part name or continuity and vendor documentation confirm it. |
 | `N2006`, smaller `06 02` | **Unknown** from the presently legible package marking. | Low | Not a proven touch, PMIC, charger, storage or USB chip. No fake driver or I²C address assignment. |
-| **Unidentified square BGA** adjacent to processor/DRAM | Surface text is faint in user photo; function **not established**. | Unidentified | **Top priority to re-photograph** as a candidate for NAND/eMMC/other system storage. The actual A7 firmware uses USDHC1 MMC CMD0/CMD1/2/3/9/7/6; package identity, wiring, capacity and contents still unknown. |
+| **Large square BGA with faint marking beginning `KLMAG1J`** (user's follow-up reading) | Strong **candidate**: Samsung **KLMAG1JETD-B041**, **16 GB eMMC 5.1**. Its publicly reproduced [Samsung Rev. 1.21 datasheet](https://manuals.plus/m/73f47e95f7f148c9d063bbf1cc3073bbe86781cc4deea903952521fb7725c585) matches the prefix and package class. | **Moderate-to-high as family candidate; NOT fully confirmed** (remaining marking unreadable) | Top storage lead: Samsung user area 15,634,268,160 bytes, 30,535,680 512-byte sectors, boot0/boot1 4 MiB each, RPMB 4 MiB. MMC sequence agrees with USDHC1 firmware. **Neither USDHC1 PCB routing nor actual image contents are confirmed**. [Exact candidate specification and emulator plan](2026-10-21-samsung-klmag1jetd-emmc-candidate.md). |
 | **Visible microSD-format slot** | Mechanical slot on board photo. | High for connector, unverified bus | Might be another storage interface. Slot presence does **not** establish which USDHC host is connected or that CMD1 is aimed at this connector instead of soldered eMMC. |
 
 ## What this changes in our emulator research
@@ -24,7 +24,7 @@
 2. **The 128-MiB LPDDR2 is not persistent storage.** Keep DRAM sizing and DDR initialization separate from USDHC1 eMMC protocol/state/content. The ROM's no-card CMD1 timeout test stays valid for empty eMMC.
 3. **Audio + touch are likely related to ROHM BU26154**, not necessarily a 0x4B touchscreen controller. Its datasheet describes XP/XN/YP/YN four-wire touch electrodes. Before changing QEMU, XRef actual firmware reads/writes of I²C 0x1A/0x1B and inspect controller routing and IRQ pin. Do not ascribe its touch ADC to the unknown M4 0x4B device.
 4. The photographed Wi-Fi module is an **SPI peripheral**, not a stand-alone OS flash chip. Its SPI bus/IRQ may become a later blocker but is not currently proven so.
-5. **The actual eMMC remains unidentified.** Request a close, sharp, glare-free angled-light photo of the **third large BGA with faint text next to the SoC and LPDDR2**, plus both sides of the PCB if possible, and a photo of the model designation on the device itself. No desoldering/probing required for identification.
+5. **The suspected storage package now has a strong Samsung eMMC lead.** The additional user-inspected prefix `KLMAG1J` is consistent with Samsung KLMAG1JETD-B041 **16 GB eMMC 5.1**, but the suffix/wiring remains unverified. Request a close, sharp, glare-free angled-light photo of that BGA and the device's model designation. A non-destructive read of CID/CSD/EXT_CSD is more decisive if accessible. No desoldering/probing is needed just to refine the visual hypothesis.
 
 ## Address warning: 0x4B
 
@@ -36,7 +36,7 @@ Some **other** ROHM PMICs can use a 7-bit I²C address `0x4B` ([ROHM PMIC FAQ](h
 - 2N54W and 128 MiB LPDDR2: **verified for pictured board**.
 - BU26154 touch+audio and I²C 0x1A/0x1B option: **datasheet-verified**, actual interface mode unverified.
 - ATWINC1510 Wi-Fi on SPI: **datasheet-verified**, host port selection unverified.
-- Unknown BGA = eMMC: **hypothesis, not confirmation**.
+- Faint BGA `KLMAG1J` = Samsung KLMAG1JETD-B041 16 GB eMMC 5.1: **strong model-family hypothesis, NOT full chip or electrical routing confirmation**.
 - Existing EXeSX USDHC1 CMD0/CMD1 first-boot trace remains **firmware-verified**; device chip/content and eMMC image not proven.
 
 All chip IDs above are package identifiers or board manufacturing marks, **not** user-identifying radio IDs, QR labels, or serial numbers.
