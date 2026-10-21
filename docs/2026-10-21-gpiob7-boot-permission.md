@@ -81,6 +81,15 @@ python3 scripts/probe_a7_boot_gate.py private/a7.elf \
 
 The second tool runs two **clean cold boots** (mask=0 and mask=0x80), breaks on the *actual M4* store of 0 or 0xFFFFFFFF, measures M4 PDIR and A7 shared word, and then observes which of the two actual A7 branch sites is reached. It does not patch a return register or rewrite a firmware image. Private outputs must never be committed.
 
+## Completed native CI and original-ROM GPIOB7 differential
+
+- [GitHub Actions run 39574881093](https://github.com/TheRainbowPhoenix/EXeSX/actions/runs/39574881093) **SUCCESS**: compiled native QEMU and ran synthetic ARM GPIOB external pin/direction regression along with existing MU, SNVS, USDHC and DMA regression checks. Independently downloaded the exact native artifact and re-ran `probe_gpiob_input.py`: with mask=0 it returned `PDIR=[0,0x80,0]`; with mask=0x80 it returned `[0x80,0x80,0]`, including correct output-direction priority.
+- **Original untouched A7 and M4 firmware**, separate native QEMU run, with opt-in diagnostic I²C mirrors and SNVS pulses **unchanged**: `EXESX_GPIOB_INPUT_MASK=0x80` made a GDB breakpoint at real M4 PC **`0x1FFD7798`** see **`r1=0xFFFFFFFF`** before storing to shared startup permission. GPIOB.PDIR actually read `0x00000080`, PDDR `0x00068C04`, PDOR 0. Thus M4 takes its own *high-input* branch, not an A7 debugger-injected return value.
+- The independent **real A7 MainTask** stop at `0x6004A19C` now had `r0=1` and shared word `0x2F029284=0xFFFFFFFF`—no register or ROM modifications. It passed the secondary check and reached the normal startup branch **`0x6004A1BC`**. In an otherwise identical low-mask cold run, the actual M4 wrote zero and A7 took shutdown at `0x6004A1B4`.
+- **Next precise A7 fault after normal-startup unlock:** original firmware progressed until A7 Data Abort **DFSR `0x1808`, DFAR `0x40380044`**, actual ARM store at **`0x600179B0`**. This is NXP USDHC1 **`WTMK_LVL`** at host base 0x40380000 plus 0x44, a FIFO watermark configuration register ([NXP PERI_USDHC.h](https://github.com/nxp-mcuxpresso/mcux-devices-imx/blob/main/i.MX7ULP/periph/PERI_USDHC.h)). There is still NO verified Casio OS entry, storage device, DMA completion or LCD content. This new fault is **not** MMDC self-refresh; the normal branch skips that shutdown entirely.
+
+Therefore the missing external GPIOB7 input really is the cause of the observed MMDC shutdown path. **It does not prove pin7 is always high on real Casio hardware**; GPIOB7 board function and any subsequent LLWU wake mechanism still require physical or firmware cross-reference.
+
 ## Which wakeup event?
 
 The **first necessary signal** is now concretely GPIOB pin 7 sampled by M4; its *board-level role and polarity are unknown*. It is a *startup permission*, **not proven to be an LLWU wakeup IRQ**.
