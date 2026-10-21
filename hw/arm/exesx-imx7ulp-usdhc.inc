@@ -38,6 +38,9 @@ static MemTxResult exesx_usdhc0_write(EXeSXProfileWindow *w,
  * means no command completion, transfer completion, or insertion events.
  */
 #define EXESX_USDHC1_IRQ_VALID UINT32_C(0x157f51ff)
+/* PERI_USDHC.h PROT_CTRL: direction/endian/DMA/blockgap/wakeup/bursts;
+ * undefined bits are read-as-zero and write-ignored. */
+#define EXESX_USDHC1_PROT_CTRL_MASK UINT32_C(0x7f1f03ff)
 
 static MemTxResult exesx_usdhc1_read(EXeSXProfileWindow *w,
                                     hwaddr off, uint64_t *value,
@@ -53,6 +56,7 @@ static MemTxResult exesx_usdhc1_read(EXeSXProfileWindow *w,
         return MEMTX_OK;
     case 0x08: /* CMD_ARG: argument from A7 to SD command wire */
     case 0x0c: /* CMD_XFR_TYP: most recently initiated command */
+    case 0x28: /* PROT_CTRL: bus/endian/byte order configuration */
     case 0x2c:
     case 0x30: /* INT_STATUS: no removable card/media attached */
     case 0x34: /* INT_STATUS_EN */
@@ -76,6 +80,9 @@ static MemTxResult exesx_usdhc1_write(EXeSXProfileWindow *w,
         return MEMTX_ERROR;
     }
     switch (off) {
+    case 0x28: /* PROT_CTRL: no fake card-detect test-level change */
+        w->regfile[off / 4] = bits & EXESX_USDHC1_PROT_CTRL_MASK;
+        return MEMTX_OK;
     case 0x08: /* CMD_ARG: staging only; not a card response */
         w->regfile[off / 4] = bits;
         return MEMTX_OK;
