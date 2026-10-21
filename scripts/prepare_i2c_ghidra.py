@@ -27,6 +27,7 @@ FUNCTIONS = {
     0x1ffd3270: "M4_Kernel_CommonInterruptDispatch",
     0x1ffd5712: "M4_MU_ReceiveAndGIP_IRQHandler",
     0x1ffd4c64: "M4_SNVS_HPCOMR_CommandSequence",
+    0x1ffd7782: "M4_GPIOB7_UpdateSharedA7BootGate",
     0x1ffd6c48: "M4_LPI2C_ClearState",
     0x1ffd6cb6: "M4_LPI2C_CheckErrors",
     0x1ffd6cf8: "M4_LPI2C_SendStart",
