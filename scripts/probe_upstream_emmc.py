@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Real ARM smoke test for opt-in upstream QEMU i.MX USDHC1 + eMMC.
 
-Creates a *sparse* synthetic 16GB Samsung-reference user area under build/.
+Creates a *sparse* Samsung-size test image with separate boot0/boot1 and user area.
 The blank medium is NOT a Casio dump, its CID/EXT_CSD are QEMU's own.
 Default no-media behavior is tested by existing probes, not overridden.
 """
@@ -17,6 +17,9 @@ import time
 BASE = 0x60000000
 OUT = 0x6200BE00
 SAMSUNG_USER_BYTES = 15_634_268_160
+EMMC_BOOT_BYTES = 4 * 1024 * 1024
+EMMC_IMAGE_BYTES = SAMSUNG_USER_BYTES + 2 * EMMC_BOOT_BYTES
+MARKER = b"EXESX-EMMC-SYNTHETIC-SECTOR"
 
 def make_elf():
     ins, literals = [], []
@@ -53,6 +56,51 @@ def make_elf():
     ldr(2,0,0x30); strw(2,7,8) # CMD1 host status
     ldr(2,0,0x10); strw(2,7,12)# QEMU emulated eMMC OCR response
     ldr(2,0,0x24); strw(2,7,16)# CINST/SDSTB
+    # Identify through genuine QEMU eMMC CID/RCA/CSD/select operations.
+    lit(1,0xffffffff); strw(1,0,0x30)
+    lit(1,0); strw(1,0,0x08)
+    lit(1,0x02010000); strw(1,0,0x0c)  # CMD2 (R2 CID)
+    ldr(2,0,0x30); strw(2,7,20)
+    ldr(2,0,0x10); strw(2,7,24)
+    ldr(2,0,0x1c); strw(2,7,28)
+    lit(1,0xffffffff); strw(1,0,0x30)
+    lit(1,0x00020000); strw(1,0,0x08)
+    lit(1,0x03020000); strw(1,0,0x0c)  # CMD3 (set RCA 2)
+    ldr(2,0,0x30); strw(2,7,32)
+    ldr(2,0,0x10); strw(2,7,36)
+    lit(1,0xffffffff); strw(1,0,0x30)
+    lit(1,0x00020000); strw(1,0,0x08)
+    lit(1,0x09010000); strw(1,0,0x0c)  # CMD9 (R2 CSD)
+    ldr(2,0,0x30); strw(2,7,40)
+    ldr(2,0,0x1c); strw(2,7,44)
+    lit(1,0xffffffff); strw(1,0,0x30)
+    lit(1,0x00020000); strw(1,0,0x08)
+    lit(1,0x07030000); strw(1,0,0x0c)  # CMD7 (select)
+    ldr(2,0,0x30); strw(2,7,48)
+    ldr(2,0,0x10); strw(2,7,52)
+    # A genuine CMD17 PIO read must return a known byte pattern from
+    # user sector zero, which starts after the two boot partitions.
+    lit(1,0x00010200); strw(1,0,0x04)  # 1 × 512-byte block
+    lit(1,0x10); strw(1,0,0x48)        # i.MX MIX_CTRL PIO read
+    lit(1,0xffffffff); strw(1,0,0x30)
+    lit(1,0); strw(1,0,0x08)
+    lit(1,0x11220000); strw(1,0,0x0c)  # CMD17 SINGLE_BLOCK_READ
+    ldr(2,0,0x30); strw(2,7,56)
+    ldr(2,0,0x20); strw(2,7,60)       # first marker word
+    ldr(2,0,0x20); strw(2,7,64)       # second marker word
+    ldr(2,0,0x24); strw(2,7,68)
+    # Read real QEMU TYPE_EMMC EXT_CSD via CMD8, including SEC_COUNT.
+    # The remainder of the first CMD17 buffer needn't be consumed once
+    # the card has been selected for the next transfer; verify in CI.
+    lit(1,0x00010200); strw(1,0,0x04)
+    lit(1,0x10); strw(1,0,0x48)
+    lit(1,0xffffffff); strw(1,0,0x30)
+    lit(1,0); strw(1,0,0x08)
+    lit(1,0x08220000); strw(1,0,0x0c)  # MMC SEND_EXT_CSD
+    for word in range(54):
+        ldr(2,0,0x20)
+        if word == 48: strw(2,7,72)  # EXT_CSD_REV offset 192
+        if word == 53: strw(2,7,76)  # SEC_COUNT offsets 212..215
     emit(0xeafffffe)
     for pos,reg,value in literals:
         off=len(ins)*4-(pos*4+8)
@@ -74,8 +122,16 @@ def main():
     args=p.parse_args()
     args.image.parent.mkdir(parents=True,exist_ok=True)
     args.elf.parent.mkdir(parents=True,exist_ok=True)
-    with args.image.open("wb") as backing:
-        backing.truncate(SAMSUNG_USER_BYTES)  # sparse: only file size, no 16GB write
+    # Exclusive-create only: never truncate an existing user-supplied image.
+    # QEMU's TYPE_EMMC exposes the first two 4 MiB as boot0/boot1,
+    # followed by Samsung's 15,634,268,160-byte USER region.
+    try:
+        with args.image.open("xb") as backing:
+            backing.truncate(EMMC_IMAGE_BYTES)  # sparse, no 16 GB allocation
+            backing.seek(2 * EMMC_BOOT_BYTES)
+            backing.write(MARKER)
+    except FileExistsError:
+        p.error(f"Refusing to overwrite existing image: {args.image}")
     args.elf.write_bytes(make_elf())
     env=os.environ.copy()
     env["EXESX_MEMORY_PROFILE"]=str(args.profile.resolve())
@@ -91,12 +147,12 @@ def main():
                           stderr=subprocess.STDOUT,text=True)
     try:
         time.sleep(1.0)
-        commands="".join(f"xp /1wx 0x{OUT+4*i:08x}\n" for i in range(5))+"quit\n"
+        commands="".join(f"xp /1wx 0x{OUT+4*i:08x}\n" for i in range(20))+"quit\n"
         output,_=qemu.communicate(commands,timeout=20)
     finally:
         if qemu.poll() is None:qemu.kill();qemu.wait()
     values=[]
-    for i in range(5):
+    for i in range(20):
         m=re.search(r"(?im)^0*"+f"{OUT+4*i:08x}"+r":\s+0x([0-9a-f]+)",output)
         if not m:raise AssertionError(f"Missing guest result {i}. Output:\n{output[-3500:]}")
         values.append(int(m.group(1),16))
@@ -108,9 +164,29 @@ def main():
         raise AssertionError(f"Upstream eMMC CMD1 missing host completion: {[hex(x) for x in values]}")
     if not values[3]&0x80000000:
         raise AssertionError(f"Upstream eMMC did not report OCR ready: {[hex(x) for x in values]}")
-    print("PASS genuine upstream QEMU eMMC inserted, CMD0/1, response OCR:",
-          [hex(x) for x in values])
-    print("Medium is synthetic sparse 16GB, NOT original Casio flash; no OS boot claimed.")
+    for index,cmd in [(5,2),(8,3),(10,9),(12,7)]:
+        if not values[index]&1:
+            raise AssertionError(f"Real eMMC CMD{cmd} failed: {list(map(hex,values))}")
+    if not values[6] or not values[11]:
+        raise AssertionError("Missing actual CID or CSD response from QEMU card")
+    if values[14]&0x21 != 0x21:
+        raise AssertionError(f"eMMC CMD17 missing CC+buffer-ready: {values[14]:#x}")
+    expected_words=(int.from_bytes(MARKER[:4],"little"),
+                    int.from_bytes(MARKER[4:8],"little"))
+    if tuple(values[15:17])!=expected_words:
+        raise AssertionError("CMD17 did not read real user sector zero: "
+                             +repr([hex(x) for x in values[15:17]]))
+    if values[19] != SAMSUNG_USER_BYTES // 512:
+        raise AssertionError(f"Wrong EXT_CSD.SEC_COUNT {values[19]:#x}, "
+                             f"expected {(SAMSUNG_USER_BYTES//512):#x}; "
+                             "boot partitions must not count as user sectors")
+    print("PASS native QEMU i.MX USDHC1+eMMC CMD0/1/2/3/9/7/17/8, "
+          "attached card and real user-sector data:", [hex(x) for x in values])
+    print(f"QEMU eMMC EXT_CSD_REV={values[18]&255} "
+          "(not guaranteed Samsung eMMC 5.1=8); "
+          f"user SEC_COUNT=0x{values[19]:08x}")
+    print("SYNTHETIC MEDIA ONLY, no Casio contents/RPMB; "
+          "default no-card regression remains independent.")
 
 if __name__=="__main__":
     main()
