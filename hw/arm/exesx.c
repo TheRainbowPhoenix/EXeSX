@@ -479,9 +479,17 @@ static void exesx_init(MachineState *ms)
                 exit(1);
             }
             bytes = blk_getlength(blk);
-            if (bytes != INT64_C(15634268160)) {
-                error_report("EXeSX eMMC: expected Samsung 16GB user image "
-                             "of 15634268160 bytes, got %" PRId64, bytes);
+            /* QEMU TYPE_EMMC carves boot0 and boot1 from the FIRST
+             * 8 MiB of the backing file. Its ext_csd SEC_COUNT is the
+             * remaining USER area only (Samsung reference: 0x01d1f000
+             * 512-byte sectors). No authenticated RPMB is supported.
+             */
+            if (bytes != INT64_C(15642656768)) {
+                error_report("EXeSX eMMC: Samsung candidate backing must "
+                             "contain boot0 (4 MiB) + boot1 (4 MiB) + "
+                             "user area (15634268160 bytes): expected "
+                             "15642656768 total bytes, got %" PRId64,
+                             bytes);
                 exit(1);
             }
             host = qdev_new(TYPE_IMX_USDHC);
@@ -511,7 +519,8 @@ static void exesx_init(MachineState *ms)
             qdev_realize_and_unref(card, qdev_get_child_bus(host, "sd-bus"),
                                    &error_fatal);
             error_report("EXeSX experimental eMMC: QEMU i.MX USDHC1 host "
-                         "+ QEMU eMMC card, Samsung-class 16GB image; "
+                         "+ QEMU eMMC card, Samsung-class 16GB image "
+                         "(boot0/boot1/user; RPMB unsupported); "
                          "guest data is synthetic unless provided by user");
         }
     }
