@@ -182,6 +182,37 @@ def make_elf():
     lit(1,0x0d020000); strw(1,0,0x0c) # CMD13 SEND_STATUS after CMD12
     ldr(2,0,0x30); strw(2,7,148)      # index 37: next normal command CC
     ldr(2,0,0x10); strw(2,7,152)      # index 38: card status R1
+    # Full original BIOS-shaped 32 x 512-byte CMD18 PIO transfer:
+    # four WML=32-word W1C acknowledgments per block; no CMD12 needed.
+    # Nested real ARM loops avoid gigantic unrolled literal pools.
+    lit(1,0xffffffff); strw(1,0,0x30)
+    lit(1,32); strw(1,0,0x08)
+    lit(1,0x17020000); strw(1,0,0x0c)  # genuine CMD23 count32
+    lit(1,0xffffffff); strw(1,0,0x30)
+    lit(1,0x00200200); strw(1,0,0x04)
+    lit(1,0x32); strw(1,0,0x48)
+    lit(1,64); strw(1,0,0x08)
+    lit(1,0x12220000); strw(1,0,0x0c) # genuine CMD18 LBA64
+    lit(4,32)                           # number of 512B blocks
+    block_loop = len(ins)
+    lit(5,4)                            # four 128B FIFO tranches
+    tranche_loop = len(ins)
+    lit(3,32)                           # 32 genuine 32-bit word reads
+    word_loop = len(ins)
+    ldr(2,0,0x20)
+    emit(0xe2533001)                    # SUBS r3,r3,#1
+    pos=len(ins);emit(0)
+    ins[pos]=0x1a000000 | ((word_loop-(pos+2)) & 0xffffff)
+    lit(1,0x20);strw(1,0,0x30)          # W1C BRR, including rollover
+    emit(0xe2555001)                    # SUBS r5,r5,#1
+    pos=len(ins);emit(0)
+    ins[pos]=0x1a000000 | ((tranche_loop-(pos+2)) & 0xffffff)
+    emit(0xe2544001)                    # SUBS r4,r4,#1
+    pos=len(ins);emit(0)
+    ins[pos]=0x1a000000 | ((block_loop-(pos+2)) & 0xffffff)
+    ldr(2,0,0x30);strw(2,7,192)        # index48: TC, no BRR after 32 blocks
+    ldr(2,0,0x04);strw(2,7,196)        # index49: BLKCNT exhausted
+    ldr(2,0,0x24);strw(2,7,200)        # index50: no read/data inhibit
     emit(0xeafffffe)
     for pos,reg,value in literals:
         off=len(ins)*4-(pos*4+8)
@@ -232,12 +263,12 @@ def main():
                           stderr=subprocess.STDOUT,text=True)
     try:
         time.sleep(1.0)
-        commands="".join(f"xp /1wx 0x{OUT+4*i:08x}\n" for i in range(48))+"quit\n"
+        commands="".join(f"xp /1wx 0x{OUT+4*i:08x}\n" for i in range(51))+"quit\n"
         output,_=qemu.communicate(commands,timeout=20)
     finally:
         if qemu.poll() is None:qemu.kill();qemu.wait()
     values=[]
-    for i in range(48):
+    for i in range(51):
         m=re.search(r"(?im)^0*"+f"{OUT+4*i:08x}"+r":\s+0x([0-9a-f]+)",output)
         if not m:raise AssertionError(f"Missing guest result {i}. Output:\n{output[-3500:]}")
         values.append(int(m.group(1),16))
@@ -292,6 +323,16 @@ def main():
                 f"CDIHB=1 (sample {idx}): {values[idx]:#x}")
     if not (values[40] & 0x1):
         raise AssertionError("CMD13 must complete with read still active")
+    if (values[48] & 0x22) != 0x2:
+        raise AssertionError(
+            "32 genuine eMMC blocks must finish with TC and no leftover BRR "
+            f"status: {values[48]:#x}")
+    if values[49] >> 16:
+        raise AssertionError(f"32-block CMD18 did not exhaust BLKCNT: "
+                             f"{values[49]:#x}")
+    if values[50] & 0xa02:
+        raise AssertionError(f"Full CMD18 did not clear DATA_INHIBIT/"
+                             f"DOING_READ/DATA_AVAILABLE: {values[50]:#x}")
     if not (values[31] & 1):
         raise AssertionError("Genuine CMD23 set-block-count not acknowledged")
     if (values[32] & 0x21) != 0x21 or not (values[33] & 0x2):
