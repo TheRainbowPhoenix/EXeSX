@@ -28,6 +28,14 @@ Source catalog for the QEMU 10.1.0 Casio XD-SX9850/DY357 Cortex-A7 + Cortex-M4 r
 | [Older eForce uNet3s i.MX25 SDK](https://github.com/DerEchteJoghurt/uNet3s_iMX25_ewarm_eva) | Historic ARM9 µITRON/API conventions, not an exact ABI or port. |
 | [EXeSX A7 firmware-verified Ghidra name table](../reverse/a7_kernel_named_sites.tsv) | Actual real-firmware addresses and evidence confidence. |
 
+## A7 USDHC0, DMA1, DMAMUX1 and LPSPI2 references
+
+- [Linux i.MX7ULP device tree](https://github.com/torvalds/linux/blob/master/arch/arm/boot/dts/nxp/imx/imx7ulp.dtsi) — maps USDHC0 0x40370000, A7 eDMA1 0x40080000 and DMAMUX1 0x40210000 with 32 channels
+- [Linux Freescale eDMA binding](https://kernel.googlesource.com/pub/scm/linux/kernel/git/torvalds/linux/+/7c16f0a4ed1ce7b0dd1c01fc012e5bde89fe7748/Documentation/devicetree/bindings/dma/fsl,edma.yaml) — DMA1 0x2000 byte and DMAMUX1 0x1000 byte windows
+- [NXP MCIMX7U5 peripheral base addresses](https://github.com/nxp-mcuxpresso/mcux-devices-imx/blob/main/i.MX7ULP/MCIMX7U5/MCIMX7U5_cm4_COMMON.h) — independent confirmation of DMA1, DMAMUX1, USDHC0 and LPSPI2
+- [NXP USDHC SDK API](https://mcuxpresso.nxp.com/api_doc/dev/1581/group__usdhc.html) — `PRES_STATE.SDSTB` (stable clock) is distinct from `CINST` (actual card inserted)
+- [Live A7 USDHC→DMA1→DMAMUX1→LPSPI2 study](2026-10-21-a7-usdhc-dma-bringup.md) — private-firmware addresses, exact instructions, model limits and next tests; no proprietary firmware uploaded
+
 ## Current investigation reports
 
 - [Real firmware MU v1 correction](2026-10-20-imx7ulp-mu-v1-bit-order.md) — 78,665 to 2 IRQ22 entries with MU interrupt enabled, still no proven OS entry.
