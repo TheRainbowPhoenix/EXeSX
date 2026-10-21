@@ -36,9 +36,26 @@ def make_elf():
     lit(5, 200000)
     emit(0xe2555001)
     emit(0x1afffffd)
+    # Exact original DY357 A7 reset + poll operations, apart from using
+    # r6 for the same PRES_STATE base held by firmware r0 at 0x60017134.
+    # Firmware 0x60017134/38/3c/40/44: LDR/ORR(RSTA)/STR/LDR/TST,
+    # followed by BEQ backwards. Do not pre-enable the generic SDHCI
+    # SYS_CTRL low nibble, which is reserved on i.MX7ULP.
+    lit(6, 0x40380024)
+    ldr(2, 6, 8)            # LDR r2,[r6,#8]   SYS_CTRL
+    emit(0xe3822401)        # ORR r2,r2,#0x01000000   RSTA
+    strw(2, 6, 8)           # STR r2,[r6,#8]
+    poll_at = len(ins)
+    ldr(2, 6, 0)            # LDR r2,[r6]     PRES_STATE
+    emit(0xe3120008)        # TST r2,#8      SDSTB
+    branch_at = len(ins)
+    emit(0)                 # BEQ poll_at, filled as PC-relative ARM B
+    ins[branch_at] = 0x0a000000 | ((poll_at - (branch_at+2)) & 0xffffff)
+    strw(2, 7, 80)          # Reached only after clock stable following RSTA
     ldr(2,0,0x24); strw(2,7,0)
     lit(1,0x0000000f)
-    strw(1,0,0x2c)          # SYS_CTRL host SDCLK bits (Casio setup)
+    strw(1,0,0x2c)          # Reserved i.MX7ULP nibble: RAZ/WI, not a clock
+    ldr(2,0,0x2c); strw(2,7,84) # Readback: bits[3:0] must be zero
     lit(1,0x157f51ff)
     strw(1,0,0x34)          # normal + error status enabled
     lit(1,0x8820)
@@ -154,10 +171,15 @@ def main():
     finally:
         if qemu.poll() is None:qemu.kill();qemu.wait()
     values=[]
-    for i in range(20):
+    for i in range(22):
         m=re.search(r"(?im)^0*"+f"{OUT+4*i:08x}"+r":\s+0x([0-9a-f]+)",output)
         if not m:raise AssertionError(f"Missing guest result {i}. Output:\n{output[-3500:]}")
         values.append(int(m.group(1),16))
+    if not values[20] & 0x8:
+        raise AssertionError("Casio RSTA→PRES_STATE.SDSTB poll never completed")
+    if values[21] & 0xf:
+        raise AssertionError("i.MX7ULP reserved SYS_CTRL low nibble became "
+                             f"generic SDHCI clocks: {values[21]:#x}")
     if not values[0]&0x10000 or not values[4]&0x10000:
         raise AssertionError(f"Attached upstream eMMC not visible: {[hex(x) for x in values]}")
     if not values[1]&1:
