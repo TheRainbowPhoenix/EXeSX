@@ -147,7 +147,17 @@ def make_elf():
     ldr(2,0,0x24); strw(2,7,132)      # index 33: DATA_INHIBIT true
     for _ in range(32):
         ldr(2,0,0x20)                 # genuine 128 B card data
-    lit(1,0x20); strw(1,0,0x30)       # W1C BRR
+    # Original BIOS explicitly tries to clear MIX_CTRL while CMD18 is
+    # active, then issues CMD13 followed by CMD12. Before this fix QEMU
+    # unconditionally rewrote cached trnmod=0, losing active MULTI.
+    lit(1,0); strw(1,0,0x48)          # attempted MIX_CTRL clear during CDIHB
+    ldr(2,0,0x48); strw(2,7,156)      # index 39: retain active transfer bits
+    lit(1,0x00020000); strw(1,0,0x08)
+    lit(1,0x0d020000); strw(1,0,0x0c) # CMD13 during CMD18 data
+    ldr(2,0,0x30); strw(2,7,160)      # index 40: CMD13 actually replied
+    lit(1,0); strw(1,0,0x48)          # BIOS clears MIX_CTRL again
+    ldr(2,0,0x48); strw(2,7,164)      # index 41: still MULTI active
+    lit(1,0xffffffff); strw(1,0,0x30) # W1C old CMD13/BRR statuses
     lit(1,0x0c030000); strw(1,0,0x0c) # NORMAL-type CMD12, R1b
     ldr(2,0,0x30); strw(2,7,136)      # index 34: CC + TC, real CMD12
     ldr(2,0,0x24); strw(2,7,140)      # index 35: DATA_INHIBIT cleared
@@ -203,12 +213,12 @@ def main():
                           stderr=subprocess.STDOUT,text=True)
     try:
         time.sleep(1.0)
-        commands="".join(f"xp /1wx 0x{OUT+4*i:08x}\n" for i in range(39))+"quit\n"
+        commands="".join(f"xp /1wx 0x{OUT+4*i:08x}\n" for i in range(42))+"quit\n"
         output,_=qemu.communicate(commands,timeout=20)
     finally:
         if qemu.poll() is None:qemu.kill();qemu.wait()
     values=[]
-    for i in range(39):
+    for i in range(42):
         m=re.search(r"(?im)^0*"+f"{OUT+4*i:08x}"+r":\s+0x([0-9a-f]+)",output)
         if not m:raise AssertionError(f"Missing guest result {i}. Output:\n{output[-3500:]}")
         values.append(int(m.group(1),16))
@@ -249,6 +259,13 @@ def main():
         raise AssertionError(f"Wrong EXT_CSD.SEC_COUNT {values[19]:#x}, "
                              f"expected {(SAMSUNG_USER_BYTES//512):#x}; "
                              "boot partitions must not count as user sectors")
+    for idx in (39, 41):
+        if (values[idx] & 0x32) != 0x32:
+            raise AssertionError(
+                f"MIX_CTRL must preserve read + multi + count bits while "
+                f"CDIHB=1 (sample {idx}): {values[idx]:#x}")
+    if not (values[40] & 0x1):
+        raise AssertionError("CMD13 must complete with read still active")
     if not (values[31] & 1):
         raise AssertionError("Genuine CMD23 set-block-count not acknowledged")
     if (values[32] & 0x21) != 0x21 or not (values[33] & 0x2):
