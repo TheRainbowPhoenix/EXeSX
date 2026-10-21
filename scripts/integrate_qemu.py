@@ -230,89 +230,82 @@ patch_exact(
 # synthesize a data word or announce BRR when no data remains.
 patch_exact(
     sdhci_header,
-    "    bool imx7ulp_input_clock;\\n".replace("\\\\n", "\\n"),
-    "    bool imx7ulp_input_clock;\\n"
-    "    uint32_t imx7ulp_wtmk_lvl; /* FIFO RX/TX watermarks, opt-in */\\n",
+    "    bool imx7ulp_input_clock;\n".replace("\\\n", "\n"),
+    "    bool imx7ulp_input_clock;\n"
+    "    uint32_t imx7ulp_wtmk_lvl; /* FIFO RX/TX watermarks, opt-in */\n",
     "USDHC WTMK_LVL storage field")
 patch_exact(
     sdhci_source,
-    '    s->data_count = 0;\\n'
-    '    s->stopped_state = sdhc_not_stopped;\\n',
-    '    s->data_count = 0;\\n'
-    '    s->imx7ulp_wtmk_lvl = 0;\\n'
-    '    s->stopped_state = sdhc_not_stopped;\\n',
+    '    s->data_count = 0;\n'
+    '    s->stopped_state = sdhc_not_stopped;\n',
+    '    s->data_count = 0;\n'
+    '    s->imx7ulp_wtmk_lvl = 0;\n'
+    '    s->stopped_state = sdhc_not_stopped;\n',
     "USDHC watermark reset")
 patch_exact(
     sdhci_source,
-    '    .name = "sdhci",\\n'
-    '    .version_id = 1,\\n'
-    '    .minimum_version_id = 1,\\n',
-    '    .name = "sdhci",\\n'
-    '    .version_id = 2,\\n'
-    '    .minimum_version_id = 1,\\n',
+    '    .name = "sdhci",\n'
+    '    .version_id = 1,\n'
+    '    .minimum_version_id = 1,\n',
+    '    .name = "sdhci",\n'
+    '    .version_id = 2,\n'
+    '    .minimum_version_id = 1,\n',
     "USDHC VMState version")
 patch_exact(
     sdhci_source,
-    '        VMSTATE_UINT16(data_count, SDHCIState),\\n',
-    '        VMSTATE_UINT16(data_count, SDHCIState),\\n'
-    '        VMSTATE_UINT32_V(imx7ulp_wtmk_lvl, SDHCIState, 2),\\n',
+    '        VMSTATE_UINT16(data_count, SDHCIState),\n',
+    '        VMSTATE_UINT16(data_count, SDHCIState),\n'
+    '        VMSTATE_UINT32_V(imx7ulp_wtmk_lvl, SDHCIState, 2),\n',
     "USDHC WTMK migration field")
-patch_exact(
-    sdhci_source,
-    '    case USDHC_WTMK_LVL:\\n'
-    '        ret = 0;\\n',
-    '    case USDHC_WTMK_LVL:\\n'
-    '        ret = s->imx7ulp_input_clock ? s->imx7ulp_wtmk_lvl : 0;\\n',
-    "WTMK readback") if False else None
 # Replace the exact group handling of WTMK_LVL in usdhc_read and write.
 patch_exact(
     sdhci_source,
-    '    case USDHC_MIX_CTRL:\\n'
-    '    case USDHC_WTMK_LVL:\\n'
-    '        ret = 0;\\n',
-    '    case USDHC_MIX_CTRL:\\n'
-    '        ret = 0;\\n'
-    '        break;\\n'
-    '    case USDHC_WTMK_LVL:\\n'
-    '        ret = s->imx7ulp_input_clock ? s->imx7ulp_wtmk_lvl : 0;\\n',
+    '    case USDHC_MIX_CTRL:\n'
+    '    case USDHC_WTMK_LVL:\n'
+    '        ret = 0;\n',
+    '    case USDHC_MIX_CTRL:\n'
+    '        ret = 0;\n'
+    '        break;\n'
+    '    case USDHC_WTMK_LVL:\n'
+    '        ret = s->imx7ulp_input_clock ? s->imx7ulp_wtmk_lvl : 0;\n',
     "WTMK_LVL readback")
 patch_exact(
     sdhci_source,
-    '    case USDHC_TUNING_CTRL:\\n'
-    '    case USDHC_WTMK_LVL:\\n'
-    '        break;\\n',
-    '    case USDHC_TUNING_CTRL:\\n'
-    '        break;\\n'
-    '    case USDHC_WTMK_LVL:\\n'
-    '        if (s->imx7ulp_input_clock) {\\n'
-    '            /* NXP WTMK_LVL: RD_WML[7:0], RD_BRST_LEN[12:8],\\n'
-    '             * WR_WML[23:16], WR_BRST_LEN[28:24].\\n'
-    '             */\\n'
-    '            s->imx7ulp_wtmk_lvl = value & 0x1fff1fff;\\n'
-    '        }\\n'
-    '        break;\\n',
+    '    case USDHC_TUNING_CTRL:\n'
+    '    case USDHC_WTMK_LVL:\n'
+    '        break;\n',
+    '    case USDHC_TUNING_CTRL:\n'
+    '        break;\n'
+    '    case USDHC_WTMK_LVL:\n'
+    '        if (s->imx7ulp_input_clock) {\n'
+    '            /* NXP WTMK_LVL: RD_WML[7:0], RD_BRST_LEN[12:8],\n'
+    '             * WR_WML[23:16], WR_BRST_LEN[28:24].\n'
+    '             */\n'
+    '            s->imx7ulp_wtmk_lvl = value & 0x1fff1fff;\n'
+    '        }\n'
+    '        break;\n',
     "WTMK_LVL write")
 patch_exact(
     sdhci_source,
-    '        s->norintsts &= mask | ~value;\\n'
-    '        s->errintsts &= (mask >> 16) | ~(value >> 16);\\n',
-    '        s->norintsts &= mask | ~value;\\n'
-    '        s->errintsts &= (mask >> 16) | ~(value >> 16);\\n'
-    '        /* uSDHC FIFO watermark level: the original Casio ARM code\\n'
-    '         * drains RD_WML=32 words and W1C-acks BRR before waiting for\\n'
-    '         * the next FIFO tranche. Upstream SDHCI keeps one full block\\n'
-    '         * buffered; only re-arm the real buffered bytes at a multiple\\n'
-    '         * of the configured threshold, while data remains.\\n'
-    '         */\\n'
-    '        if (s->imx7ulp_input_clock && (value & SDHC_NIS_RBUFRDY) &&\\n'
-    '            (s->prnsts & SDHC_DATA_AVAILABLE) &&\\n'
-    '            (s->norintstsen & SDHC_NISEN_RBUFRDY)) {\\n'
-    '            uint32_t wml = s->imx7ulp_wtmk_lvl & 0xff;\\n'
-    '            uint32_t consumed = s->data_count;\\n'
-    '            uint32_t block = s->blksize & BLOCK_SIZE_MASK;\\n'
-    '            if (wml && consumed && consumed < block &&\\n'
-    '                consumed % (wml * 4) == 0) {\\n'
-    '                s->norintsts |= SDHC_NIS_RBUFRDY;\\n'
-    '            }\\n'
-    '        }\\n',
+    '        s->norintsts &= mask | ~value;\n'
+    '        s->errintsts &= (mask >> 16) | ~(value >> 16);\n',
+    '        s->norintsts &= mask | ~value;\n'
+    '        s->errintsts &= (mask >> 16) | ~(value >> 16);\n'
+    '        /* uSDHC FIFO watermark level: the original Casio ARM code\n'
+    '         * drains RD_WML=32 words and W1C-acks BRR before waiting for\n'
+    '         * the next FIFO tranche. Upstream SDHCI keeps one full block\n'
+    '         * buffered; only re-arm the real buffered bytes at a multiple\n'
+    '         * of the configured threshold, while data remains.\n'
+    '         */\n'
+    '        if (s->imx7ulp_input_clock && (value & SDHC_NIS_RBUFRDY) &&\n'
+    '            (s->prnsts & SDHC_DATA_AVAILABLE) &&\n'
+    '            (s->norintstsen & SDHC_NISEN_RBUFRDY)) {\n'
+    '            uint32_t wml = s->imx7ulp_wtmk_lvl & 0xff;\n'
+    '            uint32_t consumed = s->data_count;\n'
+    '            uint32_t block = s->blksize & BLOCK_SIZE_MASK;\n'
+    '            if (wml && consumed && consumed < block &&\n'
+    '                consumed % (wml * 4) == 0) {\n'
+    '                s->norintsts |= SDHC_NIS_RBUFRDY;\n'
+    '            }\n'
+    '        }\n',
     "RX watermark BRR W1C re-arm")
