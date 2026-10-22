@@ -34,7 +34,7 @@ typedef struct EXeSXState {
     ARMv7MState m4;
     Clock *m4cpuclk, *m4refclk;
     ARMCPU *a7cpu;
-    EXeSXProfileWindow *mu_a, *mu_b;
+    EXeSXProfileWindow *mu_a, *mu_b, *lcd;
     uint64_t cp15_dacr_s_saved;
     uint64_t cp15_ttbr1_s_saved;
     bool m4_released;
@@ -71,7 +71,14 @@ struct EXeSXProfileWindow {
     GHashTable *registers;
     char *kind;
     EXeSXState *board;
-    QEMUTimer *lpit_timer;
+    QEMUTimer *lpit_timer, *lcd_screenshot_timer;
+    uint16_t *lcd_fb;
+    unsigned lcd_x0, lcd_x1, lcd_y0, lcd_y1, lcd_x, lcd_y;
+    unsigned lcd_param_count;
+    uint16_t lcd_params[4];
+    uint8_t lcd_cmd;
+    bool lcd_dc, lcd_te_enabled, lcd_rgb565;
+    uint64_t lcd_pixel_writes;
     /* Stable addresses; preserved by VMState on loadvm. */
     uint32_t regfile[0x10000 / sizeof(uint32_t)];
 };
@@ -119,6 +126,7 @@ static void exesx_m4_rom_handoff(EXeSXState *s, uint32_t entry)
                  vector_sp, vector_entry);
 }
 
+#include "exesx-lcd.inc"
 #include "exesx-imx7ulp.inc"
 
 static const VMStateDescription exesx_registers_vmstate = {
@@ -172,6 +180,10 @@ static MemTxResult exesx_reg_read(void *opaque, hwaddr offset, uint64_t *data,
 {
     EXeSXProfileWindow *w = opaque;
     uint32_t *v = NULL;
+    if (!strcmp(w->kind, "exesx-lcd")) {
+        *data = 0; /* Write-only LCD port; no ID/response emulated. */
+        return MEMTX_ERROR;
+    }
     if (exesx_imx7ulp_kind(w->kind)) {
         return exesx_imx7ulp_read(w, offset, data, size);
     }
@@ -198,6 +210,9 @@ static MemTxResult exesx_reg_write(void *opaque, hwaddr offset, uint64_t data,
 {
     EXeSXProfileWindow *w = opaque;
     uint32_t *v = NULL;
+    if (!strcmp(w->kind, "exesx-lcd")) {
+        return exesx_lcd_write(w, offset, data, size);
+    }
     if (exesx_imx7ulp_kind(w->kind)) {
         return exesx_imx7ulp_write(w, offset, data, size);
     }
@@ -289,7 +304,26 @@ static void exesx_load_profile(MemoryRegion *sysmem, EXeSXState *board)
             error_report("EXeSX profile %s has invalid window", group);
             exit(1);
         }
-        if (g_strcmp0(kind, "ram") == 0) {
+        if (g_strcmp0(kind, "exesx-lcd") == 0) {
+            if (w->base != 0xb0000000 || w->size != 0x1000 ||
+                board->lcd || g_strcmp0(g_getenv("EXESX_EXPERIMENTAL_LCD"), "1")) {
+                error_report("EXeSX LCD invalid profile/opt-in");
+                exit(1);
+            }
+            board->lcd = w;
+            w->lcd_fb = g_new0(uint16_t, EXESX_LCD_W * EXESX_LCD_H);
+            w->lcd_x1 = EXESX_LCD_W - 1;
+            w->lcd_y1 = EXESX_LCD_H - 1;
+            w->lcd_rgb565 = true;
+            if (g_getenv("EXESX_LCD_SCREENSHOT")) {
+                w->lcd_screenshot_timer = timer_new_ns(
+                    QEMU_CLOCK_VIRTUAL, exesx_lcd_snapshot_tick, w);
+                timer_mod(w->lcd_screenshot_timer,
+                          qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 500000000);
+            }
+            memory_region_init_io(&w->mr, NULL, &exesx_reg_ops, w,
+                                  w->name, w->size);
+        } else if (g_strcmp0(kind, "ram") == 0) {
             memory_region_init_ram(&w->mr, NULL, w->name, w->size,
                                    &error_fatal);
         } else if (exesx_imx7ulp_kind(kind)) {
