@@ -34,6 +34,12 @@ static MemTxResult exesx_sema42_write(EXeSXProfileWindow *w,
 {
     uint32_t data = (uint32_t)value;
     uint32_t *gate;
+    CPUState *requester = current_cpu;
+    /* QEMU CPU index is diagnostic only until the A7/M4 domain
+     * assignment has been cross-checked against original firmware.
+     * Do not grant ownership merely because a CPU wrote an unlock.
+     */
+    int requester_index = requester ? requester->cpu_index : -1;
     if (!exesx_sema42_base(w->base) || off + size > w->size) {
         return MEMTX_ERROR;
     }
@@ -50,6 +56,15 @@ static MemTxResult exesx_sema42_write(EXeSXProfileWindow *w,
             /* Only the currently executing domain may release.
              * For now, the A7 domain is the one that acquired the gate. */
             *gate = 0;
+        }
+        if (!g_strcmp0(g_getenv("EXESX_TRACE_SEMA42_CPU"), "1")) {
+            qemu_log_mask(LOG_UNIMP,
+                          "EXeSX SEMA42 CPU=%d guest-pc=%08x gate=%u write=%u state=%u @0x%"
+                          HWADDR_PRIx "\\n",
+                          requester_index,
+                          requester ? (uint32_t)cpu_get_pc(requester) : 0,
+                          (unsigned)((off & ~3U) + (3U - (off & 3U))),
+                          data, *gate, w->base + off);
         }
         qemu_log_mask(LOG_GUEST_ERROR,
                       "EXeSX SEMA42 gate=%u domain=%u state=%u @0x%"
