@@ -47,7 +47,7 @@ Actual ARM code at `0x60049bcc..0x60049c14`:
 60049c14  pop {r1,pc}
 ```
 
-Do not conflate `0x622e6fbc` (last copied callback target), `0x6232d5c8` (pointer used for a different status check) and earlier `0x62413241` (an unrelated byte flag read from `0x6001000c`). They are separate data stores. The **bit-1 and pointer test are proven**, but whether the callback target is the OS entry or a normal service is unproven.
+The literal at `0x6004a2f4` is **`0x622e6fc4`**, which supplies the **bit-1 status test** (`LDR`, `TST #2`) at `0x60049be4..0x60049bec`. Do not conflate `0x622e6fbc` (last copied callback target), `0x6232d5c8` (pointer to a service object that exposes the +0x2c callback), `0x622e6fc4` (bit-1 status word), and earlier `0x62413241` (a separate byte flag read from `0x6001000c`). They are separate data stores. The **bit-1 and pointer test are proven**, but whether the callback target is the OS entry or a normal service is unproven.
 
 ### Differential runner limitation
 
@@ -61,7 +61,7 @@ Remote GDB hardware breakpoint attempts on the high startup PCs in this newer ru
 
 The known B/A/F user-area signature/sector mapping and component coordinator status were solved in the earlier controlled private tests, so another arbitrary USDHC patch is not justified. The most defensible next questions are:
 
-1. Capture the live **pointer at `0x6232d5c8`**, the structure field at +0x2c and the copied target at `0x622e6fbc` *when `0x60049bcc` executes*, with the original verified loader and A7 core selected.
+1. Capture the live **pointer at `0x6232d5c8`**, the structure field at +0x2c and the bit-1 status at `0x622e6fc4` and the copied target at `0x622e6fbc` *when `0x60049bcc` executes*, with the original verified loader and A7 core selected.
 2. Identify the live bit-1 control word, any setter, and whether the callback target ultimately reaches the OS entry `0x605e3ad0`. Do not set these flags without establishing a real device-generated event.
 3. Trace `0x60007284`'s indirect dispatch via `0x2000402c`; it can gate extra initialization after `0x6004a24c`.
 4. If the BIOS stalls in `0x6017748c`, record the SEMA42 gate0 register (byte at `0x4101b003`), both CPU PCs, exception modes and **exact acquire/release order** before implementing an IRQ/fairness/ownership mechanism. It may be a transient semaphore loop, not the failure.
