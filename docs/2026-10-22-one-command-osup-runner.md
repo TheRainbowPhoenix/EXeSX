@@ -18,7 +18,7 @@ python3 scripts/run_osup.py OSUPD.bin \
 python3 scripts/run_osup.py OSUPD.bin --prepare-only
 ```
 
-Install/build the native EXeSX QEMU integration first according to the project README. QEMU must be built with the opt-in USDHC1 eMMC and LPIT1 IRQ changes. The default output directory is `private/osup-run/`, ignored by Git; the script keeps the original bytes, ELF, synthetic eMMC, QEMU console log, trace and any LCD metadata local. `-drive ... snapshot=on` protects the staged image against guest updates.
+The command automatically runs `scripts/build.sh` to fetch and build the pinned QEMU v10.1.0 with EXeSX patches if `build/qemu-system-arm` is absent (the first run needs network access and a working C/QEMU build toolchain). If `--lcd-trace` is requested it also builds the opt-in `exesx-memtrace.so` plugin automatically. QEMU is run with the opt-in USDHC1 eMMC and LPIT1 IRQ changes. The default output directory is `private/osup-run/`, ignored by Git; the script keeps the original bytes, ELF, synthetic eMMC, QEMU console log, trace and any LCD metadata local. `-drive ... snapshot=on` protects the staged image against guest updates.
 
 **Important limitations:**
 
