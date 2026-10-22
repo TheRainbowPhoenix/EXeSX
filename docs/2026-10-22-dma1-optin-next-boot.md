@@ -25,3 +25,20 @@ Caveat: successful transfer requires the firmware's live DMAMUX ch15 configurati
 ## Limits of this checkpoint
 
 The current analysis environment validated the original OSUP container but **could not execute this QEMU run**: QEMU is not installed locally and outbound repository clone/build access was unavailable. Therefore this document is a reproducible next-step experiment, not a claimed new runtime result.
+
+## Local original-ROM A/B execution (new verified evidence)
+
+After the pinned GitHub Action `39833050218` passed and provided artifact `12449257694`, the original locally held SHA256-validated `OSUP.BIN` was used with its two-section validated A7 BIOS+OS ELF and the source-derived synthetic eMMC (PVOS boot1 LBA0/32 and only source-available B/A/F component sectors). The distributed Linux QEMU binary, checked in Linux container, was launched with the existing opt-in experimental M4/MU/LPIT1/LCD/eMMC options and generated diagnostic LCD profile. Both cases had a **30-second wall-clock timeout**, a `-d guest_errors,unimp,in_asm` instruction-translation log and the same `-trace enable=sdhci_send_command` option. Screen was a private P6 PPM; no firmware, framebuffer or raw trace is uploaded here.
+
+| Observed | DMA1 disabled | `EXESX_EXPERIMENTAL_DMA1_M2M=1` |
+| --- | --- | --- |
+| Log entry `EXeSX DMA1 copied 829440 real RAM bytes ch=15` | 0 | **5** |
+| Distinct translated BIOS `0x60000000..0x603fffff` block addresses | 5680 | **5722** |
+| Translated OS `0x60400000..0x60cfffff` block addresses | **0** | **0** |
+| Trace entries containing `sdhci_send_command` | 67 | 75 |
+| PPM framebuffer | 864×480, **414720 white pixels** | 864×480, **414720 white pixels** |
+| Last observed translated BIOS block in dump | `0x601B44FC` | **`0x60028290`** |
+
+The DMA-enabled trace also contains translated `0x601B4504` and `0x601B82BC` and all five transfer-completion messages; no `unsupported descriptor` or `waiting for enabled` messages were present. The last translated block is **not** necessarily the CPU's final PC because translated-block logs only report first-time code translations. Repeated copies can also arise from authentic repeated firmware requests. This is evidence the former DMA barrier has been overcome at least for these requests, **not** evidence that the OS reached execution or that text appeared.
+
+**New next diagnostic:** trace the control flow and BIOS return/decision around `0x60028290`, ideally with a precise paused CPU-register snapshot and narrowly scoped MMIO/storage debug. Compare the new DMA run against the control, determine whether any new callback, resource/installed-media sector, or peripheral completion is blocking OS handoff. Do not mark the OS as booted or infer text from a PPM file alone.
