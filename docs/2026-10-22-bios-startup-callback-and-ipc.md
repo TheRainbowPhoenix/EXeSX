@@ -168,3 +168,46 @@ Example diagnostic plugin argument (owner-held ROM only):
 ```
 
 The plugin deliberately records only CPU index, instruction PC, access type/address/width, not sensitive RAM **values**. Source-derived callback storage addresses are safe metadata; callback producer/owner is not known until a successful live write trace establishes it.
+
+
+## New controlled live debugger: callback state is not cleared; boot passes control to `0x60048D9C`
+
+On **22 October**, independently repeated using the exact checksum-validated original user OSUP SHA `d5791bec1c7739315fb6113b5d6890a21f6c454fcf7a05a0381cfaaa70808fb0`, reconstructed **two-section A7-only ELF**, source-authentic user BIOS/OS/F component bytes, source-authentic boot1 PVOS at LBA0/LBA32, QEMU native from passing PR32 CI, and the same explicitly *private and unverified* `0xb0000000` RAM diagnostic window. QEMU's virtual-only memory-access plugin was enabled using **`-d plugin,guest_errors,unimp`**; without `plugin` in `-d` the log output is not visible. It emitted 45 bounded matching accesses, including:
+
+- `0x60021730`: original boot loader writes `0x622e6fc4` (initial component status).
+- `0x60021684`: writes `0x622e6fc4` (component setup/reset).
+- `0x60021450`: clears/initializes the four callback-object bytes `0x6232da18..1b` **before** subsequent component discovery.
+- `0x60018908`: SDHCI buffered data is written into `0x6232da18` (not a status/OS callback reset).
+- `0x600214b4`, `0x600212e0`, `0x60021354`, `0x6002139c`, `0x60021508`, `0x600215ec`: component-loader code records status bits.
+- **No later write** to `0x6232da18` or `0x622e6fc4` occurred after component setup during the logged 12-second interval. Nor was `0x60049be0` observed storing the cached callback `0x622e6fbc`.
+
+At 7 seconds and independently at 12 seconds, original guest memory had **`0x622e6fc4=0x3f`** and **`0x6232da18=0x60400000`**, which *contradicts previous uncontrolled-run speculation that these must get cleared to status 1/null later*. The cached `0x622e6fbc` stays zero, and distinct BIOS readiness byte `0x62413241=0`.  The storage controller was active at the earlier snapshot, but idle `PRES_STATE=0x01ff0008` after the longer one. This is not a callback-ineligibility problem in the verified run: **bit1 is set and the OS entry target is populated**. Rather, the callback-copy/BLX routine `0x60049bcc` is not yet reached.
+
+### True CPU0 breakpoint execution path (QEMU `-S -gdb`, explicit `Hg1`/`Hc1`)
+
+Breakpoints at the following **actual instructions** hit with component status `0x3f` and OS callback target `0x60400000` at each check:
+
+```text
+0x60021660   original component coordinator successful completion
+0x6004a1c0  coordinator returns to BIOS startup
+0x6004a1e0
+0x6004a1ec
+0x6004a224
+0x6004a24c  BL 0x60007284 -> indirect physical 0x2000402c
+0x2000402c  actual vector code executes; returns R0=1
+0x6004a250  conditional comparison R0=1
+0x6004a258  branch takes nonzero service path
+0x6004a268  next initialization service
+0x6004a270  later startup
+0x6004a278  later comparison
+0x6004a294  later startup branch
+0x6004a2a4  prepares args for BL 0x60048d9c
+0x6004a2ac  callsite, R0=0
+0x60048d9c  callee reached, LR=0x6004a2b0
+```
+
+The later `0x6004a2b0` return, `0x6004a2cc` callback loop entry, `0x60049bcc` dispatcher, `0x60049c04` BLX and `0x60400000` OS trampoline **did not break** in bounded follow-ups. After interrupting CPU0 after that last confirmed call, the original A7 was `0x601cbcf8` (BIOS WFI idle, LR=`0x601cbcc4`). This is evidence that `0x60048d9c` **does not return through the expected `0x6004a2b0` during the observed window**, not proof that a particular blocking instruction inside `0x60048d9c` runs forever. An exception, task-context switch, or wait for an external event could have transferred control to the idle handler.
+
+The `0x60048d9c` function begins with peripheral/service initialization and has its own branches to persistent error/wait loops at `0x60048e24` and `0x60048e2c` when a timer/status source reports particular values; neither loop's breakpoint hit was observed in a 12-second follow-up, so do **not** claim one of these is the actual blocker.
+
+**Next decisive test**: trace entry into `0x60048d9c`, all calls and returns to `0x6000fee8`, `0x60007e0c` and `0x6001eda8`, and the transition into scheduler/exception/idle; inspect the original A7 interrupt status and both A7/M4 PCs at the transfer of control. Only then identify whether an interrupt/event from an unimplemented peripheral needs a correct hardware model. Do **not** force `BLX`, fabricate a callback registration, or set `0x62413241`.
