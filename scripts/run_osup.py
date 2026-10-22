@@ -68,7 +68,7 @@ def prepare(osup, dest):
     return elf, media, manifest
 
 
-def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin, dma1_m2m=False, handoff_probe=False):
+def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin, dma1_m2m=False, handoff_probe=False, gpiob3_high=False, ipc1808_probe=False):
     env = os.environ.copy()
     # Explicitly labeled temporary LCD-bus address sink for runs without
     # an implemented display model. It does NOT acknowledge any LCD
@@ -88,7 +88,7 @@ def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin, dma1_m2m
         "EXESX_I2C4B_REGISTER_MIRROR":"1",
         "EXESX_I2C40_REGISTER_MIRROR":"1",
         "EXESX_SNVS_DIAGNOSTIC_SECURITY_PULSES":"1",
-        "EXESX_GPIOB_INPUT_MASK":"0x80",
+        "EXESX_GPIOB_INPUT_MASK":"0x88" if gpiob3_high else "0x80",
         "EXESX_USDHC1_EMMC":"1",
         "EXESX_EXPERIMENTAL_LCD":"1",
         "EXESX_EXPERIMENTAL_DMA1_M2M":"1" if dma1_m2m else "0",
@@ -113,6 +113,14 @@ def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin, dma1_m2m
         cmd += ["-plugin", f"{plugin.resolve()},virtual_only=1,values=1,"
                 "max=25000,range=0xb0000000:0xb0000004,"
                 "range=0x400f0004:0x400f000c"]
+    if ipc1808_probe:
+        from probe_ipc_1808 import run_probe as trace_ipc
+        print("PRIVATE A7/M4 IPC 0x1808 diagnostic; GPIOB input mask",
+              env["EXESX_GPIOB_INPUT_MASK"], flush=True)
+        report = trace_ipc(cmd, env, seconds, dest)
+        print("IPC 0x1808 metadata:", dest / "ipc1808-summary.json",
+              "events:", len(report["events"]), flush=True)
+        return
     if handoff_probe:
         from probe_postdma_handoff import run_probe
         print("Private A7 GDB post-DMA probe; no firmware or logs uploaded.", flush=True)
@@ -151,6 +159,10 @@ def main():
     ap.add_argument("--lcd-trace",action="store_true")
     ap.add_argument("--plugin",type=Path)
     ap.add_argument("--prepare-only",action="store_true")
+    ap.add_argument("--gpiob3-high", action="store_true",
+                    help="Diagnostic only: drive unverified M4 GPIOB PDIR bit3 HIGH (0x88 vs default 0x80)")
+    ap.add_argument("--ipc1808-probe", action="store_true",
+                    help="Read-only A7/M4 shared-slot response provenance trace for service 0x1808")
     ap.add_argument("--handoff-probe",action="store_true",
                     help="Private read-only A7 callback/DMA/OS milestone GDB probe")
     ap.add_argument("--dma1-m2m",action="store_true",
@@ -158,6 +170,8 @@ def main():
     a=ap.parse_args()
     if not a.osup.is_file(): ap.error("OSUP input file not found")
     if a.seconds <= 0: ap.error("--seconds must be positive")
+    if a.handoff_probe and a.ipc1808_probe:
+        ap.error("Use only one of --handoff-probe and --ipc1808-probe")
     elf,media,manifest=prepare(a.osup,a.output_dir)
     print(json.dumps(manifest,indent=2))
     if not a.prepare_only:
@@ -178,7 +192,8 @@ def main():
             subprocess.run(["bash", str(root/"scripts"/"build_memtrace.sh")],
                            cwd=root, check=True)
         launch(a.qemu,elf,media,a.profile,a.output_dir,a.seconds,
-               a.lcd_trace,a.plugin,a.dma1_m2m,a.handoff_probe)
+               a.lcd_trace,a.plugin,a.dma1_m2m,a.handoff_probe,
+               a.gpiob3_high,a.ipc1808_probe)
 
 
 if __name__=="__main__":
