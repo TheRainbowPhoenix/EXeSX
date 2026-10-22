@@ -84,6 +84,60 @@ static MemTxResult exesx_lpit_read(EXeSXProfileWindow *w, hwaddr off,
     *value = w->regfile[off/4];
     return MEMTX_OK;
 }
+/*
+ * Optional i.MX7ULP A7 LPIT1 asynchronous IRQ model, derived solely from
+ * the programmed TVAL/CVAL/TCTRL, module enable and MIER. A WFI guest
+ * cannot make progress with an MSR flag that only updates on reads.
+ * Physical NXP A7 interrupt source LPIT1 is GIC SPI25 (board wiring).
+ * Keep existing 1 MHz uncalibrated virtual tick model; do not fabricate
+ * firmware event completion. The guest must handle and ACK the real IRQ.
+ */
+static void exesx_lpit_irq_update(EXeSXProfileWindow *w)
+{
+    if (w->lpit_timer && w->board->lpit1_irq) {
+        qemu_set_irq(w->board->lpit1_irq,
+                     (w->regfile[0xc / 4] & w->regfile[0x10 / 4] & 0xf) != 0);
+    }
+}
+static void exesx_lpit_timer_update(EXeSXProfileWindow *w)
+{
+    uint64_t now, nearest = UINT64_MAX;
+    if (!w->lpit_timer) {
+        return;
+    }
+    now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+    for (unsigned n = 0; n < 4; ++n) {
+        uint64_t period, epoch, due;
+        if (!(w->regfile[0x8 / 4] & 1) ||
+            !(w->regfile[(0x28 + 0x10 * n) / 4] & 1)) {
+            continue;
+        }
+        period = ((uint64_t)w->regfile[(0x20 + 0x10 * n) / 4] + 1) * 1000;
+        epoch = exesx_lpit_epoch(w, n);
+        if (now >= epoch && now - epoch >= period) {
+            uint64_t cycles = (now - epoch) / period;
+            uint64_t advanced = epoch + cycles * period;
+            w->regfile[0xc / 4] |= 1U << n;
+            w->regfile[(0x200 + 0x10 * n) / 4] = (uint32_t)advanced;
+            w->regfile[(0x204 + 0x10 * n) / 4] = (uint32_t)(advanced >> 32);
+            epoch = advanced;
+        }
+        due = epoch + period;
+        if (due < nearest) {
+            nearest = due;
+        }
+    }
+    if (nearest == UINT64_MAX) {
+        timer_del(w->lpit_timer);
+    } else {
+        timer_mod(w->lpit_timer, nearest);
+    }
+    exesx_lpit_irq_update(w);
+}
+static void exesx_lpit_timer_tick(void *opaque)
+{
+    exesx_lpit_timer_update(opaque);
+}
 static MemTxResult exesx_lpit_write(EXeSXProfileWindow *w, hwaddr off,
                                    uint64_t value, unsigned size)
 {
@@ -129,6 +183,7 @@ static MemTxResult exesx_lpit_write(EXeSXProfileWindow *w, hwaddr off,
         }
         break;
     }
+    exesx_lpit_timer_update(w);
     qemu_log_mask(LOG_GUEST_ERROR,
                   "EXeSX LPIT WRITE @0x%" HWADDR_PRIx
                   " data=0x%08x\n", w->base+off, bits);
