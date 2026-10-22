@@ -30,6 +30,8 @@ def decode_lines(lines):
     pixel_hist = Counter()
     pixel_samples = 0
     current = None
+    dc_pin = None  # GPIOA bit16, 0=command / 1=data
+    used_gpio_dc = False
     width_hist = Counter()
     for line in lines:
         match = WRITE.search(line) or LEGACY_WRITE.search(line)
@@ -40,21 +42,28 @@ def decode_lines(lines):
                                       for i, x in enumerate(match.groups()))
         if cpu != 0 or width not in (2, 4):
             continue
+        if addr in (0x400f0004, 0x400f0008):
+            # GPIOA PSOR(+4) SET, PCOR(+8) CLEAR.
+            # Captured BIOS STR writes bit16 to distinguish TFT command
+            # from parameter/pixel streams; pin19 is an unrelated control.
+            if value & 0x10000:
+                dc_pin = 1 if addr == 0x400f0004 else 0
+                used_gpio_dc = True
+                control_writes.append({"address":hex(addr), "width":width})
+            continue
         if addr != PORT:
-            if addr in (0x44f00000, 0x44f00004):
-                control_writes.append({"address":hex(addr),
-                                       "width":width})
             continue
         width_hist[width] += 1
-        if pc in CMD_PCS:
+        is_command = dc_pin == 0 if used_gpio_dc else pc in CMD_PCS
+        if is_command:
             current = {"command":value & 255, "params":[],
                        "pc":hex(pc), "pixel_samples":0}
             commands.append(current)
-        elif pc in PIXEL_PCS:
+        elif current and current["command"] == 0x2c and (
+                (used_gpio_dc and dc_pin == 1) or pc in PIXEL_PCS):
             pixel_hist[value & 0xffff] += 1
             pixel_samples += 1
-            if current is not None:
-                current["pixel_samples"] += 1
+            current["pixel_samples"] += 1
         elif current is not None:
             current["params"].append(value)
     def last_params(cmd):
@@ -83,9 +92,10 @@ def decode_lines(lines):
         "pixel_top_colors":[{"rgb565":f"0x{val:04x}", "count":num}
                             for val,num in pixel_hist.most_common(6)],
         "write_widths":dict(sorted(width_hist.items())),
-        "other_bus_control_write_count":len(control_writes),
+        "gpioa16_control_write_count":len(control_writes),
+        "command_data_classification":"GPIOA16" if used_gpio_dc else "ROM instruction PC fallback",
         "disclaimer":"Sampled writes, not a complete frame. RGB565 decoding "
-                     "assumes commands/data distinguished by original ROM PCs.",
+                     "uses observed GPIOA16 D/C where available, otherwise original ROM PCs.",
     }
 
 
