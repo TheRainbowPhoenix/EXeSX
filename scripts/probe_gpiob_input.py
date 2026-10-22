@@ -104,7 +104,7 @@ def main():
     a=p.parse_args()
     a.elf.parent.mkdir(parents=True,exist_ok=True)
     a.elf.write_bytes(guest_elf())
-    for mask,expected in (("0",[0,0x80,0]),("0x80",[0x80,0x80,0])):
+    for mask,expected in (("0",[0,0x80,0]),("0x80",[0x80,0x80,0]),\n                          ("0x88",[0x88,0x88,0x08])):
         actual=exercise(a.qemu,a.profile,a.elf,mask)
         if actual!=expected:
             raise AssertionError(f"GPIOB mask={mask} returned {actual}, expected {expected}")
