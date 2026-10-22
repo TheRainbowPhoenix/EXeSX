@@ -52,6 +52,7 @@ def audit(sock, seconds):
     r = regs_from_g_reply(command(sock, "g"))
     if r[15] != 0x6001000c:
         raise RuntimeError(f"Stopped before status accessor at {r[15]:#x}")
+    first_lr = r[14]
     # Remove accessor breakpoint before continuing or it immediately
     # re-triggers. Installing the write watchpoint now excludes BSS init.
     if command(sock, "z0,6001000c,4") != "OK":
@@ -75,10 +76,15 @@ def audit(sock, seconds):
         if len(events) >= 16:
             break
         command(sock, "c")
-    return dict(first_status_accessor=f"0x{r[15]:08x}" if not events
-                else "0x6001000c",
-                first_accessor_lr=f"0x{regs_from_g_reply(command(sock,'g'))[14]:08x}"
-                if events else None,
+    if not events:
+        sock.sendall(b"\x03")
+        try:
+            sock.settimeout(5.)
+            packet(sock)
+        except (socket.timeout, OSError):
+            pass
+    return dict(first_status_accessor="0x6001000c",
+                first_accessor_lr=f"0x{first_lr:08x}",
                 initial_flag=initial, watchpoint_events=events,
                 watch_after_bss=True,
                 zero_events_means_no_observed_later_write=True)
