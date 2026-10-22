@@ -2,6 +2,10 @@
 
 **No genuine Casio OS entry, LCD pixels or text have been verified.**
 
+**22 October follow-up, original BIOS content-validation breakthrough:** The previous final user CMD17 transfer succeeded at R0=0 in SDMA, but the original BIOS CASIODICS06 classifier rejected a blank user partition (R0=0 instead of BIOS-component type B=1). Private reversible testing placed genuine checksum-valid OSUP headers at user LBA0 (CASIODICS06B), LBA 0x12AD (CASIODICS06A), and LBA 0x56C2 (CASIODICS06F). The original BIOS advanced through all three signature/checksum checks, recording those exact later LBAs in its component table. Actual A7 breakpoint at the coordinator exit found all required status bits 0x3F set; return value 0 (success) was propagated to high-level startup caller 0x6004A1C0. Staging all available source-derived component bytes privately produced additional boot-time reads, but by 10 seconds the firmware was back in BIOS WFI idle at 0x601CBCF8, global flag 0x62413241=0, with no observed OS entry. The component/header blocker is **resolved with source-authentic media**; the next unknown is later initialization/readiness. Note that OSUP lacks the full declared F resources; no complete installed eMMC is established. [Return values, A/B/C tests and exact instruction evidence](2026-10-22-user-area-return-callgraph.md).
+
+
+
 **22 October original-ROM CMD17 return-value breakthrough:** The user-area last-LBA `0x01AF5FFF` read is actually performed by **SDMA-backed `0x60018458`**, not the earlier suspected PIO reader. Live CPU0 GDB breakpoint captures proved `0x60018F88: R0=0` (successful transfer), `0x60018FA4` returns zero to `0x600211B0`; higher wrapper `0x600211D4` sets success `R7=1` and returns one to `0x60021274`, whose `BNE` takes the nonzero-success branch. Read buffer `0x624134E0`. Thus **this last-sector MMC read is accepted at the transfer layer**, not failing on IO status; no proof that sector **contents** passed validation. Downstream classifier `0x60020CD0` and separate global status `0x62413241` still need provenance. [Real ARM caller/return captures](2026-10-22-user-area-return-callgraph.md). No OS entry observed.
 
 
