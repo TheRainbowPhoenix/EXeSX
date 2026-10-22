@@ -94,3 +94,6 @@ The original A7 BIOS at `0x60017988` tries **CMD0 → CMD1 → CMD2 → CMD3 →
 The synthetic off-chip I²C mirrors, GPIO input voltage and SNVS security-command bypass are research-only; **none establishes the real Casio hardware state**. The shared M4/A7 IPC marker `0xEEEEEEEE` and the display/LCD still require validation. **No successful Casio OS entry or text output has been proven.**
 
 **Official manufacturer and upstream references:** [HARDWARE_REFERENCES.md](HARDWARE_REFERENCES.md).
+
+
+**New experimental LCD run:** Original DY357 firmware now traverses the GPIOF13 synchronization wait and writes an all-white 864x480 RGB565 framebuffer; an opt-in QEMU LCD model records a private PPM screenshot. Its 60Hz tearing pulse is provisional. No OS entry observed. Subsequent reads involve high user LBAs outside update-derived data. See [runner and boot differential](2026-10-22-one-command-osup-runner.md).
