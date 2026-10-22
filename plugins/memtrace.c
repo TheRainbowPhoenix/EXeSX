@@ -81,7 +81,7 @@ static void access_cb(unsigned int cpu, qemu_plugin_meminfo_t info,
             g_autofree char *value_line = g_strdup_printf(
                 "EXESX_VALUE cpu=%u pc=0x%08" PRIx64
                 " kind=%s virtual=0x%08" PRIx64
-                " width=%u value=0x%08" PRIx64 "\\n",
+                " width=%u value=0x%08" PRIx64 "\n",
                 cpu, pc, kind, vaddr,
                 1u << qemu_plugin_mem_size_shift(info), val);
             qemu_plugin_outs(value_line);
