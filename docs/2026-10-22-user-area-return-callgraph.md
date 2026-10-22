@@ -112,3 +112,21 @@ The QEMU emulated eMMC backing is sparse; boot1 PVOS metadata at LBA0/LBA32 was 
 ### Immediate next trace to target boot launch
 
 In `0x60021290..0x600213c8` the accepted header chain sets per-component flags including bit4, bit3 and bit5 in a table based at the pointer stored near `0x60021768`. Compare this table after blank vs header-only vs contiguous-update runs, and trace **where the OS startup coordinator checks these flags**. Couple this to the true producer/consumer of global byte `0x62413241`, not a forced bit write. Also determine the firmware's actual semantics for the incomplete F component (its declared `0xe93e` sectors versus the smaller stored resource blob), and how the real updater provisions GP1/user partitions. Do not forge the absent resource data.
+
+
+## Hardware-state comparison after header acceptance (four private images)
+
+Fresh private QEMU monitor snapshots after four seconds on identical original firmware, varying only source-authentic user-area data, recorded a reliable memory-table differential:
+
+| Private user medium | `0x6232D5D8` | `0x6232D5DC` | `0x62413241` | Interpretation |
+| --- | --- | --- | --- | --- |
+| Blank user area | 0 | `0x2` (initial/default) | 0 | B-header classification fails |
+| Authentic **B header only** at user LBA0 | 0 | `0x2` (initial/default) | 0 | B accepted, next A header missing |
+| Authentic **B/A/F headers** at user 0/`0x12AD`/`0x56C2` | **`0x12AD`** | **`0x56C2`** | 0 | BIOS successfully records OS and resource component locations |
+| Available contiguous update payload from original BIOS component offset | **`0x12AD`** | **`0x56C2`** | 0 | Same component map; additional storage work can be in progress during snapshot |
+
+The literals in real original ARM code at `0x60021798` point to RAM `0x6232D5DC`, and at `0x600217B8` to `0x6232D5D8`. In the `0x60021290..0x600213C8` success path, those arrays receive the dynamically computed subsequent component LBAs. This is an *independent runtime confirmation* of the installed relative-sector layout, not merely arithmetic from OSUP file offsets.
+
+The external `0x62413241` readiness flag remains **zero** even with full available source-derived component bytes, so **header classification alone is not the OS-launch gate**. An intermediate snapshot at `0x60006908` or `0x60017374` during the full-component run is transient; a later ten-second snapshot returned to `0x601CBCF8` idle with USDHC host `0x01FF0008` / `INT_STATUS=0x3`. The F component's declared length exceeds the source file payload, so treating the truncated OSUP as a complete installed eMMC remains unjustified.
+
+Exact original checksum-valid bytes from OSUP were staged only in *private local sparse synthetic eMMC files*. Public documentation exposes component names, LBAs and bounded register snapshots, not the actual update bytes or sectors.
