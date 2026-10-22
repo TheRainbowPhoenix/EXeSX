@@ -58,7 +58,7 @@ There is **no new USDHC data inhibit**. Previous claim that `0x601cbcf8` itself 
 601cbcfc  pop   {r0,pc}
 ```
 
-At `0x60007f88`, the BIOS reads an SCG1 clock-state register (literal at BIOS `0x60008374` resolves to **`0x403e060c`**), masks low 6 bits and compares to `0x1d`. Thus the routine can be a normal idle/sleep decision. At the observation `r4=0x19`, the controller status was less than `0x1d`. This does **not** mean the SCG1 physical clock tree is proven accurate; the emulator's SCG1 behavior is still an approximation.
+At `0x60007f88`, the BIOS reads an SCG1 clock-state register (literal at BIOS `0x60008374` resolves to **`0x403e060c`**), masks low 6 bits and compares to `0x1d`. Thus the routine can be a normal idle/sleep decision. Two independent monitor snapshots (3s and 7s) instead show the **actual SCG1 register** at `0x403e060c` is `0x8080805d`; its low six bits are **exactly `0x1d`**, so `0x60007f88` returns **zero** according to the literal `CMP r0,#29; BHS` branch. The CPU register `r4=0x19` belongs to a different context and must **not** be mistaken for SCG1 clock status. This does **not** mean the SCG1 physical clock tree is proven accurate; the emulator's SCG1 behavior is still an approximation.
 
 The main BIOS service function `0x601cbd00` includes calls to `0x6001000c`, `0x600162a0` and `0x6004d72c`, and loops over recurring housekeeping. `0x6001000c` reads a global status flag (address loaded from literal `0x60010ccc`) and returns its low bit. Determining the producer of that global flag and the success/failure return value of the post-CMD17 validator is the **next best reverse-engineering task**, not another arbitrary memory mapping or a forced jump to OS.
 
@@ -75,3 +75,24 @@ The private five-second native QEMU `-d in_asm` log translates **no A7 blocks in
 5. Only populate missing user-area sectors from **verified installer output**, never guessed signatures or ROM fragments.
 
 No original Casio OS entry or LCD/text output established. No private files uploaded.
+
+
+## Stable flag snapshot and direct decision path (second private test)
+
+Independent original BIOS cold-run snapshots at **3 and 7 seconds** using the identical private PVOS boot1 synthetic backing and opt-in controller both reported:
+
+| Guest address | Read value | Evidence-backed interpretation |
+| --- | --- | --- |
+| `0x62413240` | `0x00000000` | Global status storage containing the byte below |
+| `0x62413241` | `0x00` | Firmware global flag currently unset |
+| `0x403e060c` | `0x8080805d` | SCG1 state; low 6 bits `0x1d` |
+| `0x40410010` | `0x00030000` | SMC1 power-state register after BIOS writes |
+| `0x40380024` | `0x01ff0008` | USDHC1 no active data/command inhibit |
+| `0x40380030` | `0x00000003` | CC+TC latched |
+| CPU0 `R15` | `0x601cbcf8` | ISB after WFI (not data read poll) |
+
+Disassembly links the **only literal occurrence** of `0x62413241` in the extracted original BIOS executable to BIOS `0x60010ccc`. The `0x6001000c` function loads that pointer, performs `LDRB`, tests bit0, and returns 1 only when bit0 is set. `0x6001002c..0x60010038` explicitly **clears that byte to zero**. The main BIOS service at `0x601cbd30` calls this status accessor and, if zero, branches past the subsequent calls to `0x600162a0` and `0x6004d72c`. However, this alone **does not prove** that setting the byte launches the OS: the writer that sets it has not been identified and may use an indirect pointer or an interrupt handler. Do not force the byte.
+
+The low six bits of SCG1 status are `0x8080805d & 0x3f = 0x1d`, so `0x60007f88` returns zero, permitting the BIOS sleep sequence. Prior speculation that clock status was **below 0x1d** was incorrect; corrected here. Both snapshots confirm the **same idle state** rather than a transient CPU PC sampling coincidence.
+
+**Next strongest trace:** catch the real writer(s) of guest RAM byte `0x62413241` with a QEMU memory-access watchpoint and trace the exact caller/return of `0x6001000c`; separately trace the user-LBA0/`0x01af5fff` read consumer. A buffer write to the global flag and a valid OS launch must be independently demonstrated, not inferred from this disassembly.
