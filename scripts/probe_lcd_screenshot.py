@@ -36,10 +36,12 @@ def make_elf():
     cmd(0x3a); val(0x55)
     cmd(0x35); val(0x00)
     cmd(0x2a)
-    for x in (0,0,0,1): val(x)
+    for x in (0,0,0,3): val(x)
     cmd(0x2b)
     for x in (0,0,0,0): val(x)
     cmd(0x2c);val(0xf800);val(0x07e0)
+    literal(1,0xf800001f)  # 32-bit pixel pair: RGB565 blue, red
+    store(1,5,0)
     emit(0xeafffffe)
     # Pool at end. Literal LDR immediate offset uses PC+8.
     pool_start=len(ins)
@@ -85,11 +87,11 @@ def run(qemu,profile):
         if not raw.startswith(b"P6\n864 480\n255\n"):
             raise AssertionError("Unexpected screenshot format/size")
         pixels=raw.split(b"\n",3)[3]
-        if pixels[:6] != bytes([255,0,0,0,255,0]):
-            raise AssertionError(f"LCD D/C, window, or RGB565 colors wrong: {pixels[:6].hex()}")
-        if pixels[6:12] != bytes(6):
-            raise AssertionError("LCD wrote outside the two-pixel window")
-    print("PASS synthetic ARM LCD writes 2 RGB565 pixels through GPIOA16 and screenshot")
+        if pixels[:12] != bytes([255,0,0,0,255,0,0,0,255,255,0,0]):
+            raise AssertionError(f"LCD D/C, 16-bit/32-bit RAMWR or RGB565 wrong: {pixels[:12].hex()}")
+        if pixels[12:18] != bytes(6):
+            raise AssertionError("LCD wrote outside the four-pixel window")
+    print("PASS synthetic ARM LCD writes two halfword + two word-packed RGB565 pixels through GPIOA16 and screenshot")
 
 if __name__=="__main__":
     ap=argparse.ArgumentParser(description=__doc__)
