@@ -272,3 +272,48 @@ Live breakpoints **actually hit** `0x6000FD5C` (R0=25), `0x6000FDB0` (flag `0x62
 **Implementation direction:** trace `0x6001A800`'s timer slot, its clock/tick source and dispatch code, plus A7 GIC interrupt pending/ack and both CPU contexts during `0x601CBCF4` WFI. Implement an actual documented event/interrupt with an authentic deadline before expecting the callback to run. **Do not directly write zero to `0x6232E35C` or synthesize the callback invocation.** Re-run the original A7 firmware after a verified model change and require a real breakpoint hit at `0x6000FEA0`, return to `0x6004A2B0`, then `0x60049BCC` and finally OS entry `0x60400000` as independently checked milestones.
 
 No OS code execution or LCD output is claimed. The temporary FlexBus RAM patch and firmware images are still private.
+
+
+## Experimental LPIT1 IRQ fix: original timer callback and next GPIOF13 barrier
+
+**Hardware source:** NXP i.MX7ULP A7 interrupt assignment table maps **LPIT1 to SPI 25** (GIC interrupt ID 57). In the original BIOS at `0x6001AD30`, the timer setup calls interrupt enabling with argument **57**. The emulator previously modeled LPIT1 register polling only: `exesx-imx7ulp-lpit.inc` explicitly had *no IRQ output*, so the original WFI-based scheduled timer callback was never dispatched.
+
+### Opt-in hardware implementation, no forged firmware event
+
+The EXeSX board now wires **LPIT1@0x40270000** to **A7 GIC SPI25**, behind `EXESX_EXPERIMENTAL_LPIT1_IRQ=1`. A QEMU virtual-clock timer uses existing LPIT1 `MCR`, channel `TVAL/TCTRL`, `MIER` and `MSR` register state, not a hardcoded guest callback. At actual timer expiry, it latches the documented LPIT status bit, asserts the GIC line only when the corresponding interrupt mask is enabled, and deasserts it on guest W1C status acknowledgment. Periodic expiration is rescheduled based on the programmed period; QEMU's older *uncalibrated 1 MHz virtual-microsecond* source remains the model's approximation. With this experimental flag absent, legacy behavior remains unchanged.
+
+Original A7 instruction-level positive/negative control on the **same checksum-verified private original firmware and source-derived eMMC**:
+
+| Original guest breakpoint | LPIT1 IRQ disabled (baseline) | LPIT1 IRQ enabled (new build) |
+| --- | --- | --- |
+| `0x6000FD5C` | Calls timed delay 25 | Calls timed delay 25 |
+| `0x6000FDB0` | Registers callback `0x6000FEA0` | Registers callback `0x6000FEA0` |
+| `0x6000FDD4` | Enters idle with `0x6232E35C=1` | Enters idle with `0x6232E35C=1` |
+| `0x6000FEA0` | **Not observed** in bounded run | **Actually reached**, LR=`0x6001AE68` from the genuine timer scheduler |
+| `0x6000FEC0` | **Not observed** | **Reached**; store makes `0x6232E35C=0` |
+| `0x600488A0` | **Not reached** before WFI timeout | **Reached**; BIOS continues after wait |
+
+The IRQ-enabled original BIOS repeated this complete real callback/flag-clear/return cycle for a second, longer firmware-requested wait (argument 125). **This is a verified removal of the specific timer callback wait**, not fabricated timer completion. The native build passed all 35 preexisting CI steps; the *original firmware differential* independently validates the new feature.
+
+### Next reached original-ROM blocker (longer cold run)
+
+With the real LPIT interrupt bridge enabled and otherwise unchanged experimental diagnostics (including the **private, unverified `0xB0000000` RAM window**), the original A7 reached **PC `0x601B4148`** after a bounded 16-second run. This is a poll for a **high-then-low transition on GPIOF pin 13**, not Port D:
+
+```asm
+601b4134  ldr  r0,[pc,#...]  ; 0x601b4518 -> 0x400f00d0, GPIOF.PDIR
+601b4138  ldr  r1,[r0]
+601b413c  tst  r1,#0x2000
+601b4140  bne  0x601b4150
+601b4144  ldr  r1,[r0]
+601b4148  tst  r1,#0x2000
+601b414c  beq  0x601b4144  ; wait for GPIOF13 HIGH
+601b4150  ldr  r1,[r0]
+601b4154  tst  r1,#0x2000
+601b4158  bne  0x601b4150  ; then wait for GPIOF13 LOW
+```
+
+The `0x400F00D0` address is **GPIO Port F PDIR** (PTF base `0x400F00C0` and PDIR offset `0x10`), **not Port D**. A separate 10-second run sampled `GPIOF.PDIR=0x00040010` and `GPIOF.PDDR=0x000400D2`, with **PTF13 configured as input and low**. That 10-second monitor PC was an intermediate USDHC read, not the stable 16-second GPIO poll; do not conflate sampling times.
+
+Importantly, the wait begins **immediately after external-memory-related BIOS calls `0x60015328` and `0x60015248`**; earlier original ROM tracing found halfword writes from this routine family to **`0xB0000000`**, a chip-select/external device window that currently exists only as a private diagnostic RAM mapping. This creates a **plausible external-device completion/ready handshake** tied to PTF13, not proven electronic connectivity. The actual external chip-select device, its data protocol, and how it drives GPIOF13 must be identified before wiring a signal transition. Returning a constant high, instantly toggling PTF13, or calling an OS entrypoint would invent hardware behavior.
+
+**Next implementation target after LPIT1 IRQ:** trace `0x60015328/0x60015248` command/data writes to `0xB0000000`, check FlexBus chip-select configuration and Port F PCR13 mux/input, then model the identified off-chip transaction and its PTF13 acknowledgement using a real QEMU device. Implement an opt-in protocol with negative cases only after matching original ARM timing/command values. No OS trampoline or LCD text has yet been observed.
