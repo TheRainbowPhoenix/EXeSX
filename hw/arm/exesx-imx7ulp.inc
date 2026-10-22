@@ -290,6 +290,10 @@ static MemTxResult exesx_imx7ulp_read(EXeSXProfileWindow *w,
             uint32_t external_inputs =
                 w->base == UINT64_C(0x4100f040) ?
                 exesx_gpiob_external_input_mask() : 0;
+            if (w->base == UINT64_C(0x400f00c0) &&
+                exesx_lcd_te_high(w->board)) {
+                external_inputs |= 1U << 13;
+            }
             *value = output_levels | (external_inputs & ~output_direction);
             return MEMTX_OK;
         }
@@ -488,6 +492,9 @@ static MemTxResult exesx_imx7ulp_write(EXeSXProfileWindow *w,
         return MEMTX_ERROR; /* Read-only 64-bit timestamp timer. */
     }
     if (!strcmp(w->kind, "imx7ulp-gpio")) {
+        if (w->base == 0x400f0000) {
+            exesx_lcd_gpioa(w->board, off, bits);
+        }
         switch (off) {
         case 0x00: w->regfile[0] = bits; break;
         case 0x04: w->regfile[0] |= bits; break; /* PSOR */
