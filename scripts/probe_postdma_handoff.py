@@ -99,7 +99,8 @@ def choose_port():
         return sock.getsockname()[1]
 
 
-def run_probe(command, environment, seconds, output_dir, milestones=MILESTONES):
+def run_probe(command, environment, seconds, output_dir, milestones=MILESTONES,
+              repeat_retry=5):
     """Start paused native QEMU; remove each guest breakpoint after first hit."""
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -161,6 +162,17 @@ def run_probe(command, environment, seconds, output_dir, milestones=MILESTONES):
                     break
                 if rsp.command(f"z0,{pc:x},4") != "OK":
                     raise RuntimeError("failed to remove guest breakpoint")
+                # Follow repeated outer BIOS service retries without patching RAM.
+                # Step once past the breakpoint before rearming it, otherwise
+                # the stub would immediately stop at the same instruction.
+                if pc == 0x60048924 and sum(h["pc"] == hex(pc) for h in report["hits"]) < repeat_retry:
+                    rsp.conn.sendall(encode_packet("s"))
+                    stepped = rsp.receive(4)
+                    if not stepped.startswith("T") or not re.search(r"thread:0*1;", stepped):
+                        raise RuntimeError("CPU0 retry single-step did not complete")
+                    stepped_pc = decode_registers(rsp.command("g"))["r15"]
+                    if stepped_pc == pc or rsp.command(f"Z0,{pc:x},4") != "OK":
+                        raise RuntimeError("unable to re-arm BIOS retry breakpoint")
                 rsp.conn.sendall(encode_packet("c"))
             # Sample the CPU on interrupt; don't mistake the last new translated
             # TB address in -d in_asm for the CPU's current program counter.
