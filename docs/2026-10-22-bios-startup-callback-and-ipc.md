@@ -70,3 +70,32 @@ The known B/A/F user-area signature/sector mapping and component coordinator sta
 A new firmware-free inspector at `scripts/inspect_bios_startup_callback.py` extracts only addresses and decoded direct `BL` destinations from a user-owned ELF. It checks critical known opcodes to fail closed if the binary differs. Synthetic tests do not contain Casio code.
 
 **Status:** original OS entry and LCD text still not demonstrated. No sound basis for a production hardware fix or fabricated callback/flag yet.
+
+
+## Actual sustained loop found at 9s and 17s: SEMA42 gate0 acquisition
+
+The A7 snapshots in the newly extracted ELF runtime were not merely incidental IPC. They remained in the **same original ARM acquisition retry loop** at **9 seconds and 17 seconds**:
+
+```asm
+60177484  mov   r1,#2
+60177488  ldr   r0,[pc,#0xbe8]       ; 0x60178078 -> 0x4101b003
+6017748c  strb  r1,[r0]             ; try lock gate0 using owner value 2
+60177490  ldrb  r0,[r0]
+60177494  cmp   r0,#2
+60177498  bne   0x60177488         ; retry if another domain won
+6017749c  bx    lr
+601774a0  mov   r1,#0
+601774a4  ldr   r0,[pc,#0xbcc]     ; same gate0
+601774a8  strb  r1,[r0]           ; unlock
+601774ac  ldrb  r0,[r0]
+601774b0  cmp   r0,#2
+601774b4  beq   0x601774a4        ; retry if still owner2
+```
+
+The observed native QEMU diagnostic log contains repeated `EXeSX SEMA42 gate=0 domain=2 state=2` alternating with `domain=0 state=0` for this *same* `0x4101b003` register. That is **stronger evidence of an acquisition retry than a generic semaphore-housekeeping observation**, and revises the preliminary characterization earlier in this report.
+
+**Official specification:** NXP i.MX7ULP Reference Manual, ch.10 SEMA42: the gate is a 4-bit state machine; write `domain ID + 1` to try to acquire; only the domain that locked it may release using zero. See [NXP reference manual PDF, chapter 10](https://manuals.plus/m/3fcef56ef531d2f11af138e90b262f740cb4b850405f230406bb863805f74d1c.pdf) and [MCUXpresso SEMA42 API](https://mcuxpresso.nxp.com/api_doc/dev/1095/group__sema42.html). The current EXeSX `exesx_sema42_write` instead executes `*gate=0` for **any** zero write, even from a non-owner, and the guest's domain and CPU identity are not checked. This **is a real model/spec discrepancy** and plausibly explains why the original ARM cannot observe its own acquisition with value 2 under concurrent A7/M4 activity.
+
+**Do not simply forbid all zero writes or force gate0=2.** Correct modeling requires mapping the actual QEMU requesting CPU to the hardware SEMA42 domain for **both** A7 and M4, tracking the successful owning domain per gate, and allowing release only from that owner, with the documented reset-key sequence still overriding locks. The current `EXeSXProfileWindow` callback does not yet provide an authenticated requester/domain; logging only `data=0` is insufficient to attribute the source. A safe patch must first instrument *CPU index + guest PC + gate state* on writes to determine which CPU sends the observed zero writes, then implement domain-aware ownership and prove with guest-ARM/M4 negative/positive tests. Without this, changing ownership semantics may incorrectly prevent a legitimate unlock and deadlock the reverse direction.
+
+The sustained `0x6017748c` loop with gate0 traffic is the **highest-priority live blocker in this current re-extraction runtime**. Whether solving it causes execution of post-`0x6004a1c0` startup callbacks and the OS entry is **not yet demonstrated**. It must be cross-checked against the earlier validated `prepare_osup.py` run because that produced different bounded A7 states.
