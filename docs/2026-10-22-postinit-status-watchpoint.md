@@ -47,3 +47,19 @@ python3 scripts/watch_postinit_status.py --seconds 12
 Before modifying further hardware, place a **return breakpoint** at the actual caller of the two user-sector reads, retaining R0 (status), LR, destination buffer address and the expected comparison fields for each invocation. Identify the parent routine by branch/call tracing from the original **CMD17 user LBA0 and `0x01af5fff` call sites** and correlate the return with later calls to the status setter. This should reveal whether the BIOS is waiting for a storage signature, a valid metadata region, M4 handoff, or another interrupt. There is no evidence yet that a particular forged sector or manually set status flag would fix boot.
 
 **No real OS entry, display frame, or LCD text was verified.**
+
+
+## Additional breakpoint stepping: genuine command-dispatch caller addresses
+
+A follow-up private run used software breakpoints at the actual command submission instruction `0x60017950`. **Important debugger detail:** after each stop, remove `Z0`, single-step the stopped instruction once, re-add `Z0`, then continue; otherwise repeatedly stopping at the same breakpoint address produces misleading repeated hits.
+
+Sixteen distinct command-dispatch stops in the bounded experiment identified genuine return addresses:
+
+- Initialization: `0x60017a84`, `0x60017aa4`, `0x60017ac4`, `0x60017c74`
+- eMMC setup/status: `0x6001966c`, `0x600196a4`, `0x600196c8`, `0x600196f4`
+- Partition/control: `0x60018a24`, `0x60018a78`, `0x60018a90`
+- Multiblock setup: `0x60018330` (observed twice)
+
+These are **direct dispatch callers**, not yet established *user-sector validation callers*. The original ROM's `0x60018330` write of CMD23 corresponds to multiblock read setup in `0x600182c0..`; do not claim its return value means eMMC user-area content is valid.
+
+This focused, debugger-driven trace reinforces that storage is active before the BIOS idles but **does not yet isolate the consumer of the final two user CMD17 buffers**. A next pass should break on CMD17 issuance and the final return from the PIO reader, correlating the live partition/LBA from `USDHC1.ARGUMENT` with that caller's R0 and destination pointer. No emulator semantics or flash contents were changed for this trace.
