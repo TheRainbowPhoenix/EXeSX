@@ -68,7 +68,7 @@ def prepare(osup, dest):
     return elf, media, manifest
 
 
-def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin):
+def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin, dma1_m2m=False):
     env = os.environ.copy()
     # Explicitly labeled temporary LCD-bus address sink for runs without
     # an implemented display model. It does NOT acknowledge any LCD
@@ -91,6 +91,7 @@ def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin):
         "EXESX_GPIOB_INPUT_MASK":"0x80",
         "EXESX_USDHC1_EMMC":"1",
         "EXESX_EXPERIMENTAL_LCD":"1",
+        "EXESX_EXPERIMENTAL_DMA1_M2M":"1" if dma1_m2m else "0",
         "EXESX_LCD_SCREENSHOT":str((dest/"lcd-screenshot.ppm").resolve()),
     })
     lib = qemu.resolve().parent/"lib"
@@ -143,6 +144,8 @@ def main():
     ap.add_argument("--lcd-trace",action="store_true")
     ap.add_argument("--plugin",type=Path)
     ap.add_argument("--prepare-only",action="store_true")
+    ap.add_argument("--dma1-m2m",action="store_true",
+                    help="Opt in to experimental RAM-to-RAM DMA1 transfers")
     a=ap.parse_args()
     if not a.osup.is_file(): ap.error("OSUP input file not found")
     if a.seconds <= 0: ap.error("--seconds must be positive")
@@ -166,7 +169,7 @@ def main():
             subprocess.run(["bash", str(root/"scripts"/"build_memtrace.sh")],
                            cwd=root, check=True)
         launch(a.qemu,elf,media,a.profile,a.output_dir,a.seconds,
-               a.lcd_trace,a.plugin)
+               a.lcd_trace,a.plugin,a.dma1_m2m)
 
 
 if __name__=="__main__":
