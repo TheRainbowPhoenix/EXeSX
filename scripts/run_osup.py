@@ -145,8 +145,22 @@ def main():
     elf,media,manifest=prepare(a.osup,a.output_dir)
     print(json.dumps(manifest,indent=2))
     if not a.prepare_only:
-        if not a.qemu.is_file(): ap.error("QEMU binary missing; use --qemu")
+        root = Path(__file__).resolve().parents[1]
+        if not a.qemu.is_file():
+            if a.qemu != Path("build/qemu-system-arm"):
+                ap.error("Custom --qemu executable not found")
+            print("Native EXeSX QEMU missing; building pinned v10.1.0 now.",
+                  flush=True)
+            subprocess.run(["bash", str(root/"scripts"/"build.sh")],
+                           cwd=root, check=True)
         if not a.profile.is_file(): ap.error("QEMU memory profile missing")
+        if a.lcd_trace and not a.plugin:
+            a.plugin = Path("build/exesx-memtrace.so")
+        if a.lcd_trace and not a.plugin.is_file():
+            if a.plugin != Path("build/exesx-memtrace.so"):
+                ap.error("Custom --plugin path not found")
+            subprocess.run(["bash", str(root/"scripts"/"build_memtrace.sh")],
+                           cwd=root, check=True)
         launch(a.qemu,elf,media,a.profile,a.output_dir,a.seconds,
                a.lcd_trace,a.plugin)
 
