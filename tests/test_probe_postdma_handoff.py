@@ -12,7 +12,7 @@ spec.loader.exec_module(probe)
 
 class HandoffProbeTests(unittest.TestCase):
     def test_rsp_packet_checksum(self):
-        self.assertEqual(probe.encode_packet("Hg1"), b"$Hg1#d0")
+        self.assertEqual(probe.encode_packet("Hg1"), b"$Hg1#e0")
         self.assertEqual(probe.encode_packet("c"), b"$c#63")
 
     def test_arm_register_endianness(self):
