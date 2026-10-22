@@ -155,3 +155,16 @@ The proven static predicate at `0x60049bec` requires `0x622e6fc4 & 2 != 0` and i
 The first per-CPU write trace (before the logging-format correction) conclusively identified **CPU0 for both write2 acquisition and write0 release** at gate0; the NXP owner-only-release model mismatch is genuine in source but *not demonstrated as the cause of the observed loop*. Only after controlling the A7-only ELF and comparing both CPU contexts can any proposed domain ownership implementation be judged against the original BIOS handoff.
 
 **Current best unresolved dependency:** service-object callback registration and whatever initialization event sets `0x622e6fc4` bit1, plus the independent `0x62413241` readiness byte. Cross-core semaphore ownership is a secondary model discrepancy, not a verified gate to OS entry. No verified boot at `0x605e3ad0`.
+
+
+## New optional RAM watch instrumentation
+
+The existing QEMU memory-access tracer `plugins/memtrace.c` calls `qemu_plugin_get_hwaddr` in every callback. In the current private original-ROM experiment, QEMU 10.1 repeatedly reports `invalid use of qemu_plugin_get_hwaddr` for these accesses, producing no usable physical-address events. Rather than assuming an unreported RAM write occurred, an opt-in `virtual_only=1` mode was added. It does **not** ask QEMU for physical address; it logs the **guest virtual address only**, explicitly labels the backing `virtual-only`, and compares requested ranges against that guest virtual address. This is suitable for the BIOS identity-mapped RAM region only after MMU translation has been checked. The default physical/MMIO tracer retains its old behavior for existing tests.
+
+Example diagnostic plugin argument (owner-held ROM only):
+
+```text
+-plugin exesx-memtrace.so,virtual_only=1,max=48,range=0x622e6fbc:0x622e6fc8,range=0x6232da18:0x6232da1c,range=0x62413241:0x62413242
+```
+
+The plugin deliberately records only CPU index, instruction PC, access type/address/width, not sensitive RAM **values**. Source-derived callback storage addresses are safe metadata; callback producer/owner is not known until a successful live write trace establishes it.
