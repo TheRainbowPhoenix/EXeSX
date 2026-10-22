@@ -50,7 +50,7 @@ static void exesx_dma1_request(EXeSXProfileWindow *w, unsigned channel)
     uint32_t source = t[0], destination = t[4], nbytes = t[2];
     uint32_t soffattr = t[1], doffciter = t[5];
     uint32_t csr_biter = t[7];
-    unsigned ssize = (soffattr >> 8) & 7, dsize = soffattr & 7;
+    unsigned ssize = (soffattr >> 24) & 7, dsize = (soffattr >> 16) & 7;
     int16_t soff = soffattr & 0xffff;
     int16_t doff = doffciter & 0xffff;
     uint16_t citer = doffciter >> 16, biter = csr_biter >> 16;
