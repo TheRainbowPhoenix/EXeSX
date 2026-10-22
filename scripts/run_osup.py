@@ -70,8 +70,18 @@ def prepare(osup, dest):
 
 def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin):
     env = os.environ.copy()
+    # Explicitly labeled temporary LCD-bus address sink for runs without
+    # an implemented display model. It does NOT acknowledge any LCD
+    # commands, generate TE, or constitute the physical device.
+    diagnostic_profile = dest / "diagnostic-memory-profile.ini"
+    profile_text = profile.read_text()
+    if "[diagnostic-flexbus-lcd]" not in profile_text and (
+            "base=0xb0000000" not in profile_text.lower()):
+        profile_text += ("\n[diagnostic-flexbus-lcd]\nkind=ram\n"
+                         "base=0xb0000000\nsize=0x1000\n")
+    diagnostic_profile.write_text(profile_text)
     env.update({
-        "EXESX_MEMORY_PROFILE":str(profile.resolve()),
+        "EXESX_MEMORY_PROFILE":str(diagnostic_profile.resolve()),
         "EXESX_EXPERIMENTAL_M4_BOOT":"1",
         "EXESX_EXPERIMENTAL_MU_IRQ":"1",
         "EXESX_EXPERIMENTAL_LPIT1_IRQ":"1",
@@ -101,6 +111,7 @@ def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin):
                 "range=0x400f0004:0x400f000c"]
     print("Running owner-held firmware in synthetic QEMU media; no input uploaded.",
           flush=True)
+    print("Diagnostic LCD RAM sink (NOT panel emulation):",diagnostic_profile,flush=True)
     print("Private log:",log,flush=True)
     with log.open("w") as out:
         try:
