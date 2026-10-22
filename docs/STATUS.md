@@ -2,6 +2,10 @@
 
 **No genuine Casio OS entry, LCD pixels or text have been verified.**
 
+**22 October original-ROM CMD17 return-value breakthrough:** The user-area last-LBA `0x01AF5FFF` read is actually performed by **SDMA-backed `0x60018458`**, not the earlier suspected PIO reader. Live CPU0 GDB breakpoint captures proved `0x60018F88: R0=0` (successful transfer), `0x60018FA4` returns zero to `0x600211B0`; higher wrapper `0x600211D4` sets success `R7=1` and returns one to `0x60021274`, whose `BNE` takes the nonzero-success branch. Read buffer `0x624134E0`. Thus **this last-sector MMC read is accepted at the transfer layer**, not failing on IO status; no proof that sector **contents** passed validation. Downstream classifier `0x60020CD0` and separate global status `0x62413241` still need provenance. [Real ARM caller/return captures](2026-10-22-user-area-return-callgraph.md). No OS entry observed.
+
+
+
 **22 October follow-up: after user-area boundary CMD17, BIOS is idling, not waiting for USDHC.** Fresh cold run of the original SHA-validated DY357 image with update-derived PVOS boot1 metadata reproduced boot1 CMD18 64/96 and user CMD17 0 / `0x01AF5FFF`. QEMU CPU0 monitor reports `PC=0x601CBCF8`, `LR=0x601CBCC4`, `PSR=sys32`, USDHC1 `PRES_STATE=0x01FF0008` (idle) and `INT_STATUS=3` (CC+TC). Disassembly reveals `0x601CBCF0=DSB`, `0x601CBCF4=WFI`, `0x601CBCF8=ISB`: an idle/SMC1 power-state path entered after checking SCG1 `0x403E060C`, **not a storage poll**. A five-second instruction-translation audit detected no block in the extracted OS region starting `0x60400000`. The priority is now the **caller/return decision of user-area sector validation** and the BIOS global status producer, not another USB/SD command override. The run required the **same private, unverified FlexBus `0xB0000000` diagnostic RAM**; it is not on main and is not real hardware. [Detailed idle/OS handoff report](2026-10-22-post-user-lba-bios-handoff.md).
 
 
