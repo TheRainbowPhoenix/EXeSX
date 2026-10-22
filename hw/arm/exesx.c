@@ -34,7 +34,7 @@ typedef struct EXeSXState {
     ARMv7MState m4;
     Clock *m4cpuclk, *m4refclk;
     ARMCPU *a7cpu;
-    EXeSXProfileWindow *mu_a, *mu_b, *lcd;
+    EXeSXProfileWindow *mu_a, *mu_b, *lcd, *dmamux1;
     uint64_t cp15_dacr_s_saved;
     uint64_t cp15_ttbr1_s_saved;
     bool m4_released;
@@ -337,6 +337,9 @@ static void exesx_load_profile(MemoryRegion *sysmem, EXeSXState *board)
                 (!strcmp(kind, "imx7ulp-tstmr") && w->size != 8)) {
                 error_report("EXeSX i.MX7ULP model window %s invalid size", group);
                 exit(1);
+            }
+            if (g_strcmp0(kind, "imx7ulp-dmamux") == 0 && w->base == 0x40210000) {
+                board->dmamux1 = w;
             }
             if (g_strcmp0(kind, "imx7ulp-mu") == 0) {
                 if (w->base == 0x41022000) {

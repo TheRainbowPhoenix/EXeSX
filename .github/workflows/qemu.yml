@@ -117,6 +117,8 @@ jobs:
             --profile profiles/imx7ulp-early-boot.ini
       - name: Verify LCD synthetic ARM framebuffer screenshot
         run: python3 scripts/probe_lcd_screenshot.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
+      - name: Verify synthetic ARM DMA1 actual 32-byte copy and disabled negative control
+        run: python3 scripts/probe_dma1_memcpy.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
       - name: Verify actual A7 LPIT1 GIC25 IRQ with real ARM negative/positive controls
         run: |
           python3 scripts/probe_lpit1_irq.py --qemu build/qemu-system-arm \
