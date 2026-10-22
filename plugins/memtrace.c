@@ -19,15 +19,22 @@ static int nranges;
 static guint64 seen, recorded;
 static guint64 emitted_per_range[33];
 static guint64 max_events = 128;
+static bool virtual_only;
 static GMutex output_lock;
 
 static void access_cb(unsigned int cpu, qemu_plugin_meminfo_t info,
                       uint64_t vaddr, void *userdata)
 {
     uint64_t pc = (uintptr_t)userdata;
-    struct qemu_plugin_hwaddr *hw = qemu_plugin_get_hwaddr(info, vaddr);
+    /* Some QEMU 10.1 system-mode RAM callbacks have no valid hwaddr
+     * accessor context. In explicit virtual-only mode never query it;
+     * report only virtual addresses rather than asserting identity maps.
+     */
+    struct qemu_plugin_hwaddr *hw =
+        virtual_only ? NULL : qemu_plugin_get_hwaddr(info, vaddr);
     uint64_t physical = hw ? qemu_plugin_hwaddr_phys_addr(hw) : vaddr;
-    const char *device = hw ? qemu_plugin_hwaddr_device_name(hw) : "untranslated";
+    const char *device = virtual_only ? "virtual-only" :
+                         (hw ? qemu_plugin_hwaddr_device_name(hw) : "untranslated");
     const char *kind = qemu_plugin_mem_is_store(info) ? "WRITE" : "READ";
     bool emit;
     int i, range_index = 32;
@@ -94,7 +101,9 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_install(qemu_plugin_id_t id,
         return -1;
     }
     for (i = 0; i < argc; i++) {
-        if (g_str_has_prefix(argv[i], "max=")) {
+        if (g_str_equal(argv[i], "virtual_only=1")) {
+            virtual_only = true;
+        } else if (g_str_has_prefix(argv[i], "max=")) {
             max_events = g_ascii_strtoull(argv[i] + 4, NULL, 0);
             if (max_events > 100000) {
                 fprintf(stderr, "EXeSX plugin max limit exceeded\n");

@@ -115,6 +115,10 @@ jobs:
         run: |
           python3 scripts/probe_a7_early_devices.py --qemu build/qemu-system-arm \
             --profile profiles/imx7ulp-early-boot.ini
+      - name: Verify actual A7 LPIT1 GIC25 IRQ with real ARM negative/positive controls
+        run: |
+          python3 scripts/probe_lpit1_irq.py --qemu build/qemu-system-arm \
+            --profile profiles/imx7ulp-early-boot.ini
       - name: Verify NXP SNVS HP reset command and RTC enable from real ARM guest
         run: |
           python3 scripts/probe_snvs_hp.py --qemu build/qemu-system-arm \
