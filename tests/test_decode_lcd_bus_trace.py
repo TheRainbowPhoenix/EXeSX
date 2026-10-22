@@ -71,7 +71,7 @@ class LcdTraceTests(unittest.TestCase):
             "EXESX_LCD cpu=0 pc=600151f8 addr=b0000000 width=2 val=00000000",
             "EXESX_LCD cpu=0 pc=600151f8 addr=b0000000 width=2 val=00000003",
             "EXESX_LCD cpu=0 pc=600151f8 addr=b0000000 width=2 val=0000001f",
-            "EXESX_LCD cpu=0 pc=60015900 addr=44f00000 width=4 val=00010000"]
+            "EXESX_LCD cpu=0 pc=60015900 addr=400f0008 width=4 val=00010000"]
         result = lcdtrace.decode_lines(lines)
         self.assertEqual(result["column_windows"][0]["count"],800)
         self.assertEqual(result["gpioa16_control_write_count"],1)
