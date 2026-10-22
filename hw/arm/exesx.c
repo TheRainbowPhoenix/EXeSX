@@ -22,6 +22,7 @@
 #include "qemu/units.h"
 #include "qemu/module.h"
 #include "qemu/log.h"
+#include "qemu/timer.h"
 #include "migration/vmstate.h"
 #include <inttypes.h>
 
@@ -38,7 +39,7 @@ typedef struct EXeSXState {
     uint64_t cp15_ttbr1_s_saved;
     bool m4_released;
     /* MU_A input is M4 NVIC IRQ22; MU_B is GIC SPI19 on A7. */
-    qemu_irq mu_a_irq, mu_b_irq;
+    qemu_irq mu_a_irq, mu_b_irq, lpit1_irq;
     MemoryRegion firmware, vectors, sram, ipc, provisional_writable;
 } EXeSXState;
 
@@ -70,6 +71,7 @@ struct EXeSXProfileWindow {
     GHashTable *registers;
     char *kind;
     EXeSXState *board;
+    QEMUTimer *lpit_timer;
     /* Stable addresses; preserved by VMState on loadvm. */
     uint32_t regfile[0x10000 / sizeof(uint32_t)];
 };
@@ -329,6 +331,11 @@ static void exesx_load_profile(MemoryRegion *sysmem, EXeSXState *board)
                 w->regfile[0x200 / 4] = 1; /* SIRCEN */
                 w->regfile[0x300 / 4] = 1; /* FIRCEN */
             }
+            if (w->base == 0x40270000 &&
+                !g_strcmp0(g_getenv("EXESX_EXPERIMENTAL_LPIT1_IRQ"), "1")) {
+                w->lpit_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
+                                             exesx_lpit_timer_tick, w);
+            }
             memory_region_init_io(&w->mr, NULL, &exesx_reg_ops, w,
                                   w->name, w->size);
             if (vmstate_register(NULL, k, &exesx_registers_vmstate, w)) {
@@ -452,6 +459,8 @@ static void exesx_init(MachineState *ms)
                            qdev_get_gpio_in(DEVICE(a7), ARM_CPU_FIQ));
         /* GIC qdev input indices are 0-based SPIs (GIC ID=32+index). */
         s->mu_b_irq = qdev_get_gpio_in(gic, 19);
+        /* NXP i.MX7ULP A7 GIC SPI 25 = LPIT1. */
+        s->lpit1_irq = qdev_get_gpio_in(gic, 25);
 
         /*
          * Explicitly opt-in real SD/eMMC device path. This is QEMU's
