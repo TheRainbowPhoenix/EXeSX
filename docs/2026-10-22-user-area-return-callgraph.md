@@ -35,3 +35,10 @@ Separate direct GDB `Z0` at low-level `0x60017950` generated at least one breakp
 Resolve the GDB breakpoint paradox using an ARM guest control breakpoint at a **known** executing site plus explicit `Hg` and `Hc` thread selection, then correlate command issuance (`CMD_XFR_TYP=0x11220010` and live `USDHC1.ARGUMENT`) with R14/LR and the first return. Alternatively use QEMU TCG plugin memory/MMIO tracing and a precise PC filter or QEMU gdbstub hardware breakpoints `Z1` rather than software `Z0` on the XIP ROM mapping. Watch `0x60018c54` and `0x60018cac` only after establishing that they execute in the actual command path, and capture `r0,r4,r5,r6,r7,r14` at each return.
 
 Only a verified negative return and a subsequent branch dependent on the actual blank-user-sector contents would justify synthesizing further **source-derived** media; never forge an OS-launch flag, sector signature, or hardware success response.
+
+
+## Critical alternate low-level I/O route found after negative PIO breakpoint result
+
+The PIO reader `0x60018194` is **not the only way the original BIOS can read a block**. Genuine disassembly of `0x60018458..0x60018588` shows an independent host-controller read setup using a DMA system address register (`USDHC1.DS_ADDR`), CMD23, and multi-block transfer; it is called directly from `0x60018ef8`, `0x60018f84`, and `0x60018ffc`. A second routine `0x60018590` has caller `0x60019310`. Thus the failure to hit `0x60018c50` **may be expected** if the two user-sector requests use one of these other paths. The traced host command proves an MMC command occurred, not that the PIO wrapper was its origin.
+
+**Follow-up candidate breakpoints** (not yet proven dynamic): `0x60018ef8`, `0x60018f84`, `0x60018ffc` before the `BL 0x60018458`; `0x60018584` for its direct return value; `0x60019310` for the alternate routine. Also test the higher-level `0x6000a8e4` invocation of `0x60018e20`, since this function loops over single-block `0x60018c08` calls. Do not assume CMD17 necessarily uses `0x60018194` when there are DMA-backed alternatives.
