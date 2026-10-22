@@ -98,7 +98,7 @@ The observed native QEMU diagnostic log contains repeated `EXeSX SEMA42 gate=0 d
 
 **Do not simply forbid all zero writes or force gate0=2.** Correct modeling requires mapping the actual QEMU requesting CPU to the hardware SEMA42 domain for **both** A7 and M4, tracking the successful owning domain per gate, and allowing release only from that owner, with the documented reset-key sequence still overriding locks. The current `EXeSXProfileWindow` callback does not yet provide an authenticated requester/domain; logging only `data=0` is insufficient to attribute the source. A safe patch must first instrument *CPU index + guest PC + gate state* on writes to determine which CPU sends the observed zero writes, then implement domain-aware ownership and prove with guest-ARM/M4 negative/positive tests. Without this, changing ownership semantics may incorrectly prevent a legitimate unlock and deadlock the reverse direction.
 
-The sustained `0x6017748c` loop with gate0 traffic is the **highest-priority live blocker in this current re-extraction runtime**. Whether solving it causes execution of post-`0x6004a1c0` startup callbacks and the OS entry is **not yet demonstrated**. It must be cross-checked against the earlier validated `prepare_osup.py` run because that produced different bounded A7 states.
+The gate0 helper at `0x6017748c` was a preliminary apparent blocker, but per-CPU tracing below disproved the presumed interference: it is a hot acquire/release loop from CPU0. Whether solving it causes execution of post-`0x6004a1c0` startup callbacks and the OS entry is **not yet demonstrated**. It must be cross-checked against the earlier validated `prepare_osup.py` run because that produced different bounded A7 states.
 
 
 ## Non-invasive CPU attribution probe (source committed)
@@ -106,3 +106,21 @@ The sustained `0x6017748c` loop with gate0 traffic is the **highest-priority liv
 The EXeSX SEMA42 register model has an **opt-in tracing hook**, enabled by `EXESX_TRACE_SEMA42_CPU=1` plus QEMU `-d unimp`, which logs `current_cpu->cpu_index`, the guest instruction address and gate state on each actual SEMA42 MMIO write. It **does not change** gate ownership, register response or release semantics. This permits separately identifying which real QEMU core issues the unexpected zero write during A7's `0x60177488..98` acquisition loop. Trace logs can be large; use bounded runs/private log paths and filter gate 0. Do not publish proprietary guest PCs as raw instruction bytes or entire logs.
 
 A specification-correct, *future* owner-tracked model should be enabled only after observing the A7/M4 CPU↔domain assignments in the native run and must be verified against CPU0 + CPU1 positive/negative unlock controls. The present trace by itself does not implement owner enforcement or resolve the boot blocker.
+
+
+## CPU attribution overturns the cross-core unlock hypothesis
+
+The **new instrumented native QEMU build** from [CI 39757523357](https://github.com/TheRainbowPhoenix/EXeSX/actions/runs/39757523357) compiled and passed all 35 workflow steps. A fresh three-second **private original-firmware** run enabled the opt-in per-CPU SEMA42 trace, retained the authentic user B/A/F data + boot1 PVOS, and observed:
+
+```text
+EXeSX SEMA42 CPU=0 guest-pc=6017748c gate=0 write=2 state=2
+EXeSX SEMA42 CPU=0 guest-pc=601774a8 gate=0 write=0 state=0
+EXeSX SEMA42 CPU=0 guest-pc=6017748c gate=0 write=2 state=2
+EXeSX SEMA42 CPU=0 guest-pc=601774a8 gate=0 write=0 state=0
+```
+
+**Both writes are by CPU0 (A7)**, at the exact lock and unlock helper instructions already disassembled. This directly **contradicts the previous hypothesis that a second CPU illegitimately releases this gate during the sampled alternation**. It is simply repeatedly being acquired/released by the *same core*. The gate0 ownership implementation is still objectively less strict than NXP's domain ownership specification, but the currently observed lock/unlock pattern is not evidence that discrepancy blocks boot. The PC `0x6017748c` is a hot repeated helper, **not proof that the acquisition branch failed**. A snapshot alone was misleading. The true startup dependency remains **unidentified**.
+
+A coding problem in the initial optional trace concatenated line terminators as literal `\\n`, and the repeating A7 helper generated an extremely large single log line. The committed tracer was updated to emit actual newlines and cap diagnostic records at 128, with all register behavior unchanged. The above representative four events are extracted from that original (private) trace. All QEMU build outputs and private logs remain uncommitted.
+
+**Correct next path:** instrument actual completion/return of each startup call after `0x6004a1c0`, the indirect vector `0x2000402c`, and the `0x60049bcc` callback-gate state at the moment of execution. Do not claim CPU0's gate0 lock/unlock sequence is an inter-core deadlock and do not change semaphore release policy to try to advance boot without a proven incorrect unlock.
