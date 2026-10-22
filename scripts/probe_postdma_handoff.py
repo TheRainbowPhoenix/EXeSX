@@ -14,6 +14,10 @@ import time
 MILESTONES = {
     0x60048878: "nested_boot_service",
     0x600488a0: "timer25_return",
+    0x600488a4: "event_1808_result",
+    0x600488ac: "event_1808_nonzero_branch",
+    0x600488c8: "nested_elapsed_check",
+    0x600488d0: "nested_elapsed_expired",
     0x600488b8: "timer125_request",
     0x600488e0: "nested_service_return",
     0x60048918: "outer_elapsed_check",
