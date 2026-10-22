@@ -238,3 +238,37 @@ Breakpoints at `0x6004a2b0` (startup return), `0x6004a2cc` (callback dispatcher 
 **Next isolated breakpoint chain:** `0x6001deac` (nested service from `0x60048888`), return `0x6004888c`, then `0x6001eca8`, `0x6001ebf0`, and loop condition `0x6001ec14`. At each, record both A7 and M4 PCs, interrupts and any WFI callsite. Explicitly compare the service status returned by `0x600066ec` with the actual wait predicate in `0x600488f8..0x60048928`. **Do not fabricate an interrupt, override status bit0x80 or branch directly into OS.**
 
 **Practical outcome of this turn:** conditional callback is *eligible* (status `0x3f`, target `0x60400000`), but execution is held up **before the dispatcher** by a nested BIOS startup/service path under `0x60048d9c`. The exact missing hardware event remains unidentified. No new device response or boot success was invented.
+
+
+## Final narrowed gate: actual scheduled timer callback never fired (bounded original A7 GDB)
+
+Continuing one level deeper on original A7-only firmware, the true nested service sequence is `0x60048D9C → 0x600488E8 → 0x60048878 → 0x6000FD5C`. The argument at `0x6000FD5C` is **R0=25**. Original code and live CPU0 breakpoints establish the precise logic:
+
+```asm
+6000fd74  ldr r5,[pc,#...]  ; 0x60010b50 -> RAM 0x6232e358 (timer id)
+6000fd78  ldr r6,[pc,#...]  ; 0x600102cc -> RAM 0x6232e35c (wait flag)
+6000fd98  mov r7,#1
+6000fd9c  str r7,[r6]      ; wait flag = 1
+6000fda4  mov r2,r4        ; requested delay = 25
+6000fda8  add r1,pc,#0xf0  ; callback = 0x6000fea0
+6000fdb0  bl 0x6001a800   ; register timer event
+6000fdb4  str r0,[r5]     ; save timer ID
+6000fdd4  bl 0x601cbc9c   ; BIOS WFI idle helper
+6000fdd8  ldr r0,[r6]     ; wait until flag changes to zero
+6000fddc  cmp r0,#0
+6000fde0  bne 0x6000fdd4
+...
+6000fea0  push {r4,lr}    ; registered callback
+6000feac  bl 0x6001aa38   ; cancel/free event
+6000feb4  bl 0x6001a920   ; release timer slot
+6000feb8  mov r0,#0
+6000fec0  str r0,[r1]     ; wait flag = 0
+```
+
+Live breakpoints **actually hit** `0x6000FD5C` (R0=25), `0x6000FDB0` (flag `0x6232E35C=1`), `0x6000FDC4` (allocated timer ID **6** stored at `0x6232E358`), then `0x6000FDD8` and `0x6000FDD4` (flag still 1). Breakpoints on callback `0x6000FEA0`, its flag-clear store `0x6000FEC0`, function return `0x600488A0`, and OS trampoline `0x60400000` **did not fire** before the bounded timeout. On debugger interrupt the A7 was again paused at BIOS idle `0x601CBCF8`.
+
+**This is the first specific timer-event completion condition linked directly to the missing callback dispatcher.** The original BIOS successfully *registered a timer (ID 6)* and is waiting for **its own callback to clear the wait flag**; the current native run did not observe that callback within the bounded period. It is not yet proven whether the missing underlying event is an i.MX7ULP timer tick/IRQ, the timer service's software scheduling mechanism, or an incorrect A7 WFI wakeup. The nominal '25' is the firmware's delay argument; its units must be derived from the original `0x6001A800` timebase rather than assumed to be milliseconds.
+
+**Implementation direction:** trace `0x6001A800`'s timer slot, its clock/tick source and dispatch code, plus A7 GIC interrupt pending/ack and both CPU contexts during `0x601CBCF4` WFI. Implement an actual documented event/interrupt with an authentic deadline before expecting the callback to run. **Do not directly write zero to `0x6232E35C` or synthesize the callback invocation.** Re-run the original A7 firmware after a verified model change and require a real breakpoint hit at `0x6000FEA0`, return to `0x6004A2B0`, then `0x60049BCC` and finally OS entry `0x60400000` as independently checked milestones.
+
+No OS code execution or LCD output is claimed. The temporary FlexBus RAM patch and firmware images are still private.
