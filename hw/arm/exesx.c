@@ -181,7 +181,13 @@ static MemTxResult exesx_reg_read(void *opaque, hwaddr offset, uint64_t *data,
     EXeSXProfileWindow *w = opaque;
     uint32_t *v = NULL;
     if (!strcmp(w->kind, "exesx-lcd")) {
-        *data = 0; /* Write-only LCD port; no ID/response emulated. */
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "EXeSX LCD unmodeled READ addr=0x%" HWADDR_PRIx
+                      " width=%u command=0x%02x DC=%u param_count=%u "
+                      "pixel_writes=%" PRIu64 " -- abort (no guessed response)\\n",
+                      w->base + offset, size, w->lcd_cmd, w->lcd_dc,
+                      w->lcd_param_count, w->lcd_pixel_writes);
+        *data = 0;
         return MEMTX_ERROR;
     }
     if (exesx_imx7ulp_kind(w->kind)) {
