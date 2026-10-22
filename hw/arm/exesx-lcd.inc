@@ -109,6 +109,12 @@ static MemTxResult exesx_lcd_write(EXeSXProfileWindow *w, hwaddr offset,
                                   uint64_t data, unsigned size)
 {
     if (offset != 0 || size != 2) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "EXeSX LCD unmodeled WRITE offset=0x%" HWADDR_PRIx
+                      " width=%u value=0x%" PRIx64 " DC=%u command=0x%02x "
+                      "pixel_writes=%" PRIu64 " -- abort (unknown bus semantics)\n",
+                      offset, size, data, w->lcd_dc, w->lcd_cmd,
+                      w->lcd_pixel_writes);
         return MEMTX_ERROR;
     }
     if (!w->lcd_dc) {
