@@ -54,6 +54,24 @@ A native QEMU 10.1.0 artifact from passing [CI 39800183413](https://github.com/T
 
 **Next gap:** the BIOS's post-TE storage/resource startup requires user-area sectors the update package does **not** provide (including high LBAs noted above). It could also await a different device, interrupt or OS callback condition. Compare a real installed eMMC layout or trace higher-level return-value decisions before claiming missing sector data is the *causal* boot blocker. Extend LCD model only on evidence of newly issued unhandled commands or a second display wait; avoid forced OS entry and forged resource data.
 
-### Newly confirmed next obstacle: missing LCD read semantics
+### Post-TE abort attribution (corrected by hardware-width trace)
 
 A longer unchanged-original-ROM run, after the modeled GPIOF13 TE handshake, reached an **A7 Data Abort** (`DFSR=0x1808`, `DFAR=0xB0000000`). The opt-in LCD model deliberately accepts the observed halfword *writes* but aborts on *reads* because the actual controller and its read-response format have not been proven. This is now the first **demonstrated missing device operation** after successful frame-sync. It must be investigated separately from incomplete source-derived user-area sectors: the same bounded run also issued reads at high eMMC LBAs with unknown original installed content, but no evidence proves those reads caused the data abort. The current unsupported-read handler logs the last LCD command, D/C phase, width and pixel count without synthesizing an ID/status/pixel value. The next step is to capture that last command from the original BIOS and implement only its documented readback semantics with synthetic positive/negative tests. Do not return an unconditional zero/ID value just to suppress the abort.
+
+### Proven packed RGB565 fix and subsequent DMA1 wait
+
+Follow-up logging on the **unchanged original A7 firmware** established that the previously suspected LCD `read` was actually a **32-bit RAMWR *write***. The diagnostic emitted:
+
+```
+EXeSX LCD unmodeled WRITE offset=0x0 width=4 value=0xffffffff
+  DC=1 command=0x2c pixel_writes=414720
+...with DFSR 0x1808 DFAR 0xb0000000
+```
+
+This happened after the BIOS had already completed a full 864×480 white clear. The new hardware model accepts **32-bit data writes only when D/C is data and command `0x2C` is active**, splitting the little-endian word into **two consecutive 16-bit RGB565 pixels**; 32-bit command writes and unmapped offsets remain errors. The synthetic ARM screenshot regression was expanded to write two halfword pixels and two additional *packed word* pixels and verify red/green/blue/red output.
+
+The next original 35-second `-d int,in_asm` run produced **zero A7 data aborts** and reached the known DMA1 wait at `0x601B82BC`. The actual CPU0 monitor after 23 seconds was **`R15=0x601B82BC`, `R14=0x601B4504`, `PSR=sys32`**. RAM handle `0x622CC62C+8` points to DMA1 `0x40080000`; its channel-15 TCD at `0x400811E0` contains source **`0x61080000`**, destination **`0x6114A800`**, transfer size **`0xCA800`**, `CITER=1`, and CSR low halfword **`0x000A`** (DONE bit0x80 clear). The original BIOS function `0x601B82A8..0x601B82E4` checks TCD.CSR DONE and returns `0x13ED` until done; caller `0x601B44F4..0x601B450C` retries continuously. This reproduces the known model limitation: DMA1 channel state and ERQ are modeled, but the **actual RAM copy and authentic transfer completion are not**.
+
+**Next actionable implementation:** model real DMA1 TCD minor/major loops (at least the observed memory-to-memory channel15 configuration), respecting SADDR/DADDR/SOFF/DOFF/ATTR/NBYTES/CITER/BITER and ERQ, and assert DONE only after the correct data transfer. Add a synthetic ARM test verifying the entire copied buffer and intermediate status, then rerun unchanged OSUP to see whether OS startup advances past `0x601B4504`. Do not simply force CSR DONE or populate destination with guessed ROM bytes. No OS entry yet.
+
+The prior paragraph that called the `0xB0000000` data abort an LCD *read* is superseded by the diagnostic above: **it was a rejected 32-bit write**.
