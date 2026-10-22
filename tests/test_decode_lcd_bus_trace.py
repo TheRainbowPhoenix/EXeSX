@@ -39,6 +39,31 @@ class LcdTraceTests(unittest.TestCase):
                          {"rgb565":"0xffff","count":2})
         self.assertEqual(result["write_widths"],{2:18})
 
+    def test_actual_gpio_dc_overrides_pc_classification(self):
+        # Synthetic command PC differs from the known ROM emitter:
+        # real GPIO D/C is the authoritative classifier.
+        events = [
+            line(0x6001512c,0x10000,4,0x400f0008),
+            line(0x60019990,0x35),
+            line(0x60015154,0x10000,4,0x400f0004),
+            line(0x600199a0,0),
+            line(0x6001512c,0x10000,4,0x400f0008),
+            line(0x60019990,0x3a),
+            line(0x60015154,0x10000,4,0x400f0004),
+            line(0x600199a0,0x55),
+            line(0x6001512c,0x10000,4,0x400f0008),
+            line(0x60019990,0x2c),
+            line(0x60015154,0x10000,4,0x400f0004),
+            line(0x600199a0,0xffff),
+            line(0x600199a0,0xf800),
+        ]
+        result = lcdtrace.decode_lines(events)
+        self.assertEqual(result["command_data_classification"],"GPIOA16")
+        self.assertTrue(result["te_enable_observed"])
+        self.assertTrue(result["rgb565_mode_observed"])
+        self.assertEqual(result["pixel_samples"],2)
+        self.assertEqual(result["gpioa16_control_write_count"],6)
+
     def test_legacy_capture_and_control_write(self):
         lines = [
             "EXESX_LCD cpu=0 pc=6001514c addr=b0000000 width=2 val=0000002a",
@@ -49,7 +74,7 @@ class LcdTraceTests(unittest.TestCase):
             "EXESX_LCD cpu=0 pc=60015900 addr=44f00000 width=4 val=00010000"]
         result = lcdtrace.decode_lines(lines)
         self.assertEqual(result["column_windows"][0]["count"],800)
-        self.assertEqual(result["other_bus_control_write_count"],1)
+        self.assertEqual(result["gpioa16_control_write_count"],1)
         self.assertEqual(result["pixel_samples"],0)
 
 if __name__=="__main__":
