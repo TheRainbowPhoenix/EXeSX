@@ -72,3 +72,17 @@ python3 scripts/run_osup.py /secure/path/OSUP.BIN \
 ```
 
 QEMU Actions CI builds a native emulator and bundles this runner and diagnostic alongside `prepare_osup.py`, with firmware-free tests of packet/reg decoding. **Do not publish `private/`**: the logs/screenshot/ROM-derived eMMC are not public data. Next: distinguish whether `0x6001EC14`'s event result, `0x60048924` retry condition, or a high-LBA storage/content validation keeps the outer `0x60048D9C` service active. Use repeat-conditional GDB stops with both-core registers and memory readback; do not force `0x60400000` or fabricate sectors/interrupts.
+
+### Repeated real BIOS retry breakpoint / SDHC argument correlation
+
+A third source-identical, DMA-enabled, private QEMU/GDB run installed a breakpoint at **`0x60048924`**, and carefully used remove → *single guest instruction step* to `0x60048928` → reinsert → continue. All five observed real CPU0 breakpoint hits returned **R0=1**, which according to the verified ARM instruction `CMP R0,#0; BNE 0x600488F8` takes the retry/service path rather than falling through. The last USDHC1 command-argument register `0x40380008` at each stop held respectively:
+
+```text
+retry 1: 0x0084157C
+retry 2: 0x008A3976
+retry 3: 0x008A3705
+retry 4: 0x008A3705
+retry 5: 0x008A3705
+```
+
+This is affirmative evidence of at least **five genuine iterations** of the nested BIOS retry in a bounded run, temporally correlated with repeated high user-area CMD18 operations. The SDHC argument register is the **last submitted command argument**, not a verified current active command. **The data-dependent reason for R0=1 is still unknown**; absence of installed source data at this LBA remains a serious hypothesis, not a proven cause. The new probe re-arms this one selected breakpoint up to five times with real single-step, while leaving all others one-shot. Callback/OS entry remains unobserved.
