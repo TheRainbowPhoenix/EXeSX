@@ -68,7 +68,7 @@ def prepare(osup, dest):
     return elf, media, manifest
 
 
-def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin, dma1_m2m=False):
+def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin, dma1_m2m=False, handoff_probe=False):
     env = os.environ.copy()
     # Explicitly labeled temporary LCD-bus address sink for runs without
     # an implemented display model. It does NOT acknowledge any LCD
@@ -113,6 +113,13 @@ def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin, dma1_m2m
         cmd += ["-plugin", f"{plugin.resolve()},virtual_only=1,values=1,"
                 "max=25000,range=0xb0000000:0xb0000004,"
                 "range=0x400f0004:0x400f000c"]
+    if handoff_probe:
+        from probe_postdma_handoff import run_probe
+        print("Private A7 GDB post-DMA probe; no firmware or logs uploaded.", flush=True)
+        report = run_probe(cmd, env, seconds, dest)
+        print("Probe results:", dest / "handoff-summary.json",
+              "milestones hit:", len(report["hits"]), flush=True)
+        return
     print("Running owner-held firmware in synthetic QEMU media; no input uploaded.",
           flush=True)
     print("Experimental LCD device; 60Hz TE timing and 864px GRAM are hypotheses.",flush=True)
@@ -144,6 +151,8 @@ def main():
     ap.add_argument("--lcd-trace",action="store_true")
     ap.add_argument("--plugin",type=Path)
     ap.add_argument("--prepare-only",action="store_true")
+    ap.add_argument("--handoff-probe",action="store_true",
+                    help="Private read-only A7 callback/DMA/OS milestone GDB probe")
     ap.add_argument("--dma1-m2m",action="store_true",
                     help="Opt in to experimental RAM-to-RAM DMA1 transfers")
     a=ap.parse_args()
@@ -169,7 +178,7 @@ def main():
             subprocess.run(["bash", str(root/"scripts"/"build_memtrace.sh")],
                            cwd=root, check=True)
         launch(a.qemu,elf,media,a.profile,a.output_dir,a.seconds,
-               a.lcd_trace,a.plugin,a.dma1_m2m)
+               a.lcd_trace,a.plugin,a.dma1_m2m,a.handoff_probe)
 
 
 if __name__=="__main__":
