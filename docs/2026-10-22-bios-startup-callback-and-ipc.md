@@ -211,3 +211,30 @@ The later `0x6004a2b0` return, `0x6004a2cc` callback loop entry, `0x60049bcc` di
 The `0x60048d9c` function begins with peripheral/service initialization and has its own branches to persistent error/wait loops at `0x60048e24` and `0x60048e2c` when a timer/status source reports particular values; neither loop's breakpoint hit was observed in a 12-second follow-up, so do **not** claim one of these is the actual blocker.
 
 **Next decisive test**: trace entry into `0x60048d9c`, all calls and returns to `0x6000fee8`, `0x60007e0c` and `0x6001eda8`, and the transition into scheduler/exception/idle; inspect the original A7 interrupt status and both A7/M4 PCs at the transfer of control. Only then identify whether an interrupt/event from an unimplemented peripheral needs a correct hardware model. Do **not** force `BLX`, fabricate a callback registration, or set `0x62413241`.
+
+
+### Deeper original instruction trace: condition `0x80` and nested wait/service
+
+Another independent cold-run series (always the exact A7-only BIOS+OS ELF and checksum-valid original update-derived private media) captured:
+
+```text
+0x60048d9c   entry from 0x6004a2ac, LR=0x6004a2b0
+0x60048dac   initial setup
+0x6000fee8   first service call; returns to 0x60048db4
+0x60048df8   calls 0x60007e0c
+0x60048dfc   returned R0=0x00003c86
+0x60048e04   R0 & 0x80 != 0; calls 0x600488e8
+0x600488e8   special service; LR=0x60048e08
+0x600488f0   setup from 0x600066bc
+0x60048908   calls 0x600066ec
+0x60048918   R0=0
+0x60048920   calls 0x60048878
+0x60048878   entry; LR=0x60048924
+0x60048888   next nested service call to 0x6001deac
+```
+
+Breakpoints at `0x6004a2b0` (startup return), `0x6004a2cc` (callback dispatcher outer loop), `0x60049c04` (indirect BLX) and `0x60400000` (OS trampoline) **did not fire before a bounded timeout**. On asynchronous debugger interrupt, the A7 was again in BIOS idle at `0x601cbcf8`. This disambiguates the preceding trace: the firmware takes the **bit-7-set `0x600488e8` branch**, reaches a subsequent **`0x60048878`** service and does not return through the expected outer startup PC during the observed window. It has not yet been proved whether the nested call, scheduler, or an external event blocks progress, and the measured `R0=0` at `0x60048918` is *not* an error return without inspecting the later caller's branch semantics.
+
+**Next isolated breakpoint chain:** `0x6001deac` (nested service from `0x60048888`), return `0x6004888c`, then `0x6001eca8`, `0x6001ebf0`, and loop condition `0x6001ec14`. At each, record both A7 and M4 PCs, interrupts and any WFI callsite. Explicitly compare the service status returned by `0x600066ec` with the actual wait predicate in `0x600488f8..0x60048928`. **Do not fabricate an interrupt, override status bit0x80 or branch directly into OS.**
+
+**Practical outcome of this turn:** conditional callback is *eligible* (status `0x3f`, target `0x60400000`), but execution is held up **before the dispatcher** by a nested BIOS startup/service path under `0x60048d9c`. The exact missing hardware event remains unidentified. No new device response or boot success was invented.
