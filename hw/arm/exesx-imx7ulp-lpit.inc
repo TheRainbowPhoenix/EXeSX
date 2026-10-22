@@ -3,7 +3,9 @@
  * PERI_LPIT.h: MCR +0x08, MSR +0x0c, MIER +0x10,
  * SETTEN/CLRTEN +0x14/+0x18, TVAL/CVAL/TCTRL 0x20+0x10*n.
  * Current counter tracks QEMU virtual microseconds (uncalibrated).
- * Interrupt flags are exposed for polling; IRQ/DMA outputs not wired.
+ * Interrupt flags are exposed for polling; the A7 LPIT1 IRQ output is
+ * optionally wired to GIC SPI25 with EXESX_EXPERIMENTAL_LPIT1_IRQ=1.
+ * The LPIT0/M4 IRQ and DMA outputs remain unimplemented.
  * Hidden per-channel timestamps are saved by board VMState regfile.
  */
 static bool exesx_lpit_valid(EXeSXProfileWindow *w, hwaddr off)
