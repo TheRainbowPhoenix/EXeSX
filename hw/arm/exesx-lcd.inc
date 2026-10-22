@@ -108,6 +108,17 @@ static void exesx_lcd_parameter(EXeSXProfileWindow *w, uint16_t v)
 static MemTxResult exesx_lcd_write(EXeSXProfileWindow *w, hwaddr offset,
                                   uint64_t data, unsigned size)
 {
+    /* Genuine BIOS switches to word stores for optimized RAMWR,
+     * e.g. 0xffffffff after the white clear. On a 16-bit DBI/FlexBus
+     * path this is two consecutive RGB565 data halfwords. Never
+     * widen COMMAND writes or unrelated vendor registers silently.
+     */
+    if (offset == 0 && size == 4 && w->lcd_dc &&
+        w->lcd_cmd == 0x2c) {
+        exesx_lcd_parameter(w, (uint16_t)data);
+        exesx_lcd_parameter(w, (uint16_t)(data >> 16));
+        return MEMTX_OK;
+    }
     if (offset != 0 || size != 2) {
         qemu_log_mask(LOG_GUEST_ERROR,
                       "EXeSX LCD unmodeled WRITE offset=0x%" HWADDR_PRIx
