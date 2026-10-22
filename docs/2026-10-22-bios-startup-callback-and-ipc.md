@@ -124,3 +124,34 @@ EXeSX SEMA42 CPU=0 guest-pc=601774a8 gate=0 write=0 state=0
 A coding problem in the initial optional trace concatenated line terminators as literal `\\n`, and the repeating A7 helper generated an extremely large single log line. The committed tracer was updated to emit actual newlines and cap diagnostic records at 128, with all register behavior unchanged. The above representative four events are extracted from that original (private) trace. All QEMU build outputs and private logs remain uncommitted.
 
 **Correct next path:** instrument actual completion/return of each startup call after `0x6004a1c0`, the indirect vector `0x2000402c`, and the `0x60049bcc` callback-gate state at the moment of execution. Do not claim CPU0's gate0 lock/unlock sequence is an inter-core deadlock and do not change semaphore release policy to try to advance boot without a proven incorrect unlock.
+
+
+## Reproduction fix: A7-only ELF versus M4-IPL-preloaded ELF
+
+The different runtime behavior was traced to a **firmware-loader configuration error**, not to a new undocumented ROM revision:
+
+- The previously successful private ROM experiments used the repository's documented `scripts/prepare_osup.py` logic, producing **A7 BIOS+OS only** in a two-PT_LOAD ELF. This leaves the M4 IPL at `0x1FFD0000` to be populated by the modeled handoff rather than preinstalled with the loader.
+- The fresh independent `extract_roms(1).py` extraction created a **three-PT_LOAD ELF**, including IPL at `0x1FFD0000`. This changes the M4 reset-vector state and can alter semaphore/IPC interactions. Therefore snapshots from the two loaders are *not comparable*.
+- A local reconstruction of the repository's exact A7-only ELF layout (identical BIOS/OS source sections, checksum validated) and same private eMMC/profile reached **`0x60006908` around 5s** and **`0x600068e4` around 12s**, both real BIOS SEMA42 gate0 helpers; the USDHC read remains active in the snapshots. Those PCs are *hot functions*, not proof a single transfer or acquire is stuck. This does not yet reproduce every earlier boot snapshot under fully identical external timing/loader details.
+
+### A7-only original-firmware callback object snapshot
+
+A private A7-only run with actual OSUP-derived user B/A/F data and boot1 PVOS yielded:
+
+| Guest physical RAM | Read value | Basis |
+| --- | --- | --- |
+| `0x6232d5c8` | **`0x6232d9ec`** | Service-object pointer from original startup code |
+| `0x6232da18` | **`0x00000000`** | `0x6232d9ec + 0x2c`: callback function slot |
+| `0x622e6fbc` | **`0x00000000`** | Last published callback pointer |
+| `0x622e6fc4` | **`0x00000001`** | Callback-dispatch status: bit1 `0x2` is **clear** |
+| `0x62413241` | **`0x00`** | Earlier, independent BIOS global service byte |
+| `0x6232d5dc` | `0x00000002` | Ancillary component state, purpose not established |
+| `0x40380024` | `0x01ff0a0e` | In this sample USDHC still has an active data path |
+
+The proven static predicate at `0x60049bec` requires `0x622e6fc4 & 2 != 0` and its callback target must be nonzero. **Neither condition holds at this snapshot**. That is a concrete unregistered/ineligible callback, **not evidence the missing callback was meant to launch the OS**. The registered target's producer and timing must be found. It would be wrong to force either bit or fill in a fabricated function pointer.
+
+### Correct interpretation of the repeated semaphore trace
+
+The first per-CPU write trace (before the logging-format correction) conclusively identified **CPU0 for both write2 acquisition and write0 release** at gate0; the NXP owner-only-release model mismatch is genuine in source but *not demonstrated as the cause of the observed loop*. Only after controlling the A7-only ELF and comparing both CPU contexts can any proposed domain ownership implementation be judged against the original BIOS handoff.
+
+**Current best unresolved dependency:** service-object callback registration and whatever initialization event sets `0x622e6fc4` bit1, plus the independent `0x62413241` readiness byte. Cross-core semaphore ownership is a secondary model discrepancy, not a verified gate to OS entry. No verified boot at `0x605e3ad0`.
