@@ -97,6 +97,9 @@ def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin, dma1_m2m
     lib = qemu.resolve().parent/"lib"
     if lib.is_dir():
         env["LD_LIBRARY_PATH"] = str(lib) + os.pathsep + env.get("LD_LIBRARY_PATH","")
+    screenshot_file = dest/"lcd-screenshot.ppm"
+    previous_screenshot_mtime = (screenshot_file.stat().st_mtime_ns
+                                if screenshot_file.is_file() else None)
     log = dest/"qemu-trace-private.log"
     stdout_log = dest/"qemu-console-private.log"
     cmd = [str(qemu.resolve()), "-machine","exesx","-m","64M",
@@ -145,6 +148,15 @@ def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin, dma1_m2m
         (dest/"lcd-metadata.json").write_text(json.dumps(metadata,indent=2)+"\n")
         print("LCD observed:",metadata["command_count"],"commands;",
               metadata["pixel_samples"],"pixel samples")
+    if screenshot_file.is_file() and (previous_screenshot_mtime is None or
+                                     screenshot_file.stat().st_mtime_ns != previous_screenshot_mtime):
+        from summarize_lcd_screenshot import summarize
+        statistics = summarize(screenshot_file)
+        (dest/"lcd-summary.json").write_text(json.dumps(statistics, indent=2)+"\n")
+        print("LCD raw framebuffer:", statistics["width"], "x", statistics["height"],
+              "nonwhite pixels:", statistics["nonwhite_pixels"],
+              "bbox:", statistics["nonwhite_bbox_xyxy"], flush=True)
+        print("A nonwhite framebuffer does NOT alone establish OS entry or accurate orientation.")
     print("Finished bounded run. Full QEMU output stays private.")
 
 
