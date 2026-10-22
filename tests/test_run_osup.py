@@ -46,5 +46,26 @@ class RunOSUPTests(unittest.TestCase):
             self.assertTrue((base/"out"/"manifest.json").exists())
 
 
+
+    def test_private_runner_gpiob3_diagnostic_is_explicit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            qemu, elf, media, profile = (
+                base/"qemu-system-arm", base/"a7.elf",
+                base/"card.raw", base/"board.ini")
+            for file in (qemu, elf, media):
+                file.write_bytes(b"fixture")
+            profile.write_text("[test]\nkind=ram\n", encoding="utf-8")
+            for gpio_high, expected in ((False, "0x80"), (True, "0x88")):
+                dest = base/("high" if gpio_high else "control")
+                dest.mkdir()
+                with patch.object(runner.subprocess, "run") as mock_run:
+                    runner.launch(qemu, elf, media, profile, dest, 1.0, False,
+                                  None, dma1_m2m=True, gpiob3_high=gpio_high)
+                env = mock_run.call_args.kwargs["env"]
+                self.assertEqual(env["EXESX_GPIOB_INPUT_MASK"], expected)
+                self.assertEqual(env["EXESX_EXPERIMENTAL_DMA1_M2M"], "1")
+                self.assertEqual(mock_run.call_args.kwargs["timeout"], 1.0)
+
 if __name__=="__main__":
     unittest.main()
