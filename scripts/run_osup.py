@@ -94,7 +94,7 @@ def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin):
     lib = qemu.resolve().parent/"lib"
     if lib.is_dir():
         env["LD_LIBRARY_PATH"] = str(lib) + os.pathsep + env.get("LD_LIBRARY_PATH","")
-    log = dest/"qemu-private.log"
+    log = dest/"qemu-trace-private.log"\n    stdout_log = dest/"qemu-console-private.log"
     cmd = [str(qemu.resolve()), "-machine","exesx","-m","64M",
            "-accel","tcg","-display","none","-serial","none",
            "-monitor","none","-no-reboot",
@@ -113,7 +113,7 @@ def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin):
           flush=True)
     print("Diagnostic LCD RAM sink (NOT panel emulation):",diagnostic_profile,flush=True)
     print("Private log:",log,flush=True)
-    with log.open("w") as out:
+    with stdout_log.open("w") as out:
         try:
             subprocess.run(cmd,env=env,stdout=out,stderr=subprocess.STDOUT,
                            timeout=seconds,check=False)
