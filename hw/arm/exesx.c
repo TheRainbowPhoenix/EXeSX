@@ -338,7 +338,7 @@ static void exesx_load_profile(MemoryRegion *sysmem, EXeSXState *board)
                 error_report("EXeSX i.MX7ULP model window %s invalid size", group);
                 exit(1);
             }
-            if (g_strcmp0(kind, "imx7ulp-dmamux1") == 0 && w->base == 0x40210000) {
+            if (g_strcmp0(kind, "imx7ulp-dmamux") == 0 && w->base == 0x40210000) {
                 board->dmamux1 = w;
             }
             if (g_strcmp0(kind, "imx7ulp-mu") == 0) {
