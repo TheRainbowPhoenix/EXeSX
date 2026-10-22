@@ -130,3 +130,26 @@ The literals in real original ARM code at `0x60021798` point to RAM `0x6232D5DC`
 The external `0x62413241` readiness flag remains **zero** even with full available source-derived component bytes, so **header classification alone is not the OS-launch gate**. An intermediate snapshot at `0x60006908` or `0x60017374` during the full-component run is transient; a later ten-second snapshot returned to `0x601CBCF8` idle with USDHC host `0x01FF0008` / `INT_STATUS=0x3`. The F component's declared length exceeds the source file payload, so treating the truncated OSUP as a complete installed eMMC remains unjustified.
 
 Exact original checksum-valid bytes from OSUP were staged only in *private local sparse synthetic eMMC files*. Public documentation exposes component names, LBAs and bounded register snapshots, not the actual update bytes or sectors.
+
+
+## Complete original BIOS component-loader status and outer caller
+
+The accepted B/A/F chain is not merely three signatures: the original BIOS's coordinator `0x600213D8..0x60021664` constructs six-bit status flags at `0x622E6FC4`. It checks required bits 0,4,5,2,1 in its final exit path and returns an explicit negative error if any required flag is absent. The status word was observed **`0x0000003F`** at a genuine CPU0 hardware breakpoint at `0x60021604` in both authentic-header-only and authentic-available-component-data runs. At `0x6002162C`, `0x60021650` and `0x60021660` the same `R8=0x622E6FC4` state satisfied each required branch and the coordinator returned **R0=0 (success)**.
+
+The stack-saved parent return at `[SP+28]` was **`0x600216BC`**. That wrapper, `0x60021668..0x600216CC`, returned zero after running the successful coordinator, and `[SP+20]` at its return was **`0x6004A1C0`**. Genuine BIOS disassembly shows:
+
+```asm
+6004a1bc bl 0x600216d0     ; component setup/coordinator
+6004a1c0 bl 0x6000bd14     ; next boot/BIOS initialization
+6004a1c4 bl 0x601cd5ec
+6004a1c8 bl 0x601cad9c
+6004a1cc bl 0x601b3d10
+6004a1d0 bl 0x601b3d48
+6004a1d4 bl 0x60049f5c
+```
+
+This confirms the *actual dynamic high-level caller* and that accepting all three headers brings firmware back to the broader BIOS initialization sequence, **not directly to extracted OS entry**.
+
+In a 10-second bounded native run with all available real OSUP component bytes staged contiguously in private synthetic eMMC, the A7 eventually returned to `0x601CBCF8` idle. The separate global service status `0x62413241=0` and no extracted OS translation still prevent claiming OS boot. An intermediate 5-second snapshot on this more complete media at `0x60006908` with USDHC transfer in flight was a transient; no conclusion about a permanent timeout should be drawn from it.
+
+**Updated next focus:** trace boot coordinator `0x6004A1C0` onward, especially the results of `0x6000BD14` and `0x60049F5C`, and identify which event/setter makes `0x62413241` nonzero. The verified storage-header stage has fully succeeded (status `0x3f`), so further arbitrary SDHCI fixes or forcing the status byte would not be evidence-based. The full F resource payload is absent from OSUP and may eventually matter, but **the current trace does not prove it causes the idle state**.
