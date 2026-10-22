@@ -20,6 +20,7 @@ static guint64 seen, recorded;
 static guint64 emitted_per_range[33];
 static guint64 max_events = 128;
 static bool virtual_only;
+static bool show_values;
 static GMutex output_lock;
 
 static void access_cb(unsigned int cpu, qemu_plugin_meminfo_t info,
@@ -67,6 +68,24 @@ static void access_cb(unsigned int cpu, qemu_plugin_meminfo_t info,
             1u << qemu_plugin_mem_size_shift(info),
             device ? device : "(unknown)");
         qemu_plugin_outs(line);
+        if (show_values) {
+            /* QEMU 10.1 plugin memory-value API: only owner-opted traces.
+             * NEVER enable in CI with private Casio binaries or commit
+             * the resulting raw command/pixel values.
+             */
+            qemu_plugin_mem_value mv = qemu_plugin_mem_get_value(info);
+            uint64_t val = mv.type == QEMU_PLUGIN_MEM_VALUE_U8 ? mv.data.u8 :
+                           mv.type == QEMU_PLUGIN_MEM_VALUE_U16 ? mv.data.u16 :
+                           mv.type == QEMU_PLUGIN_MEM_VALUE_U32 ? mv.data.u32 :
+                           mv.data.u64;
+            g_autofree char *value_line = g_strdup_printf(
+                "EXESX_VALUE cpu=%u pc=0x%08" PRIx64
+                " kind=%s virtual=0x%08" PRIx64
+                " width=%u value=0x%08" PRIx64 "\\n",
+                cpu, pc, kind, vaddr,
+                1u << qemu_plugin_mem_size_shift(info), val);
+            qemu_plugin_outs(value_line);
+        }
     }
 }
 
@@ -101,7 +120,9 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_install(qemu_plugin_id_t id,
         return -1;
     }
     for (i = 0; i < argc; i++) {
-        if (g_str_equal(argv[i], "virtual_only=1")) {
+        if (g_str_equal(argv[i], "values=1")) {
+            show_values = true;
+        } else if (g_str_equal(argv[i], "virtual_only=1")) {
             virtual_only = true;
         } else if (g_str_has_prefix(argv[i], "max=")) {
             max_events = g_ascii_strtoull(argv[i] + 4, NULL, 0);
