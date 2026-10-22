@@ -86,3 +86,27 @@ retry 5: 0x008A3705
 ```
 
 This is affirmative evidence of at least **five genuine iterations** of the nested BIOS retry in a bounded run, temporally correlated with repeated high user-area CMD18 operations. The SDHC argument register is the **last submitted command argument**, not a verified current active command. **The data-dependent reason for R0=1 is still unknown**; absence of installed source data at this LBA remains a serious hypothesis, not a proven cause. The new probe re-arms this one selected breakpoint up to five times with real single-step, while leaving all others one-shot. Callback/OS entry remains unobserved.
+
+### Specific pre-dispatch service gate: original event ID 0x1808 (new verified breakpoint chain)
+
+The original checksum-verified DY357 BIOS at `0x600488A0` executes `BL 0x6001EC14`, which supplies literal service/event **ID `0x1808`** to BIOS `0x6017807C`; the observed original path is:
+
+```asm
+600488a0 bl 6001ec14        ; query service 0x1808
+600488a4 cmp r0, #0
+600488a8 beq 600488d4       ; would exit the nested wait on zero
+600488ac ...                ; nonzero state, repeated 125-unit waits
+600488c4 bl 600066ec        ; elapsed vs caller threshold (r1 = 0xbb8)
+600488c8 cmp r0, #0
+600488cc beq 600488a0       ; keep waiting if not expired
+600488d0 mov r4, #1         ; expired local wait
+600488e0 mov r0, r4         ; return 1
+60048924 cmp r0, #0         ; parent takes retry/service branch
+```
+
+New independent **27-second private native GDB original-ROM** one-shot breakpoints yielded:
+`0x600488A4 R0=1`, `0x600488AC R0=1`, `0x600488C8 R0=0` (initial threshold not yet met), `0x600488D0 R0=1` (threshold reached), `0x600488E0` and `0x60048924 R0=1`. The final CPU0 sample landed at `0x601CBCF8` BIOS WFI, with `component_bits=0x3f`, callback record `0x60400000`, cached callback zero, service-ready byte zero, last USDHC argument `0x008A3705`. Timer wait flag was `1` at the sampled WFI, which may simply be another scheduled wait; prior timer callbacks were independently observed executing.
+
+**Precise current gate:** the original BIOS's nonzero **0x1808 event/service result** persists long enough that the nested `0x60048878` service reaches its elapsed threshold and returns `1`, causing outer retry. Whether 0x1808 means an M4 IPC signal, valid installed dictionary/resource data, a storage response or another service outcome **has not been established**. There is no justification yet to force the event to zero, fabricate firmware service status, or synthesize high-LBA sectors.
+
+Next: inspect the genuine `0x6017807C` service dispatcher and the producer/consumer of event **0x1808**, correlate original M4/A7 IPC and response conditions, and compare higher-level return values of the final repeated CMD18 read. Model a real demonstrated peripheral deficiency only after its trigger and response semantics are identified. The source-controlled read-only probe now includes `0x600488A4`, `0x600488AC`, `0x600488C8`, and `0x600488D0` alongside the DMA/OS milestones.
