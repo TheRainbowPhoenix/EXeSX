@@ -62,7 +62,7 @@ static MemTxResult exesx_sema42_write(EXeSXProfileWindow *w,
                           "EXeSX SEMA42 CPU=%d guest-pc=%08x gate=%u write=%u state=%u @0x%"
                           HWADDR_PRIx "\\n",
                           requester_index,
-                          requester ? (uint32_t)cpu_get_pc(requester) : 0,
+                          requester ? (uint32_t)ARM_CPU(requester)->env.regs[15] : 0,
                           (unsigned)((off & ~3U) + (3U - (off & 3U))),
                           data, *gate, w->base + off);
         }
