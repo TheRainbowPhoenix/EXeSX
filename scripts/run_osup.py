@@ -94,7 +94,8 @@ def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin):
     lib = qemu.resolve().parent/"lib"
     if lib.is_dir():
         env["LD_LIBRARY_PATH"] = str(lib) + os.pathsep + env.get("LD_LIBRARY_PATH","")
-    log = dest/"qemu-trace-private.log"\n    stdout_log = dest/"qemu-console-private.log"
+    log = dest/"qemu-trace-private.log"
+    stdout_log = dest/"qemu-console-private.log"
     cmd = [str(qemu.resolve()), "-machine","exesx","-m","64M",
            "-accel","tcg","-display","none","-serial","none",
            "-monitor","none","-no-reboot",
