@@ -61,7 +61,7 @@ def prepare(osup, dest):
             "SYNTHETIC sparse QEMU media, not actual installed device",
             "OSUP resource F payload is incomplete",
             "boot1 sectors beyond PVOS remain zero",
-            "0xB0000000 display/pin handshake may be unmodeled",
+            "0xB0000000 LCD model is experimental; TE timing/wiring not authenticated",
         ],
     }
     (dest/"manifest.json").write_text(json.dumps(manifest,indent=2)+"\n")
@@ -77,7 +77,7 @@ def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin):
     profile_text = profile.read_text()
     if "[diagnostic-flexbus-lcd]" not in profile_text and (
             "base=0xb0000000" not in profile_text.lower()):
-        profile_text += ("\n[diagnostic-flexbus-lcd]\nkind=ram\n"
+        profile_text += ("\n[diagnostic-flexbus-lcd]\nkind=exesx-lcd\n"
                          "base=0xb0000000\nsize=0x1000\n")
     diagnostic_profile.write_text(profile_text)
     env.update({
@@ -90,6 +90,8 @@ def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin):
         "EXESX_SNVS_DIAGNOSTIC_SECURITY_PULSES":"1",
         "EXESX_GPIOB_INPUT_MASK":"0x80",
         "EXESX_USDHC1_EMMC":"1",
+        "EXESX_EXPERIMENTAL_LCD":"1",
+        "EXESX_LCD_SCREENSHOT":str((dest/"lcd-screenshot.ppm").resolve()),
     })
     lib = qemu.resolve().parent/"lib"
     if lib.is_dir():
@@ -112,7 +114,8 @@ def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin):
                 "range=0x400f0004:0x400f000c"]
     print("Running owner-held firmware in synthetic QEMU media; no input uploaded.",
           flush=True)
-    print("Diagnostic LCD RAM sink (NOT panel emulation):",diagnostic_profile,flush=True)
+    print("Experimental LCD device; 60Hz TE timing and 864px GRAM are hypotheses.",flush=True)
+    print("Screenshot:",dest/"lcd-screenshot.ppm",flush=True)
     print("Private log:",log,flush=True)
     with stdout_log.open("w") as out:
         try:
