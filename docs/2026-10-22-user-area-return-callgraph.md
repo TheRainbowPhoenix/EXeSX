@@ -82,3 +82,33 @@ Original instruction path:
 The next consumer to investigate is `0x60021290..`, which calls `0x60020cd0` as a **distinct downstream metadata/content classifier**, with early branches for return types `1,2,3`. Do not treat `0x60020cd0` as proven to validate this exact same LBA until the dynamic caller and buffer are correlated. After user sector reads, the BIOS still returns to WFI housekeeping and no extracted OS-entry translation has been seen.
 
 **Candidate next breakpoint locations:** `0x60021274`, `0x60021284`, `0x600212b4`, `0x600212cc`, `0x60021328`, `0x60021380`. Record caller LR, R0/R1 and buffer pointer at each and compare PVOS-only versus source-derived user-area candidate **without forging bytes or forcing boot flags**.
+
+
+## Major finding: actual content validator rejects blank user headers; real OSUP headers pass
+
+The immediately downstream classifier `0x60020cd0..0x60020d6c` is a genuine **CASIODICS06 component header validator**. It sums bytes 0–509, compares with its stored 16-bit checksum at bytes 510–511, compares the first 11 signature bytes with the literal `CASIODICS06`, then classifies byte 11: **B→R0=1, A→R0=2, F→R0=3**; unknown signature/checksum returns zero. A live software breakpoint at `0x600212cc` on the original **blank synthetic user area** observed `R0=0` immediately after `BL 0x60020cd0`; `CMP R0,#1; BNE 0x600213cc` rejects this initial boot component. This is now a proven **content-level rejection** after successful CMD17, distinct from the transfer-status return.
+
+The user supplied original OSUP contains each of the three checksum-valid header sectors:
+
+| Original component | Source OSUP offset | True installed user LBA (experiment) | Declared span |
+| --- | --- | --- | --- |
+| `CASIODICS06B` BIOS | `0x00140000` | **0** | `0x12ad` = 4,781 sectors |
+| `CASIODICS06A` OS | `0x00395a00` | **`0x12ad`** | `0x4415` = 17,429 sectors |
+| `CASIODICS06F` resources | `0x00c18400` | **`0x56c2`** = 22,210 | `0xe93e` = 59,710 *declared* sectors, with resource payload truncated in OSUP |
+
+These source byte offsets match **exactly** the sum of the preceding component's declared 512-byte sectors. The headers are not synthetic guesses and pass the same checksum condition the BIOS uses. Physical production media is still not dumped, so equivalence of *all* installed payload bytes remains unproven.
+
+### Private reversible media experiment A/B/C/D
+
+The QEMU emulated eMMC backing is sparse; boot1 PVOS metadata at LBA0/LBA32 was retained across all variants, and only source-authentic data from the user-owned OSUP was inserted into the *user* partition, starting at host backing byte offset 8 MiB. No Casio bytes, derived media or private traces were committed.
+
+1. **Blank user area (baseline):** original A7 breakpoint `0x600212cc`: **R0=0** (CASIODICS06B header classification failed).
+2. **Only genuine B header at user LBA0:** same breakpoint: **R0=1**. Original BIOS continues to the **next CMD17, LBA `0x12ad`** (4,781).
+3. **B, A, F header sectors at user LBAs 0, `0x12ad`, `0x56c2`:** original A7 reaches all three validator stages. Breakpoint `0x60021384`: **R0=3** for F; `0x600213c4` is reached, after which wrapper `0x60021290` returns the component-table success flag. USDHC1 command register at these stops confirms LBA `0x56c2`.
+4. **Original available OSUP component bytes, copied contiguously starting at user LBA0** (source OSUP offset `0x140000`; 29,360,130 bytes total including container trailer): header checks pass, and CPU enters additional storage/BIOS functions. At ten seconds the independently captured A7 is **back at idle `0x601cbcf8`** with `0x62413241=0`, USDHC1 idle `PRES_STATE=0x01ff0008`, `INT_STATUS=0x3`. A five-second snapshot landed at `0x60006908` during active work; that is a **transient**, not a stable blocker. The declared F resource payload extends beyond the bytes available in the package, so this image is **not a faithful full installation**.
+
+**Conclusion:** The **user-area component header layout is now byte-for-byte consistent with the original BIOS's own validation logic and the original updater's relative sector lengths**. The blank-image boot problem is not a mysterious lower-level read error: the first classifier requires `CASIODICS06B` at the start of the user area. Staging valid header sectors demonstrably unlocks the A and F reader branches. Nevertheless no OS entry, LCD pixels, or text have been confirmed; a separate readiness/handoff dependency persists after the header chain.
+
+### Immediate next trace to target boot launch
+
+In `0x60021290..0x600213c8` the accepted header chain sets per-component flags including bit4, bit3 and bit5 in a table based at the pointer stored near `0x60021768`. Compare this table after blank vs header-only vs contiguous-update runs, and trace **where the OS startup coordinator checks these flags**. Couple this to the true producer/consumer of global byte `0x62413241`, not a forced bit write. Also determine the firmware's actual semantics for the incomplete F component (its declared `0xe93e` sectors versus the smaller stored resource blob), and how the real updater provisions GP1/user partitions. Do not forge the absent resource data.
