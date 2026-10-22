@@ -153,3 +153,20 @@ This confirms the *actual dynamic high-level caller* and that accepting all thre
 In a 10-second bounded native run with all available real OSUP component bytes staged contiguously in private synthetic eMMC, the A7 eventually returned to `0x601CBCF8` idle. The separate global service status `0x62413241=0` and no extracted OS translation still prevent claiming OS boot. An intermediate 5-second snapshot on this more complete media at `0x60006908` with USDHC transfer in flight was a transient; no conclusion about a permanent timeout should be drawn from it.
 
 **Updated next focus:** trace boot coordinator `0x6004A1C0` onward, especially the results of `0x6000BD14` and `0x60049F5C`, and identify which event/setter makes `0x62413241` nonzero. The verified storage-header stage has fully succeeded (status `0x3f`), so further arbitrary SDHCI fixes or forcing the status byte would not be evidence-based. The full F resource payload is absent from OSUP and may eventually matter, but **the current trace does not prove it causes the idle state**.
+
+
+## Actual execution beyond the component-loader return
+
+A separate original ARM breakpoint run using the same three authentic user component headers captured the following **live** high-level startup instruction sites:
+
+| Guest PC | Captured original A7 state / significance |
+| --- | --- |
+| `0x6004a1c0` | Returned from `0x600216d0`, **R0=0** successful component-loader status |
+| `0x6004a1d8` | Later startup service reached with **R0=1** |
+| `0x6004a1e0` | Subsequent initialization reached |
+| `0x6004a1ec` | Additional BIOS initialization reached with R0=4 |
+| `0x6004a224` | Further branch sequence reached; R6=0 on this run |
+
+This confirms that the original firmware does not immediately abort initialization on the component table: it actually executes a significant portion of the next high-level BIOS startup function `0x6004a170..`. By later bounded snapshots it still reaches `0x601cbcf8` WFI idle with global byte `0x62413241=0`; **no verified OS entry**. Values seen at these PCs are intermediate registers, not proven success/failure outcomes of their preceding calls. The precise next missing service/event is still unresolved.
+
+Next candidates from original disassembly: trace the outputs of `0x60049b30`, `0x60008e98`, `0x60007284` and the conditional branch at `0x6004a250` if those sites execute, and identify the event that leads to the guest OS entry `0x605e3ad0`. Use the same private media A/B controls and retain source-only data.
