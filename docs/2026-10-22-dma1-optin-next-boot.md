@@ -48,3 +48,27 @@ The DMA-enabled trace also contains translated `0x601B4504` and `0x601B82BC` and
 A second private original-OSUP DMA-enabled run with the same synthetic eMMC and experimental peripherals was stopped using the QEMU HMP monitor after approximately 23 seconds, yielding an actual CPU0 register snapshot: **R15=0x601CBCF8, R14=0x601CBCC4, PSR=0x6000011F (sys32), R0=0x00030000**. QEMU identifies CPU0 Cortex-A7 and CPU1 Cortex-M4. The paused A7 position matches an already-seen BIOS idle WFI/ISB location from the previous study, **not** the last newly translated `0x60028290` block. This is a sampled idle state, not proof of which condition is ultimately preventing OS handoff. It also does not invalidate measured DMA completion. OS still not observed and framebuffer remained white in the timed A/B experiment.
 
 Priority now: narrow bounded trace around BIOS callback dispatch, timer/interrupt wakes and high-user-LBA storage return decisions, and sample status variables around the idle to determine which post-DMA boot condition is missing. Do not force OS PC.
+
+## Post-DMA callback/IRQ/storage investigation (read-only original A7 GDB)
+
+A fresh private owner-supplied checksum-valid OSUP A7 ELF and the identical synthetic eMMC, pinned QEMU from successful CI run #39833050218, opt-in DMA1/LPIT1/LCD/M4, GDB `Hg1` (CPU0) and `Hc-1` (both cores) achieved **actual instruction execution** breakpoints, rather than relying on first-time translated-block addresses.
+
+- `0x60048878`: inner BIOS service entered. `0x600488A0` showed `R0=1` after the requested 25-unit timer callback; `0x600488B8` requested the 125-unit delay. At `0x600488E0` the nested service returned its locally recorded `R4=1`. The outer caller reached `0x60048924` with **R0=1**, taking the conditional retry/service branch to `0x600488F8`.
+- The earlier DMA wait **actually returned success** at `0x601B4504` with **R0=0**, and the exit instruction `0x601B450C` was reached in the controlled follow-up. The same run also reached genuine BIOS memory/storage processing at `0x60028290`. This is not merely an unverified DMA success log.
+- **No breakpoint hit** was observed at startup return `0x6004A2B0`, callback loop `0x6004A2CC`, dispatcher `0x60049BCC`, BLX `0x60049C04`, OS trampoline `0x60400000` or OS target `0x605E3AD0` in the bounded experiments. Absence is bounded only.
+- A second read-only private GDB milestone probe captured live `0x622E6FC4=0x3F` (all components accepted), `0x6232DA18=0x60400000` (OS entry recorded), `0x622E6FBC=0` (not yet copied into callback cache), separate `0x62413241=0` (service ready byte unset) and `0x6232E35C=0` (timer wait flag cleared). Thus, **the callback is registered but the pre-dispatch BIOS sequence is not yet known to have returned**. Timer completion is not the current evidenced blocker.
+- The old bounded DMA-enabled SD command log contains repeated `CMD23 count=0x271 / CMD18 user LBA=0x008A3705` near its end. This is high user-area storage beyond OSUP-provided bytes, and those positions are unknown/zero in the synthetic image. There is **no proven content-dependent failure or validated dictionary/resource identifier** from commands alone.
+- Actual machine stop can differ with elapsed wall time and debug overhead. In an 18-second instrumented run the sampled CPU0 PC was `0x601B4504` during a transient DMA return; in the preceding longer 23-second monitor run it was BIOS idle `0x601CBCF8`. Neither point alone proves a permanent stall.
+
+The new `scripts/probe_postdma_handoff.py` provides one-shot, metadata-only QEMU ARM GDB breakpoints and targeted status reads, with generated `handoff-summary.json` remaining under the ignored `private/` directory. `scripts/run_osup.py` now exposes it via:
+
+```bash
+python3 scripts/run_osup.py /secure/path/OSUP.BIN \
+    --dma1-m2m --handoff-probe --seconds 35 \
+    --output-dir private/handoff-dma
+python3 scripts/run_osup.py /secure/path/OSUP.BIN \
+    --handoff-probe --seconds 35 \
+    --output-dir private/handoff-control
+```
+
+QEMU Actions CI builds a native emulator and bundles this runner and diagnostic alongside `prepare_osup.py`, with firmware-free tests of packet/reg decoding. **Do not publish `private/`**: the logs/screenshot/ROM-derived eMMC are not public data. Next: distinguish whether `0x6001EC14`'s event result, `0x60048924` retry condition, or a high-LBA storage/content validation keeps the outer `0x60048D9C` service active. Use repeat-conditional GDB stops with both-core registers and memory readback; do not force `0x60400000` or fabricate sectors/interrupts.
