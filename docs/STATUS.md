@@ -97,3 +97,6 @@ The synthetic off-chip I²C mirrors, GPIO input voltage and SNVS security-comman
 
 
 **New experimental LCD run:** Original DY357 firmware now traverses the GPIOF13 synchronization wait and writes an all-white 864x480 RGB565 framebuffer; an opt-in QEMU LCD model records a private PPM screenshot. Its 60Hz tearing pulse is provisional. No OS entry observed. Subsequent reads involve high user LBAs outside update-derived data. See [runner and boot differential](2026-10-22-one-command-osup-runner.md).
+
+
+**LCD-to-DMA boot progress:** Corrected the post-TE abort: the BIOS uses packed 32-bit RGB565 writes during RAMWR, not an LCD read. QEMU now decomposes them into two 16-bit data cycles. The unchanged original firmware subsequently reaches DMA1 channel15 CSR DONE polling (PC 0x601B82BC), with a pending 0xCA800-byte source-to-destination transfer and CSR=0xA. Model still lacks DMA memory execution. See [original boot evidence](2026-10-22-one-command-osup-runner.md).
