@@ -57,10 +57,12 @@ static MemTxResult exesx_sema42_write(EXeSXProfileWindow *w,
              * For now, the A7 domain is the one that acquired the gate. */
             *gate = 0;
         }
-        if (!g_strcmp0(g_getenv("EXESX_TRACE_SEMA42_CPU"), "1")) {
+        static unsigned int trace_sample_count;
+        if (!g_strcmp0(g_getenv("EXESX_TRACE_SEMA42_CPU"), "1") &&
+            trace_sample_count++ < 128) {
             qemu_log_mask(LOG_UNIMP,
                           "EXeSX SEMA42 CPU=%d guest-pc=%08x gate=%u write=%u state=%u @0x%"
-                          HWADDR_PRIx "\\n",
+                          HWADDR_PRIx "\n",
                           requester_index,
                           requester ? (uint32_t)ARM_CPU(requester)->env.regs[15] : 0,
                           (unsigned)((off & ~3U) + (3U - (off & 3U))),
