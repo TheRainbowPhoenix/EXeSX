@@ -1,0 +1,72 @@
+name: Safely prune historical EXeSX branches
+on:
+  push:
+    branches: [test/dy357-dma1-boot-20261022]
+    paths:
+      - '.github/workflows/prune-historical-branches.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  prune-branches:
+    if: github.repository == 'TheRainbowPhoenix/EXeSX'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Audit merged and abandoned PR branches; archive abandoned heads as tags
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner, repo = context.repo.repo;
+            const working = 'test/dy357-dma1-boot-20261022';
+            const branches = await github.paginate(github.rest.repos.listBranches, {owner, repo, per_page: 100});
+            const prs = await github.paginate(github.rest.pulls.list, {owner, repo, state: 'all', per_page: 100});
+            const open = new Set(prs.filter(p => p.state === 'open').map(p => p.head.ref));
+            let removed = [], archived = [], preserved = [];
+            for (const b of branches) {
+              if (b.protected || b.name === 'main' || b.name === working || open.has(b.name)) {
+                preserved.push(b.name); continue;
+              }
+              const matches = prs.filter(p => p.head.repo?.full_name === context.repo.owner + '/' + context.repo.repo &&
+                  p.head.ref === b.name && p.head.sha === b.commit.sha);
+              const merged = matches.some(p => p.merged_at);
+              const closedUnmerged = !merged && matches.length > 0 && matches.every(p => p.state === 'closed' && !p.merged_at);
+              let behindOnly = false;
+              if (!merged && !closedUnmerged) {
+                const comparison = await github.rest.repos.compareCommits({owner, repo, base: b.commit.sha, head: 'main'});
+                behindOnly = comparison.data.ahead_by > 0 && comparison.data.behind_by === 0;
+              }
+              if (!merged && !closedUnmerged && !behindOnly) {
+                preserved.push(b.name + ' (not proved obsolete)'); continue;
+              }
+              if (closedUnmerged) {
+                // Recoverability: archive exactly the old branch head before deleting.
+                const tag = 'archive/2026-10-23/' + b.name;
+                try {
+                  await github.rest.git.createRef({owner, repo, ref: 'refs/tags/' + tag, sha: b.commit.sha});
+                } catch (error) {
+                  if (error.status !== 422) throw error;
+                  const prior = await github.rest.git.getRef({owner, repo, ref: 'tags/' + tag});
+                  if (prior.data.object.sha !== b.commit.sha) throw new Error('Archive tag SHA mismatch for ' + b.name);
+                }
+                archived.push(tag);
+              }
+              // Lease check: do not delete a branch which moved after the audit.
+              const current = await github.rest.repos.getBranch({owner, repo, branch: b.name});
+              if (current.data.commit.sha !== b.commit.sha) {
+                preserved.push(b.name + ' (changed during audit)'); continue;
+              }
+              await github.rest.git.deleteRef({owner, repo, ref: 'heads/' + b.name});
+              removed.push(b.name);
+            }
+            core.summary.addHeading('Historical branch cleanup')
+              .addRaw('Removed branches: ' + removed.length + '\n\n')
+              .addCodeBlock(removed.join('\n') || '(none)')
+              .addRaw('\nArchived unmerged branches as tags: ' + archived.length + '\n\n')
+              .addCodeBlock(archived.join('\n') || '(none)')
+              .addRaw('\nRetained: ' + preserved.length + '\n\n')
+              .addCodeBlock(preserved.join('\n') || '(none)')
+              .write();
+            core.info(JSON.stringify({removed, archived, preserved}));
