@@ -11,9 +11,12 @@ if [ ! -f "$QEMU_SOURCE/configure" ]; then
   git clone --depth 1 --branch v10.1.0 https://gitlab.com/qemu-project/qemu.git "$QEMU_SOURCE"
 fi
 python "$ROOT/scripts/integrate_qemu.py" "$QEMU_SOURCE"
+# Git checkouts omit the release archive's python/wheels directory. QEMU's
+# bootstrap only searches that directory, so provide its pinned test helper.
+python -m pip install --disable-pip-version-check 'pycotap==1.3.1'
 mkdir -p "$ROOT/build"
 cd "$ROOT/build"
-# Headless native PE executable. TCG plugins are not supported by this target.
+# Headless native PE executable; this distribution omits TCG plugins.
 "$QEMU_SOURCE/configure" --target-list=arm-softmmu \
   --without-default-features --enable-tcg --enable-fdt=internal --enable-pixman \
   --disable-werror --disable-docs --disable-plugins --disable-guest-agent

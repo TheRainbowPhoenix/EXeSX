@@ -1,0 +1,1093 @@
+{
+  "date": "2026-10-23",
+  "program": "/EXWRom/XD-SX9850/XD-SX9850.0",
+  "source_sha256": "d5791bec1c7739315fb6113b5d6890a21f6c454fcf7a05a0381cfaaa70808fb0",
+  "bios_sha256": "eb7dafa1b544bbb8d79081866af280e6c0f88197de9f635c6887f8486155da66",
+  "verification": "Each of 77 A7 annotation sites and 16 M4 source sites matched 32 bytes read from Ghidra against locally extracted checksum-validated OSUP; no full-database hash was computed. No new firmware execution trace was collected.",
+  "a7_sites": [
+    {
+      "address": "0x6017a11c",
+      "name": "A7_Kernel_InitializeFromConfig",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Live kernel config caller; loads then copies optional hook fields",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x601797a8",
+      "name": "A7_Kernel_ScheduleNextReadyTask",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Live scheduler trace searches ready tasks",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x60179d20",
+      "name": "A7_Kernel_SearchReadyQueues",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Ready queue traversal observed after semaphore waits",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x601e1a08",
+      "name": "A7_Kernel_WaitSemaphore_Impl",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Live wai_sem(31) kernel service r0=31",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x601e17d8",
+      "name": "A7_Kernel_SignalSemaphore_Impl",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Live sig_sem(31) releases count",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x60178be4",
+      "name": "A7_Syscall_WaitSemaphore_Wrapper",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Callsite wrapper reaches kernel wait service",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x60178b9c",
+      "name": "A7_Syscall_SignalSemaphore_Wrapper",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Callsite wrapper reaches kernel signal service",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x60037da8",
+      "name": "A7_MainTask_Entry",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Firmware names MainTask; TCB 0x621e88c8",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x6004a0b4",
+      "name": "A7_MainTask_BootStartup",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Observed entry after MainTask starts",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x60179a68",
+      "name": "A7_IdleTask_CheckOptionalHook",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "Checks [r4+0x8c] and skips null callback",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x60179a7c",
+      "name": "A7_IdleTask_EmptyQueueLoop",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "Idle loop observed after scheduler no-ready-task state",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x6017a560",
+      "name": "A7_Kernel_OptionalHook_CopySource",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "Loads configuration +0x40 for idle callback",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x6017a564",
+      "name": "A7_Kernel_OptionalHook_CopyDestination",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "Stores configuration hook to state +0x8c",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x600495f0",
+      "name": "A7_KernelConfig_SetIdleHookNull",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "Caller explicitly writes zero to config +0x40",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x600069ec",
+      "name": "A7_MainTask_WaitSem31_Initial",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "Confirmed wai_sem(31) callsite",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x60006a08",
+      "name": "A7_MainTask_SignalSem31",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "Confirmed sig_sem(31) callsite",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x60006a2c",
+      "name": "A7_MainTask_WaitSem31_Again",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "Confirmed second wai_sem(31) callsite",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x601e19cc",
+      "name": "A7_Kernel_SemaphoreCount_Decrement",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "13 successful observed writes to semaphore 31 count",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x601e17a4",
+      "name": "A7_Kernel_SemaphoreCount_Increment",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "13 successful observed writes to semaphore 31 count",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x601786bc",
+      "name": "A7_M4Handshake_ReadSharedWord",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "A7 polls IPC 0x2f028000",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x601786d4",
+      "name": "A7_M4Handshake_CompareErrorMarker",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "Branches differently for 0xeeeeeeee vs 0xffffffff",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x601786d8",
+      "name": "A7_M4Handshake_DiagnosticBranch",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "0xeeeeeeee case from snapshot-differential",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x601786e0",
+      "name": "A7_M4Handshake_NonDiagnosticBranch",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "0xffffffff case from snapshot-differential",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x60177dfc",
+      "name": "A7_MU_TransmitDescriptor",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Live MUB TR0 write from descriptor-selected channel with payload r4",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x60177ec0",
+      "name": "A7_MU_WriteTRnSelectedChannel",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "Real write watchpoint 0x40220020, A7 r4=6 r6=0",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x60177dcc",
+      "name": "A7_MU_WriteTRnDirect",
+      "kind": "site",
+      "confidence": "medium-high",
+      "evidence": "Static ARM STR to 0x40220020 plus channel offset; not separately live-captured",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x60017118",
+      "name": "A7_USDHC1_VendorClockStateRead",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "Live A7 abort on USDHC1 VEND_SPEC 0x403800c0 then verified modeled register read",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x600177d4",
+      "name": "A7_USDHC1_SystemControlWrite0F",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "Real firmware writes 0x0000000f to SYS_CTRL with reserved low bits treated as RAZ/WI",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x601cd2d4",
+      "name": "A7_PM_JumpToSRAMSuspendTrampoline",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "ARM LDR pc,[pc,-4] target 0x2f02b0b8 into copied low-power code",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x601cd5e8",
+      "name": "A7_PM_EnterSRAMSuspendAfterShutdown",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "Unconditional branch to 0x601cd2d4 after LPIT and other subsystem teardown",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x60010c80",
+      "name": "A7_BootPermission_CheckM4SharedGate",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "A7 calls 0x6001d47c and returns true iff M4-written 0x2f029284 is nonzero",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x6001d47c",
+      "name": "A7_BootPermission_ReadSharedGateBool",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Loads word 0x2f029204+0x80 and normalizes nonzero to one",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x6004a19c",
+      "name": "A7_MainTask_BranchIfBootGateDenied",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "Real r0=0 branches from MainTask startup toward shutdown",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x6004a1ac",
+      "name": "A7_MainTask_SecondaryStartupCheck",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "After diagnostic first-flag bypass second check returned one",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x6004a1b4",
+      "name": "A7_MainTask_ShutdownWhenGateDenied",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "Real A7 breakpoint, calls function 0x600117a0",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x6004a1bc",
+      "name": "A7_MainTask_ProceedWithNormalStartup",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "Only reached in controlled r0=1 diagnostic, not yet proven with physical input",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x600117a0",
+      "name": "A7_System_PrepareShutdown",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Called by MainTask denied-boot path; eventually calls context-save and DDR suspend",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x60011858",
+      "name": "A7_System_InvokeShutdownContextThunk",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "BL 0x601e7144 in shutdown preparation",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x601e7144",
+      "name": "A7_System_SaveContextThenPowerDown",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Live PC; invokes 0x601cc0dc CPU context save then 0x601cd48c shutdown",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x601cc0dc",
+      "name": "A7_System_SavePrivilegedCpuStackState",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Static saves SP for CPU modes FIQ ABT UND SVC IRQ SYS; live before shutdown",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x601cd48c",
+      "name": "A7_System_DeinitializeAndEnterSRAMSuspend",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Live called by 0x601e7144; powers down subsystems and jumps SRAM trampoline",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x6001788c",
+      "name": "A7_USDHC1_SubmitCommand",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Live original-ROM command-submission routine read/clear INT_STATUS then sets CMD_ARG and CMD_XFR_TYP",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x600178bc",
+      "name": "A7_USDHC1_WriteCommandArgument",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "Live GDB original-ROM at STR to 0x40380008, r8=0 first command",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x600178e0",
+      "name": "A7_USDHC1_WriteCommandTransferType",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "Static ARM STR to 0x4038000c and genuine native-ROM CMD0/CMD1 traces verify actual submission",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x600179b0",
+      "name": "A7_USDHC1_ConfigureFIFOReadWriteWatermarks",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "Live 0x08200820 write to USDHC1 WTMK_LVL 0x40380044",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x600178c8",
+      "name": "A7_USDHC1_SetProtocolLittleEndian",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "Actual original-ROM str PROT_CTRL=0x8820 at 0x40380028; reserved bits ignored and EMODE=0x20",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x600178ec",
+      "name": "A7_USDHC1_WaitCommandCompleteOrTimeout",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "Actual A7 CMD1 request polling INT_STATUS; no-card model terminates with CTOE",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x60017988",
+      "name": "A7_MMC_IdentifyCardAndNegotiateOCR",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Original ARM disassembly CMD0 CMD1 CMD2 CMD3 CMD9 CMD7, then CMD6; real CMD0/CMD1 verified",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x600179fc",
+      "name": "A7_MMC_ReadCMD1OCRResponse",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "Loads USDHC1 CMDRSP0 after CMD1, then tests OCR_BUSY bit31",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x60017a00",
+      "name": "A7_MMC_CheckOCRPowerUpReady",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "TST CMDRSP0 bit31 after CMD1, conditional retry when absent",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x60017ae4",
+      "name": "A7_MMC_RetryCMD1OnOCRNotReady",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "No-media firmware retries CMD1 after real timeouts, 65 CMD1 in bounded 2s run",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x60017b48",
+      "name": "A7_MMC_InitializeControllerAndCard",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Calls MMC identification routine 0x60017988 and branches into error/cleanup when no card",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x6000fd5c",
+      "name": "A7_TimerDelay_WaitForCallback",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Boot trace delay=25; registers 6000fea0 and waits for 6232e35c to clear; static clamp 1000",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x6000fea0",
+      "name": "A7_TimerDelay_CompletionCallback",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Stops and releases timer 6232e358 then clears pending flag 6232e35c",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x6001a800",
+      "name": "A7_Timer_AllocateCallback",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "12 slots at 622cc2d4 stride 16; records callback and rounded delay; returns one-based ID",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x6001a920",
+      "name": "A7_Timer_ReleaseCallback",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Marks timer slot free (-1), clears callback and reload/countdown words",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x6001a9d4",
+      "name": "A7_Timer_StartCallback",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Copies reload to countdown and sets slot state=1; delay trace starts timer ID 6",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x6001aa38",
+      "name": "A7_Timer_StopCallback",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Sets allocated slot state=0 and resets countdown; checks whether shared timer can stop",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x60048878",
+      "name": "A7_Startup_PollIPC1808WithDelay",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Calls delay 25, IPC1808 repeatedly, delay125 and elapsed3000 test; live GPIO differential",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x600488e8",
+      "name": "A7_Startup_RetryIPC1808Service",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Outer loop retries 60048878 with elapsed360000 bound and service update",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x60048d9c",
+      "name": "A7_Startup_InitializeServiceState",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Indirect startup target via 2000402c; bit80 test calls IPC1808 retry; other modes unresolved",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x6001ec14",
+      "name": "A7_IPC1808_ReadGPIOB3Predicate",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Requests service 1808; normalizes response word, distinct from transport status",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x6017807c",
+      "name": "A7_IPC_CallService",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Allocates shared slot, builds request, sends MU descriptor, copies response; timeout status separate",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x60177fd8",
+      "name": "A7_IPC_PopulateRequestSlot",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Builds shared request; dispatcher supplies service ID and payload",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x60178054",
+      "name": "A7_IPC_GetResponsePayload",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Returns received slot payload length and pointer used by 6017807c",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x60049bcc",
+      "name": "A7_Startup_DispatchRegisteredCallback",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Copies service object+2c to 622e6fbc; requires 622e6fc4 bit1 and nonzero callback; OS role unproven",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x601b82a8",
+      "name": "A7_DMA1_CheckAndClearTcdDone",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Checks channel TCD CSR at base+101c+channel*20, returns 13ed when busy, clears CSR otherwise",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x601cbc9c",
+      "name": "A7_PM_WaitForInterruptIfAllowed",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Conditional PMC1 control update then DSB WFI ISB; entered by callback delay",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x60177484",
+      "name": "A7_SEMA42_AcquireGate0Domain2",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Writes owner2 to 4101b003 then retries until readback2; both acquire/release observed on CPU0",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x601774a0",
+      "name": "A7_SEMA42_ReleaseGate0Domain2",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Writes zero to 4101b003 then retries while readback2; not proof of cross-core deadlock",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x600488a0",
+      "name": "A7_Startup_IPC1808RequestSite",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "Live calls 6001ec14; GPIOB3 high response0 versus low response1",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x600488a4",
+      "name": "A7_Startup_IPC1808ResultSite",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "Live application result1 retries and result0 exits inner wait",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x60048924",
+      "name": "A7_Startup_IPC1808OuterDecision",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "Controlled GPIO mask80 vs88 produced R0=1 vs0",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x60048934",
+      "name": "A7_Startup_IPC1808SuccessfulExit",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "Observed in mask88 diagnostic; not evidence of physical GPIO default or OS entry",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x6000fec0",
+      "name": "A7_TimerDelay_ClearPendingSite",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "Original callback store clears 6232e35c",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x6004a2ac",
+      "name": "A7_Startup_IndirectServiceCallSite",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "Live startup calls via 2000402c to 60048d9c; no observed return in original bounded trace",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x601b82bc",
+      "name": "A7_DMA1_TcdDonePollSite",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "Original BIOS channel15 CSR.DONE bit7 dependency; pending ca800-byte RAM copy",
+      "matched_bytes": 32
+    }
+  ],
+  "function_changes": [
+    {
+      "address": "0x6017a11c",
+      "old_name": "UC3_start_uC3",
+      "proposed_name": "A7_Kernel_InitializeFromConfig",
+      "status": "preserved",
+      "reason": "Existing analyst name"
+    },
+    {
+      "address": "0x601797a8",
+      "old_name": "FUN_601797a0",
+      "proposed_name": "A7_Kernel_ScheduleNextReadyTask",
+      "status": "preserved",
+      "reason": "Existing containing function has a different entry"
+    },
+    {
+      "address": "0x60179d20",
+      "old_name": "FUN_60179d20",
+      "new_name": "A7_Kernel_SearchReadyQueues",
+      "status": "success",
+      "result": "Success: Renamed function at 0x60179d20 from 'FUN_60179d20' to 'A7_Kernel_SearchReadyQueues'"
+    },
+    {
+      "address": "0x601e1a08",
+      "old_name": "FUN_601e1a08",
+      "new_name": "A7_Kernel_WaitSemaphore_Impl",
+      "status": "success",
+      "result": "Success: Renamed function at 0x601e1a08 from 'FUN_601e1a08' to 'A7_Kernel_WaitSemaphore_Impl'"
+    },
+    {
+      "address": "0x601e17d8",
+      "old_name": "UC3_Kernel_sig_sem",
+      "proposed_name": "A7_Kernel_SignalSemaphore_Impl",
+      "status": "preserved",
+      "reason": "Existing analyst name"
+    },
+    {
+      "address": "0x60178be4",
+      "old_name": "FUN_60178be4",
+      "new_name": "A7_Syscall_WaitSemaphore_Wrapper",
+      "status": "success",
+      "result": "Success: Renamed function at 0x60178be4 from 'FUN_60178be4' to 'A7_Syscall_WaitSemaphore_Wrapper'"
+    },
+    {
+      "address": "0x60178b9c",
+      "old_name": "UC3_sig_sem",
+      "proposed_name": "A7_Syscall_SignalSemaphore_Wrapper",
+      "status": "preserved",
+      "reason": "Existing analyst name"
+    },
+    {
+      "address": "0x60037da8",
+      "old_name": "Task_MainTask",
+      "proposed_name": "A7_MainTask_Entry",
+      "status": "preserved",
+      "reason": "Existing analyst name"
+    },
+    {
+      "address": "0x6004a0b4",
+      "old_name": "FUN_6004a0b4",
+      "new_name": "A7_MainTask_BootStartup",
+      "status": "success",
+      "result": "Success: Renamed function at 0x6004a0b4 from 'FUN_6004a0b4' to 'A7_MainTask_BootStartup'"
+    },
+    {
+      "address": "0x60177dfc",
+      "old_name": "FUN_60177dfc",
+      "new_name": "A7_MU_TransmitDescriptor",
+      "status": "success",
+      "result": "Success: Renamed function at 0x60177dfc from 'FUN_60177dfc' to 'A7_MU_TransmitDescriptor'"
+    },
+    {
+      "address": "0x60010c80",
+      "old_name": "FUN_60010c80",
+      "new_name": "A7_BootPermission_CheckM4SharedGate",
+      "status": "success",
+      "result": "Success: Renamed function at 0x60010c80 from 'FUN_60010c80' to 'A7_BootPermission_CheckM4SharedGate'"
+    },
+    {
+      "address": "0x6001d47c",
+      "old_name": "FUN_6001d47c",
+      "new_name": "A7_BootPermission_ReadSharedGateBool",
+      "status": "success",
+      "result": "Success: Renamed function at 0x6001d47c from 'FUN_6001d47c' to 'A7_BootPermission_ReadSharedGateBool'"
+    },
+    {
+      "address": "0x600117a0",
+      "old_name": "FUN_600117a0",
+      "new_name": "A7_System_PrepareShutdown",
+      "status": "success",
+      "result": "Success: Renamed function at 0x600117a0 from 'FUN_600117a0' to 'A7_System_PrepareShutdown'"
+    },
+    {
+      "address": "0x601e7144",
+      "old_name": "FUN_601e7144",
+      "new_name": "A7_System_SaveContextThenPowerDown",
+      "status": "success",
+      "result": "Success: Renamed function at 0x601e7144 from 'FUN_601e7144' to 'A7_System_SaveContextThenPowerDown'"
+    },
+    {
+      "address": "0x601cc0dc",
+      "old_name": "FUN_601cc0dc",
+      "new_name": "A7_System_SavePrivilegedCpuStackState",
+      "status": "success",
+      "result": "Success: Renamed function at 0x601cc0dc from 'FUN_601cc0dc' to 'A7_System_SavePrivilegedCpuStackState'"
+    },
+    {
+      "address": "0x601cd48c",
+      "old_name": "FUN_601cd48c",
+      "new_name": "A7_System_DeinitializeAndEnterSRAMSuspend",
+      "status": "success",
+      "result": "Success: Renamed function at 0x601cd48c from 'FUN_601cd48c' to 'A7_System_DeinitializeAndEnterSRAMSuspend'"
+    },
+    {
+      "address": "0x6001788c",
+      "old_name": "FUN_6001788c",
+      "new_name": "A7_USDHC1_SubmitCommand",
+      "status": "success",
+      "result": "Success: Renamed function at 0x6001788c from 'FUN_6001788c' to 'A7_USDHC1_SubmitCommand'"
+    },
+    {
+      "address": "0x60017988",
+      "old_name": "FUN_60017988",
+      "new_name": "A7_MMC_IdentifyCardAndNegotiateOCR",
+      "status": "success",
+      "result": "Success: Renamed function at 0x60017988 from 'FUN_60017988' to 'A7_MMC_IdentifyCardAndNegotiateOCR'"
+    },
+    {
+      "address": "0x60017b48",
+      "old_name": "FUN_60017b48",
+      "new_name": "A7_MMC_InitializeControllerAndCard",
+      "status": "success",
+      "result": "Success: Renamed function at 0x60017b48 from 'FUN_60017b48' to 'A7_MMC_InitializeControllerAndCard'"
+    },
+    {
+      "address": "0x6000fd5c",
+      "old_name": "FUN_6000fd5c",
+      "new_name": "A7_TimerDelay_WaitForCallback",
+      "status": "success",
+      "result": "Success: Renamed function at 0x6000fd5c from 'FUN_6000fd5c' to 'A7_TimerDelay_WaitForCallback'"
+    },
+    {
+      "address": "0x6000fea0",
+      "old_name": "FUN_6000fea0",
+      "new_name": "A7_TimerDelay_CompletionCallback",
+      "status": "success",
+      "result": "Success: Renamed function at 0x6000fea0 from 'FUN_6000fea0' to 'A7_TimerDelay_CompletionCallback'"
+    },
+    {
+      "address": "0x6001a800",
+      "old_name": "FUN_6001a800",
+      "new_name": "A7_Timer_AllocateCallback",
+      "status": "success",
+      "result": "Success: Renamed function at 0x6001a800 from 'FUN_6001a800' to 'A7_Timer_AllocateCallback'"
+    },
+    {
+      "address": "0x6001a920",
+      "old_name": "FUN_6001a920",
+      "new_name": "A7_Timer_ReleaseCallback",
+      "status": "success",
+      "result": "Success: Renamed function at 0x6001a920 from 'FUN_6001a920' to 'A7_Timer_ReleaseCallback'"
+    },
+    {
+      "address": "0x6001a9d4",
+      "old_name": "FUN_6001a9d4",
+      "new_name": "A7_Timer_StartCallback",
+      "status": "success",
+      "result": "Success: Renamed function at 0x6001a9d4 from 'FUN_6001a9d4' to 'A7_Timer_StartCallback'"
+    },
+    {
+      "address": "0x6001aa38",
+      "old_name": "FUN_6001aa38",
+      "new_name": "A7_Timer_StopCallback",
+      "status": "success",
+      "result": "Success: Renamed function at 0x6001aa38 from 'FUN_6001aa38' to 'A7_Timer_StopCallback'"
+    },
+    {
+      "address": "0x60048878",
+      "old_name": "FUN_60048878",
+      "new_name": "A7_Startup_PollIPC1808WithDelay",
+      "status": "success",
+      "result": "Success: Renamed function at 0x60048878 from 'FUN_60048878' to 'A7_Startup_PollIPC1808WithDelay'"
+    },
+    {
+      "address": "0x600488e8",
+      "old_name": "FUN_600488e8",
+      "new_name": "A7_Startup_RetryIPC1808Service",
+      "status": "success",
+      "result": "Success: Renamed function at 0x600488e8 from 'FUN_600488e8' to 'A7_Startup_RetryIPC1808Service'"
+    },
+    {
+      "address": "0x60048d9c",
+      "old_name": "FUN_60048d9c",
+      "new_name": "A7_Startup_InitializeServiceState",
+      "status": "success",
+      "result": "Success: Renamed function at 0x60048d9c from 'FUN_60048d9c' to 'A7_Startup_InitializeServiceState'"
+    },
+    {
+      "address": "0x6001ec14",
+      "old_name": "FUN_6001ec14",
+      "new_name": "A7_IPC1808_ReadGPIOB3Predicate",
+      "status": "success",
+      "result": "Success: Renamed function at 0x6001ec14 from 'FUN_6001ec14' to 'A7_IPC1808_ReadGPIOB3Predicate'"
+    },
+    {
+      "address": "0x6017807c",
+      "old_name": "FUN_6017807c",
+      "new_name": "A7_IPC_CallService",
+      "status": "success",
+      "result": "Success: Renamed function at 0x6017807c from 'FUN_6017807c' to 'A7_IPC_CallService'"
+    },
+    {
+      "address": "0x60177fd8",
+      "old_name": "FUN_60177fd8",
+      "new_name": "A7_IPC_PopulateRequestSlot",
+      "status": "success",
+      "result": "Success: Renamed function at 0x60177fd8 from 'FUN_60177fd8' to 'A7_IPC_PopulateRequestSlot'"
+    },
+    {
+      "address": "0x60178054",
+      "old_name": "FUN_60178054",
+      "new_name": "A7_IPC_GetResponsePayload",
+      "status": "success",
+      "result": "Success: Renamed function at 0x60178054 from 'FUN_60178054' to 'A7_IPC_GetResponsePayload'"
+    },
+    {
+      "address": "0x60049bcc",
+      "old_name": "FUN_60049bcc",
+      "new_name": "A7_Startup_DispatchRegisteredCallback",
+      "status": "success",
+      "result": "Success: Renamed function at 0x60049bcc from 'FUN_60049bcc' to 'A7_Startup_DispatchRegisteredCallback'"
+    },
+    {
+      "address": "0x601b82a8",
+      "old_name": "FUN_601b82a8",
+      "new_name": "A7_DMA1_CheckAndClearTcdDone",
+      "status": "success",
+      "result": "Success: Renamed function at 0x601b82a8 from 'FUN_601b82a8' to 'A7_DMA1_CheckAndClearTcdDone'"
+    },
+    {
+      "address": "0x601cbc9c",
+      "old_name": "FUN_601cbc9c",
+      "new_name": "A7_PM_WaitForInterruptIfAllowed",
+      "status": "success",
+      "result": "Success: Renamed function at 0x601cbc9c from 'FUN_601cbc9c' to 'A7_PM_WaitForInterruptIfAllowed'"
+    },
+    {
+      "address": "0x60177484",
+      "old_name": "FUN_60177484",
+      "new_name": "A7_SEMA42_AcquireGate0Domain2",
+      "status": "success",
+      "result": "Success: Renamed function at 0x60177484 from 'FUN_60177484' to 'A7_SEMA42_AcquireGate0Domain2'"
+    },
+    {
+      "address": "0x601774a0",
+      "old_name": "FUN_601774a0",
+      "new_name": "A7_SEMA42_ReleaseGate0Domain2",
+      "status": "success",
+      "result": "Success: Renamed function at 0x601774a0 from 'FUN_601774a0' to 'A7_SEMA42_ReleaseGate0Domain2'"
+    }
+  ],
+  "m4_source_sites": [
+    {
+      "runtime_address": "0x1ffd2e50",
+      "source_address": "0x600b04f0",
+      "name": "M4_Kernel_DispatchRegisteredIRQCallbacks",
+      "matched_bytes": 32
+    },
+    {
+      "runtime_address": "0x1ffd3270",
+      "source_address": "0x600b0910",
+      "name": "M4_Kernel_CommonInterruptDispatch",
+      "matched_bytes": 32
+    },
+    {
+      "runtime_address": "0x1ffd5712",
+      "source_address": "0x600b2db2",
+      "name": "M4_MU_ReceiveAndGIP_IRQHandler",
+      "matched_bytes": 32
+    },
+    {
+      "runtime_address": "0x1ffd4c64",
+      "source_address": "0x600b2304",
+      "name": "M4_SNVS_HPCOMR_CommandSequence",
+      "matched_bytes": 32
+    },
+    {
+      "runtime_address": "0x1ffd7782",
+      "source_address": "0x600b4e22",
+      "name": "M4_GPIOB7_UpdateSharedA7BootGate",
+      "matched_bytes": 32
+    },
+    {
+      "runtime_address": "0x1ffd6c48",
+      "source_address": "0x600b42e8",
+      "name": "M4_LPI2C_ClearState",
+      "matched_bytes": 32
+    },
+    {
+      "runtime_address": "0x1ffd6cb6",
+      "source_address": "0x600b4356",
+      "name": "M4_LPI2C_CheckErrors",
+      "matched_bytes": 32
+    },
+    {
+      "runtime_address": "0x1ffd6cf8",
+      "source_address": "0x600b4398",
+      "name": "M4_LPI2C_SendStart",
+      "matched_bytes": 32
+    },
+    {
+      "runtime_address": "0x1ffd6d52",
+      "source_address": "0x600b43f2",
+      "name": "M4_LPI2C_WaitComplete",
+      "matched_bytes": 32
+    },
+    {
+      "runtime_address": "0x1ffd6da0",
+      "source_address": "0x600b4440",
+      "name": "M4_LPI2C_TransmitBytes",
+      "matched_bytes": 32
+    },
+    {
+      "runtime_address": "0x1ffd6e28",
+      "source_address": "0x600b44c8",
+      "name": "M4_LPI2C_ReceiveBytes",
+      "matched_bytes": 32
+    },
+    {
+      "runtime_address": "0x1ffd6f4c",
+      "source_address": "0x600b45ec",
+      "name": "M4_I2C4B_ReadByte",
+      "matched_bytes": 32
+    },
+    {
+      "runtime_address": "0x1ffd6f7e",
+      "source_address": "0x600b461e",
+      "name": "M4_I2C4B_WriteTwoBytes",
+      "matched_bytes": 32
+    },
+    {
+      "runtime_address": "0x1ffd6fa6",
+      "source_address": "0x600b4646",
+      "name": "M4_I2C6B_ReadByte_Candidate",
+      "matched_bytes": 32
+    },
+    {
+      "runtime_address": "0x1ffd6fd8",
+      "source_address": "0x600b4678",
+      "name": "M4_I2C6B_WriteTwoBytes_Candidate",
+      "matched_bytes": 32
+    },
+    {
+      "runtime_address": "0x1ffdbcde",
+      "source_address": "0x600b937e",
+      "name": "M4_IPC1808_SampleGPIOB3FiveTimes",
+      "matched_bytes": 32
+    }
+  ],
+  "data_labels": [
+    {
+      "address": "0x6232e358",
+      "name": "a7_timer_delay_id",
+      "comment": "One-based timer ID allocated by 6001a800; live trace observed ID6."
+    },
+    {
+      "address": "0x6232e35c",
+      "name": "a7_timer_delay_pending",
+      "comment": "Set to1 by 6000fd5c; cleared by completion callback6000fea0; WFI loop observes this word."
+    },
+    {
+      "address": "0x622cc2d4",
+      "name": "a7_timer_callback_slots",
+      "comment": "12 records stride0x10: state/free(-1), callback, reload, countdown. Shared timer for slots3..11."
+    },
+    {
+      "address": "0x622e6fbc",
+      "name": "a7_startup_cached_callback",
+      "comment": "Copy of service object+0x2c; independent of callback eligibility/status."
+    },
+    {
+      "address": "0x622e6fc4",
+      "name": "a7_component_status",
+      "comment": "Six component flags reached0x3f in prior trace; bit1 also gates callback dispatcher60049bcc."
+    },
+    {
+      "address": "0x6232d5c8",
+      "name": "a7_startup_service_object_ptr",
+      "comment": "Pointer to service object; trace value6232d9ec. Callback slot at+0x2c."
+    },
+    {
+      "address": "0x6232da18",
+      "name": "a7_startup_service_callback_slot",
+      "comment": "Observed service object+0x2c; prior component loader registered60400000. Do not infer execution from pointer alone."
+    },
+    {
+      "address": "0x2f029284",
+      "name": "a7_m4_shared_boot_permission",
+      "comment": "M4 GPIOB7-derived shared gate read by6001d47c; physical pin default unresolved."
+    },
+    {
+      "address": "0x2f028000",
+      "name": "a7_m4_ipc_shared_slots",
+      "comment": "72-byte IPC slot transport at2f028000; request ID/response for slot0 at+0xc."
+    },
+    {
+      "address": "0x2f02800c",
+      "name": "a7_m4_ipc_slot0_service_or_response",
+      "comment": "Same word carries service1808 request then M4 result; transport status is separate."
+    }
+  ],
+  "prototypes": [
+    {
+      "address": "0x6000fd5c",
+      "prototype": "unsigned char A7_TimerDelay_WaitForCallback(int delay_ms)"
+    },
+    {
+      "address": "0x6000fea0",
+      "prototype": "void A7_TimerDelay_CompletionCallback(void)"
+    },
+    {
+      "address": "0x6001a920",
+      "prototype": "int A7_Timer_ReleaseCallback(int timer_id)"
+    },
+    {
+      "address": "0x6001a9d4",
+      "prototype": "int A7_Timer_StartCallback(int timer_id)"
+    },
+    {
+      "address": "0x6001aa38",
+      "prototype": "int A7_Timer_StopCallback(int timer_id)"
+    },
+    {
+      "address": "0x60048878",
+      "prototype": "int A7_Startup_PollIPC1808WithDelay(void)"
+    },
+    {
+      "address": "0x600488e8",
+      "prototype": "void A7_Startup_RetryIPC1808Service(void)"
+    },
+    {
+      "address": "0x6001ec14",
+      "prototype": "bool A7_IPC1808_ReadGPIOB3Predicate(void)"
+    },
+    {
+      "address": "0x60049bcc",
+      "prototype": "int A7_Startup_DispatchRegisteredCallback(void)"
+    },
+    {
+      "address": "0x601b82a8",
+      "prototype": "int A7_DMA1_CheckAndClearTcdDone(void *descriptor)"
+    },
+    {
+      "address": "0x60177484",
+      "prototype": "void A7_SEMA42_AcquireGate0Domain2(void)"
+    },
+    {
+      "address": "0x601774a0",
+      "prototype": "void A7_SEMA42_ReleaseGate0Domain2(void)"
+    }
+  ],
+  "limitations": [
+    "Existing analyst function names and boundaries preserved.",
+    "601797a8 is an interior site in function601797a0; retained as label only.",
+    "M4 runtime destinations have different IPL contents in this database; source image labels used, no IPL code overwritten.",
+    "Trace interpretations depend on original experimental emulator settings, not authenticated physical GPIO defaults.",
+    "No original OS boot established."
+  ]
+}

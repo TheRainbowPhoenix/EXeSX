@@ -1,0 +1,26 @@
+address	name	kind	confidence	evidence
+0x6000fd5c	A7_TimerDelay_WaitForCallback	function	high	Boot trace delay=25; registers 6000fea0 and waits for 6232e35c to clear; static clamp 1000
+0x6000fea0	A7_TimerDelay_CompletionCallback	function	high	Stops and releases timer 6232e358 then clears pending flag 6232e35c
+0x6001a800	A7_Timer_AllocateCallback	function	high	12 slots at 622cc2d4 stride 16; records callback and rounded delay; returns one-based ID
+0x6001a920	A7_Timer_ReleaseCallback	function	high	Marks timer slot free (-1), clears callback and reload/countdown words
+0x6001a9d4	A7_Timer_StartCallback	function	high	Copies reload to countdown and sets slot state=1; delay trace starts timer ID 6
+0x6001aa38	A7_Timer_StopCallback	function	high	Sets allocated slot state=0 and resets countdown; checks whether shared timer can stop
+0x60048878	A7_Startup_PollIPC1808WithDelay	function	high	Calls delay 25, IPC1808 repeatedly, delay125 and elapsed3000 test; live GPIO differential
+0x600488e8	A7_Startup_RetryIPC1808Service	function	high	Outer loop retries 60048878 with elapsed360000 bound and service update
+0x60048d9c	A7_Startup_InitializeServiceState	function	high	Indirect startup target via 2000402c; bit80 test calls IPC1808 retry; other modes unresolved
+0x6001ec14	A7_IPC1808_ReadGPIOB3Predicate	function	high	Requests service 1808; normalizes response word, distinct from transport status
+0x6017807c	A7_IPC_CallService	function	high	Allocates shared slot, builds request, sends MU descriptor, copies response; timeout status separate
+0x60177fd8	A7_IPC_PopulateRequestSlot	function	high	Builds shared request; dispatcher supplies service ID and payload
+0x60178054	A7_IPC_GetResponsePayload	function	high	Returns received slot payload length and pointer used by 6017807c
+0x60049bcc	A7_Startup_DispatchRegisteredCallback	function	high	Copies service object+2c to 622e6fbc; requires 622e6fc4 bit1 and nonzero callback; OS role unproven
+0x601b82a8	A7_DMA1_CheckAndClearTcdDone	function	high	Checks channel TCD CSR at base+101c+channel*20, returns 13ed when busy, clears CSR otherwise
+0x601cbc9c	A7_PM_WaitForInterruptIfAllowed	function	high	Conditional PMC1 control update then DSB WFI ISB; entered by callback delay
+0x60177484	A7_SEMA42_AcquireGate0Domain2	function	high	Writes owner2 to 4101b003 then retries until readback2; both acquire/release observed on CPU0
+0x601774a0	A7_SEMA42_ReleaseGate0Domain2	function	high	Writes zero to 4101b003 then retries while readback2; not proof of cross-core deadlock
+0x600488a0	A7_Startup_IPC1808RequestSite	site	high	Live calls 6001ec14; GPIOB3 high response0 versus low response1
+0x600488a4	A7_Startup_IPC1808ResultSite	site	high	Live application result1 retries and result0 exits inner wait
+0x60048924	A7_Startup_IPC1808OuterDecision	site	high	Controlled GPIO mask80 vs88 produced R0=1 vs0
+0x60048934	A7_Startup_IPC1808SuccessfulExit	site	high	Observed in mask88 diagnostic; not evidence of physical GPIO default or OS entry
+0x6000fec0	A7_TimerDelay_ClearPendingSite	site	high	Original callback store clears 6232e35c
+0x6004a2ac	A7_Startup_IndirectServiceCallSite	site	high	Live startup calls via 2000402c to 60048d9c; no observed return in original bounded trace
+0x601b82bc	A7_DMA1_TcdDonePollSite	site	high	Original BIOS channel15 CSR.DONE bit7 dependency; pending ca800-byte RAM copy

@@ -35,6 +35,7 @@ jobs:
             mingw-w64-x86_64-ninja
             mingw-w64-x86_64-pkgconf
             mingw-w64-x86_64-python
+            mingw-w64-x86_64-python-pip
             mingw-w64-x86_64-python-setuptools
       - name: Build pinned QEMU with EXeSX board
         shell: msys2 {0}

@@ -1,0 +1,17 @@
+address	name	kind	confidence	evidence
+0x600b04f0	M4_Kernel_DispatchRegisteredIRQCallbacks_SourceImage	site	high	Thumb source copied to runtime 0x1ffd2e50; static IPL there differs; 32 source bytes matched owner-held OSUP
+0x600b0910	M4_Kernel_CommonInterruptDispatch_SourceImage	site	high	Thumb source copied to runtime 0x1ffd3270; static IPL there differs; 32 source bytes matched owner-held OSUP
+0x600b2db2	M4_MU_ReceiveAndGIP_IRQHandler_SourceImage	site	high	Thumb source copied to runtime 0x1ffd5712; static IPL there differs; 32 source bytes matched owner-held OSUP
+0x600b2304	M4_SNVS_HPCOMR_CommandSequence_SourceImage	site	high	Thumb source copied to runtime 0x1ffd4c64; static IPL there differs; 32 source bytes matched owner-held OSUP
+0x600b4e22	M4_GPIOB7_UpdateSharedA7BootGate_SourceImage	site	high	Thumb source copied to runtime 0x1ffd7782; static IPL there differs; 32 source bytes matched owner-held OSUP
+0x600b42e8	M4_LPI2C_ClearState_SourceImage	site	high	Thumb source copied to runtime 0x1ffd6c48; static IPL there differs; 32 source bytes matched owner-held OSUP
+0x600b4356	M4_LPI2C_CheckErrors_SourceImage	site	high	Thumb source copied to runtime 0x1ffd6cb6; static IPL there differs; 32 source bytes matched owner-held OSUP
+0x600b4398	M4_LPI2C_SendStart_SourceImage	site	high	Thumb source copied to runtime 0x1ffd6cf8; static IPL there differs; 32 source bytes matched owner-held OSUP
+0x600b43f2	M4_LPI2C_WaitComplete_SourceImage	site	high	Thumb source copied to runtime 0x1ffd6d52; static IPL there differs; 32 source bytes matched owner-held OSUP
+0x600b4440	M4_LPI2C_TransmitBytes_SourceImage	site	high	Thumb source copied to runtime 0x1ffd6da0; static IPL there differs; 32 source bytes matched owner-held OSUP
+0x600b44c8	M4_LPI2C_ReceiveBytes_SourceImage	site	high	Thumb source copied to runtime 0x1ffd6e28; static IPL there differs; 32 source bytes matched owner-held OSUP
+0x600b45ec	M4_I2C4B_ReadByte_SourceImage	site	high	Thumb source copied to runtime 0x1ffd6f4c; static IPL there differs; 32 source bytes matched owner-held OSUP
+0x600b461e	M4_I2C4B_WriteTwoBytes_SourceImage	site	high	Thumb source copied to runtime 0x1ffd6f7e; static IPL there differs; 32 source bytes matched owner-held OSUP
+0x600b4646	M4_I2C6B_ReadByte_Candidate_SourceImage	site	medium	Thumb source copied to runtime 0x1ffd6fa6; static IPL there differs; 32 source bytes matched owner-held OSUP
+0x600b4678	M4_I2C6B_WriteTwoBytes_Candidate_SourceImage	site	medium	Thumb source copied to runtime 0x1ffd6fd8; static IPL there differs; 32 source bytes matched owner-held OSUP
+0x600b937e	M4_IPC1808_SampleGPIOB3FiveTimes_SourceImage	site	high	Thumb source copied to runtime 0x1ffdbcde; static IPL there differs; 32 source bytes matched owner-held OSUP
