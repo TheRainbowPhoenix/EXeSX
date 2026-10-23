@@ -34,7 +34,10 @@ typedef struct EXeSXState {
     ARMv7MState m4;
     Clock *m4cpuclk, *m4refclk;
     ARMCPU *a7cpu;
-    EXeSXProfileWindow *mu_a, *mu_b, *lcd, *dmamux1;
+    EXeSXProfileWindow *mu_a, *mu_b, *lcd, *dmamux1, *m4_gpio_a, *m4_gpio_b;
+    uint16_t m4_keyboard_code;
+    int m4_keyboard_row;
+    int64_t m4_keyboard_next_poll_ns;
     uint64_t cp15_dacr_s_saved;
     uint64_t cp15_ttbr1_s_saved;
     bool m4_released;
@@ -127,6 +130,7 @@ static void exesx_m4_rom_handoff(EXeSXState *s, uint32_t entry)
 }
 
 #include "exesx-lcd.inc"
+#include "exesx-imx7ulp-keyboard.inc"
 #include "exesx-imx7ulp.inc"
 
 static int exesx_registers_post_load(void *opaque, int version_id)
@@ -351,6 +355,13 @@ static void exesx_load_profile(MemoryRegion *sysmem, EXeSXState *board)
             }
             if (g_strcmp0(kind, "imx7ulp-dmamux") == 0 && w->base == 0x40210000) {
                 board->dmamux1 = w;
+            }
+            if (!strcmp(kind, "imx7ulp-gpio")) {
+                if (w->base == 0x4100f000) {
+                    board->m4_gpio_a = w;
+                } else if (w->base == 0x4100f040) {
+                    board->m4_gpio_b = w;
+                }
             }
             if (g_strcmp0(kind, "imx7ulp-mu") == 0) {
                 if (w->base == 0x41022000) {
