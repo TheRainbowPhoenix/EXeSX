@@ -2,8 +2,8 @@
 """Real firmware-free ARM test for DY357 landscape MADCTL and window clipping.
 
 Requires EXeSX QEMU; generates its own guest, with no Casio code or pixels.
-Checks screenshot location, RGB565 order, inclusive CASET/PASET wrapping and
-a far-right column that the previous 90-degree transform had clipped.
+Checks RGB565/window wrap plus 0x60 landscape and actual 0x40 portrait
+controller mode used by FUN_601B25E4's firmware-transposed framebuffer.
 """
 import argparse
 import os
@@ -69,6 +69,33 @@ def make_elf():
     command(0x2c)
     data(0xf800)
     data(0x07e0)
+
+    # Actual OSUP path: FUN_601B25E4 pre-transposes the 864x480 source,
+    # then FUN_60015328(1) selects 0x40 and CASET 0..479/PASET 0..863.
+    # Synthetic 2x3 portrait-window stream must appear as landscape 3x2.
+    command(0x36)
+    data(0x40)
+    bounds(0x2a, 160, 161)
+    bounds(0x2b, 304, 306)
+    command(0x2c)
+    for color in (0xf800, 0x07e0, 0x001f, 0xf81f, 0x07ff, 0xffe0):
+        data(color)
+    data(0xffff)  # Must not escape the 2x3 controller window.
+
+    # The portrait controller row (0..863) is NOT a 480-high screenshot Y.
+    bounds(0x2a, 12, 12)
+    bounds(0x2b, 700, 701)
+    command(0x2c)
+    data(0xf800)
+    data(0x07e0)
+
+    # FUN_60015328(0) restores 0x60 for direct landscape drawing.
+    command(0x36)
+    data(0x60)
+    bounds(0x2a, 400, 400)
+    bounds(0x2b, 200, 200)
+    command(0x2c)
+    data(0xf800)
     op(0xeafffffe)
 
     pool = len(instructions)
@@ -108,6 +135,20 @@ def verify(ppm):
         (433, 240): (255, 255, 0),
         (700, 100): (255, 0, 0),
         (701, 100): (0, 255, 0),
+        # Portrait 480x864 window written in row-major controller order
+        # must be transposed on presentation to normal 864x480 LCD.
+        (304, 160): (255, 0, 0),
+        (304, 161): (0, 255, 0),
+        (305, 160): (0, 0, 255),
+        (305, 161): (255, 0, 255),
+        (306, 160): (0, 255, 255),
+        (306, 161): (255, 255, 0),
+        (700, 12): (255, 0, 0),
+        (701, 12): (0, 255, 0),
+        (400, 200): (255, 0, 0),
+        (307, 160): (0, 0, 0),
+        (304, 162): (0, 0, 0),
+        (702, 12): (0, 0, 0),
         (430, 239): (0, 0, 0),
         (434, 239): (0, 0, 0),
         (432, 238): (0, 0, 0),
@@ -119,8 +160,9 @@ def verify(ppm):
         actual = pixel(*xy)
         if actual != expected:
             raise AssertionError(f"LCD pixel {xy}: {actual}, expected {expected}")
-    print("PASS original DY357 MADCTL 0x60 landscape, 3x2 centered "
-          "RGB565 window, inclusive wrap/clip and right-side x=700")
+    print("PASS original DY357 MADCTL 0x60 landscape plus 0x40 "
+          "pre-transposed 480x864 window, clipping, pixel order and "
+          "restored 0x60")
 
 
 def run(qemu, profile):
