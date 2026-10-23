@@ -124,6 +124,27 @@ static MemTxResult exesx_port_write(EXeSXProfileWindow *w, hwaddr off,
                 w->regfile[pin] &= ~UINT32_C(0x01000000);
             }
         }
+    } else if (off == 0x88 || off == 0x8c) {
+        /*
+         * PORT.GICLR/GICHR differs from GPCLR/GPCHR:
+         * GIWE = low 16 bits select PCR[0..15] / PCR[16..31],
+         * GIWD = upper 16 bits become PCR[n][31:16].
+         * The original M4 uses GICLR=0x00086008 and GICHR=0x0008808c
+         * to arm IRQC=8 (interrupt on logic zero) on keyboard columns.
+         * Previously these writes were only mirrored, leaving all
+         * PORTA.PCR interrupts disabled; M4 IRQ56 never woke the
+         * keyboard event producer.
+         */
+        unsigned first = off == 0x88 ? 0 : 16;
+        uint32_t select = bits & 0xffff;
+        uint32_t irq_data = bits & UINT32_C(0xffff0000);
+        for (unsigned n = 0; n < 16; n++) {
+            if (select & (UINT32_C(1) << n)) {
+                unsigned pin = first + n;
+                w->regfile[pin] = (w->regfile[pin] & 0xffff) | irq_data;
+            }
+        }
+        w->regfile[off / 4] = bits;
     } else if (off == 0x80 || off == 0x84) {
         /* Global pin write data GPWD applied to pins selected by GPWE. */
         unsigned n;
