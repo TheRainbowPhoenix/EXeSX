@@ -1,0 +1,39 @@
+address	name	kind	confidence	evidence
+0x6000fd5c	A7_TimerDelay_WaitForCallback	function	high	Boot trace delay=25; registers 6000fea0 and waits for 6232e35c to clear; static clamp 1000
+0x6000fea0	A7_TimerDelay_CompletionCallback	function	high	Stops and releases timer 6232e358 then clears pending flag 6232e35c
+0x6001a800	A7_Timer_AllocateCallback	function	high	12 slots at 622cc2d4 stride 16; records callback and rounded delay; returns one-based ID
+0x6001a920	A7_Timer_ReleaseCallback	function	high	Marks timer slot free (-1), clears callback and reload/countdown words
+0x6001a9d4	A7_Timer_StartCallback	function	high	Copies reload to countdown and sets slot state=1; delay trace starts timer ID 6
+0x6001aa38	A7_Timer_StopCallback	function	high	Sets allocated slot state=0 and resets countdown; checks whether shared timer can stop
+0x60048878	A7_Startup_PollIPC1808WithDelay	function	high	Calls delay 25, IPC1808 repeatedly, delay125 and elapsed3000 test; live GPIO differential
+0x600488e8	A7_Startup_RetryIPC1808Service	function	high	Outer loop retries 60048878 with elapsed360000 bound and service update
+0x60048d9c	A7_Startup_InitializeServiceState	function	high	Indirect startup target via 2000402c; bit80 test calls IPC1808 retry; other modes unresolved
+0x6001ec14	A7_IPC1808_ReadGPIOB3Predicate	function	high	Requests service 1808; normalizes response word, distinct from transport status
+0x6017807c	A7_IPC_CallService	function	high	Allocates shared slot, builds request, sends MU descriptor, copies response; timeout status separate
+0x60177fd8	A7_IPC_PopulateRequestSlot	function	high	Builds shared request; dispatcher supplies service ID and payload
+0x60178054	A7_IPC_GetResponsePayload	function	high	Returns received slot payload length and pointer used by 6017807c
+0x60049bcc	A7_Startup_DispatchRegisteredCallback	function	high	Copies service object+2c to 622e6fbc; requires 622e6fc4 bit1 and nonzero callback; OS role unproven
+0x601b82a8	A7_DMA1_CheckAndClearTcdDone	function	high	Checks channel TCD CSR at base+101c+channel*20, returns 13ed when busy, clears CSR otherwise
+0x601cbc9c	A7_PM_WaitForInterruptIfAllowed	function	high	Conditional PMC1 control update then DSB WFI ISB; entered by callback delay
+0x60177484	A7_SEMA42_AcquireGate0Domain2	function	high	Writes owner2 to 4101b003 then retries until readback2; both acquire/release observed on CPU0
+0x601774a0	A7_SEMA42_ReleaseGate0Domain2	function	high	Writes zero to 4101b003 then retries while readback2; not proof of cross-core deadlock
+0x600488a0	A7_Startup_IPC1808RequestSite	site	high	Live calls 6001ec14; GPIOB3 high response0 versus low response1
+0x600488a4	A7_Startup_IPC1808ResultSite	site	high	Live application result1 retries and result0 exits inner wait
+0x60048924	A7_Startup_IPC1808OuterDecision	site	high	Controlled GPIO mask80 vs88 produced R0=1 vs0
+0x60048934	A7_Startup_IPC1808SuccessfulExit	site	high	Observed in mask88 diagnostic; not evidence of physical GPIO default or OS entry
+0x6000fec0	A7_TimerDelay_ClearPendingSite	site	high	Original callback store clears 6232e35c
+0x6004a2ac	A7_Startup_IndirectServiceCallSite	site	high	Live startup calls via 2000402c to 60048d9c; no observed return in original bounded trace
+0x601b82bc	A7_DMA1_TcdDonePollSite	site	high	Original BIOS channel15 CSR.DONE bit7 dependency; pending ca800-byte RAM copy
+0x6001a760	A7_LPIT1_InitializeTimerService	function	high	Resets LPIT1, programs four channels, registers ISR and initializes 12 software timer slots
+0x6001af60	A7_LPIT1_RegisterISR57	function	high	Creates uC3 ISR intno57 handler6001adc8 mask80
+0x6001adc8	A7_LPIT1_InterruptHandler	function	high	Dispatches channel0 shared tick then channels1..3 and DSB; static chain to traced callback
+0x6001ae08	A7_LPIT1_DispatchSharedTimerTick	function	high	Acknowledges MSR bit0, decrements active slots3..11, calls callback at zero; prior callback LR6001ae68
+0x6001aea4	A7_LPIT1_DispatchDedicatedTimer	function	high	Acknowledges MSR channel1..3 and dispatches corresponding software slot0..2
+0x6001ac0c	A7_LPIT1_ProgramChannelReload	function	high	Disables channel, writes TVAL; channel0 fallback300000 cycles; actual input clock unverified
+0x6001acc0	A7_LPIT1_EnableChannelIRQ	function	high	Programs TCTRL840000, SETTEN, MIER, enables uC3 interrupt57
+0x6001ad4c	A7_LPIT1_DisableChannelIRQ	function	high	Writes CLRTEN, clears channel MIER and tracks enabled state
+0x6001ab70	A7_LPIT1_StopAllChannels	function	high	Stops all four channels then disables interrupt57
+0x601b40cc	A7_LCD_WriteFrameAfterGPIOF13Sync	function	high	Waits DMA, sets864x480 window, waits GPIOF13 high-low, writes16 or32-bit pixels to b0000000; physical TE wiring unverified
+0x601b44f4	A7_DMA1_WaitFrameCopyDone	function	high	Live caller loops on601b82a8(handle622cc62c)==13ed after LCD progress
+0x601b4144	A7_LCD_WaitGPIOF13High	site	high	Original GPIOF.PDIR400f00d0 bit13 high poll; experimental TE hypothesis
+0x601b4150	A7_LCD_WaitGPIOF13Low	site	high	Original GPIOF.PDIR bit13 low poll after high phase

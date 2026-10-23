@@ -12,6 +12,7 @@ import re
 import struct
 import subprocess
 import time
+from hmp_memory import memory_words, qmp_memory_words
 
 BASE = 0x60000000
 OUT = 0x6200b200
@@ -89,30 +90,20 @@ def probe(qemu, profile, elf, enabled, mask):
            "-accel", "tcg", "-display", "none", "-serial", "none",
            "-monitor", "stdio", "-no-reboot",
            "-device", f"loader,file={elf.resolve()},cpu-num=0"]
+    if os.name == "nt":
+        return qmp_memory_words(cmd, env, OUT, 3)
     guest = subprocess.Popen(cmd, env=env, stdin=subprocess.PIPE,
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                              text=True)
     try:
-        time.sleep(0.5)
-        script = ("stop\n"
-                  + "".join(f"xp /1wx 0x{a:08x}\n"
-                            for a in (OUT, OUT + 4, OUT + 8))
-                  + "quit\n")
+        time.sleep(2.0 if os.name == 'nt' else 0.5)
+        script = f"stop\nxp /3wx 0x{OUT:08x}\nquit\n"
         output, _ = guest.communicate(script, timeout=12)
     finally:
         if guest.poll() is None:
             guest.kill()
             guest.wait()
-    output = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", output)
-    values = []
-    for address in (OUT, OUT + 4, OUT + 8):
-        m = re.search(r"(?m)^0*" + f"{address:08x}" +
-                      r":\s+0x([0-9a-f]+)", output)
-        if not m:
-            raise AssertionError("ARM probe register missing: " +
-                                 hex(address) + ": " + output[-1200:])
-        values.append(int(m.group(1), 16))
-    return values
+    return memory_words(output, OUT, 3)
 
 
 def main():
