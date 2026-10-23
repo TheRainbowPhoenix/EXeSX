@@ -61,6 +61,63 @@ static void exesx_lcd_gpioa(EXeSXState *s, uint32_t off, uint32_t bits)
         s->lcd->lcd_dc = false;
     }
 }
+/*
+ * The guest provides raw DCS column/page coordinates. MADCTL changes the
+ * address-to-panel mapping as well as RAMWR's major traversal axis.
+ * Preserve full 16-bit inclusive CASET/PASET endpoints; clamp only the final
+ * physical panel address, never the guest window (which would make writes
+ * with an off-panel endpoint wrap into visible pixels).
+ *
+ * This is experimental panel orientation using standard DCS MX/MY/MV bits.
+ * Exact Casio LCD glass mounting, vendor-specific offsets and scan order
+ * remain unverified.
+ */
+static void exesx_lcd_ramwr_pixel(EXeSXProfileWindow *w, uint16_t rgb565)
+{
+    unsigned x = w->lcd_x;
+    unsigned y = w->lcd_y;
+    bool swap = (w->lcd_madctl & 0x20) != 0;
+    int px, py;
+
+    if (w->lcd_x0 > w->lcd_x1 || w->lcd_y0 > w->lcd_y1 ||
+        x > w->lcd_x1 || y > w->lcd_y1) {
+        return; /* Do not wrap RAMWR into another rectangle. */
+    }
+
+    if (swap) {
+        px = (w->lcd_madctl & 0x40) ?
+            (EXESX_LCD_W - 1 - (int)y) : (int)y;
+        py = (w->lcd_madctl & 0x80) ?
+            (EXESX_LCD_H - 1 - (int)x) : (int)x;
+    } else {
+        px = (w->lcd_madctl & 0x40) ?
+            (EXESX_LCD_W - 1 - (int)x) : (int)x;
+        py = (w->lcd_madctl & 0x80) ?
+            (EXESX_LCD_H - 1 - (int)y) : (int)y;
+    }
+    if (px >= 0 && px < EXESX_LCD_W && py >= 0 && py < EXESX_LCD_H) {
+        w->lcd_fb[py * EXESX_LCD_W + px] = rgb565;
+    }
+    ++w->lcd_pixel_writes;
+
+    /*
+     * MV=0 traverses columns first; MV=1 traverses pages first.
+     * Mirroring is applied by the address transform above, NOT also by
+     * reversing the raw cursor (which would cancel MX/MY).
+     */
+    if (swap) {
+        if (++w->lcd_y > w->lcd_y1) {
+            w->lcd_y = w->lcd_y0;
+            ++w->lcd_x;
+        }
+    } else {
+        if (++w->lcd_x > w->lcd_x1) {
+            w->lcd_x = w->lcd_x0;
+            ++w->lcd_y;
+        }
+    }
+}
+
 static void exesx_lcd_parameter(EXeSXProfileWindow *w, uint16_t v)
 {
     unsigned n = w->lcd_param_count++;
@@ -71,32 +128,29 @@ static void exesx_lcd_parameter(EXeSXProfileWindow *w, uint16_t v)
     case 0x34: /* TEOFF */
         w->lcd_te_enabled = false;
         break;
-    case 0x2a: case 0x2b: /* address byte pairs */
+    case 0x36: /* DCS MADCTL: MY/MX/MV (+ independent BGR color order) */
+        if (n == 0) {
+            w->lcd_madctl = v & 255;
+        }
+        break;
+    case 0x2a: case 0x2b: /* address byte pairs, inclusive bounds */
         if (n < 4) {
             w->lcd_params[n] = v & 255;
         }
         if (n == 3) {
-            unsigned start = (w->lcd_params[0] << 8) | w->lcd_params[1];
-            unsigned end = (w->lcd_params[2] << 8) | w->lcd_params[3];
+            unsigned first = (w->lcd_params[0] << 8) | w->lcd_params[1];
+            unsigned last = (w->lcd_params[2] << 8) | w->lcd_params[3];
             if (w->lcd_cmd == 0x2a) {
-                w->lcd_x0 = MIN(start, EXESX_LCD_W - 1);
-                w->lcd_x1 = MIN(end, EXESX_LCD_W - 1);
+                w->lcd_x0 = first;
+                w->lcd_x1 = last;
             } else {
-                w->lcd_y0 = MIN(start, EXESX_LCD_H - 1);
-                w->lcd_y1 = MIN(end, EXESX_LCD_H - 1);
+                w->lcd_y0 = first;
+                w->lcd_y1 = last;
             }
         }
         break;
-    case 0x2c: /* RAMWR: one RGB565 pixel per halfword */
-        if (w->lcd_x0 <= w->lcd_x1 && w->lcd_y0 <= w->lcd_y1 &&
-            w->lcd_y <= w->lcd_y1 && w->lcd_x <= w->lcd_x1) {
-            w->lcd_fb[w->lcd_y * EXESX_LCD_W + w->lcd_x] = v;
-            if (++w->lcd_x > w->lcd_x1) {
-                w->lcd_x = w->lcd_x0;
-                ++w->lcd_y;
-            }
-            ++w->lcd_pixel_writes;
-        }
+    case 0x2c: /* RAMWR: one RGB565 pixel per DBI halfword */
+        exesx_lcd_ramwr_pixel(w, v);
         break;
     case 0x3a: /* COLMOD; only RGB565 data storage supported */
         w->lcd_rgb565 = (v & 255) == 0x55;
@@ -105,6 +159,7 @@ static void exesx_lcd_parameter(EXeSXProfileWindow *w, uint16_t v)
         break; /* Preserve unknown vendor initialization as inert. */
     }
 }
+
 static MemTxResult exesx_lcd_write(EXeSXProfileWindow *w, hwaddr offset,
                                   uint64_t data, unsigned size)
 {
