@@ -184,6 +184,8 @@ def main():
     ap.add_argument("--lcd-trace",action="store_true")
     ap.add_argument("--plugin",type=Path)
     ap.add_argument("--prepare-only",action="store_true")
+    ap.add_argument("--port-irq", action="store_true",
+                    help="Opt-in M4 PCTLA/B PCR-edge IRQ56/57 model")
     ap.add_argument("--lptmr-irq", action="store_true",
                     help="Enable experimental M4 LPTMR0/1 CSR-based IRQ36/37 timer model")
     ap.add_argument("--gpioa-input-file", type=Path,
@@ -207,6 +209,8 @@ def main():
     a=ap.parse_args()
     if a.lptmr_irq:
         os.environ["EXESX_EXPERIMENTAL_LPTMR_IRQ"] = "1"
+    if a.port_irq:
+        os.environ["EXESX_EXPERIMENTAL_M4_PORT_IRQ"] = "1"
     if not a.osup.is_file(): ap.error("OSUP input file not found")
     if a.seconds <= 0: ap.error("--seconds must be positive")
     if not 0 <= a.gpioa_input_mask <= 0xffffffff or (a.gpiob_input_mask is not None and not 0 <= a.gpiob_input_mask <= 0xffffffff):
