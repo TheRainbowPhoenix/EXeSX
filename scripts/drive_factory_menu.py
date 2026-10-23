@@ -31,7 +31,10 @@ A7 = {0x60010898:"m4_service_0804_result",0x600108a8:"event_wait",
       0x60010910:"diagnostic_sequence",0x60010974:"dialog_exit",
       0x6003a878:"factory_test_menu",0x60058008:"lcd_unit_check",
       0x60400000:"os_entry"}
-M4 = {0x1ffd7fb0:"scan_task_entry",0x1ffd7fca:"scan_full_matrix_call",
+M4 = {0x1ffd7b0c:"keyboard_event_flags_wait",
+      0x1ffd7b28:"keyboard_event_flags_received",
+      0x1ffd7b2e:"keyboard_event_bit0_dispatch",
+      0x1ffd7fb0:"scan_task_entry",0x1ffd7fca:"scan_full_matrix_call",
       0x1ffd8634:"scan_full_matrix",0x1ffed3b0:"lptmr0_isr",
       0x1ffd8412:"row_drive",0x1ffd8564:"column_scan",
       0x1ffd85c6:"gpio_column_read",0x1ffd8610:"key_debounce"}
@@ -244,6 +247,10 @@ def run(args):
                          "name":marks.get(pc,"unknown"),"thread":tid,
                          "r0":hex(registers["r0"]),
                          "seconds":round(time.monotonic()-started,2)}
+                    if tid==2 and pc==0x1ffd7b28:
+                        bits=rsp.memory(registers["r13"]+4,4)
+                        hit["m4_keyboard_rtos_event_bits"]=(
+                            None if bits is None else hex(bits))
                     if tid==2 and args.trace_m4:
                         # Read the original M4 scan task's state fields,
                         # not a synthetic keyboard status or virtual event.
@@ -304,6 +311,7 @@ def run(args):
                     # status-5 timer event is NOT a keyboard press;
                     # the initial one-shot debugger missed later input.
                     if tid==2 and args.trace_m4 and pc in (
+                        0x1ffd7b0c,0x1ffd7b28,0x1ffd7b2e,
                         0x1ffd7fb0,0x1ffd7fca,0x1ffd8634,
                         0x1ffd8412,0x1ffd8564,0x1ffd85c6,
                         0x1ffd8610,0x1ffed3b0) and counts[pc]<32:
