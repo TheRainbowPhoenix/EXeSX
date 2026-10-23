@@ -40,10 +40,14 @@ def make_elf(output_override=False):
     store(1,0,8)         # PCOR: original M4 drove row8 low
     load(2,0,0x10)
     store(2,7,0)
+    lit(1,ROW8)
+    store(1,0,4)         # release row8 before selecting row6
     lit(1,ROW6)
     store(1,0,8)         # PCOR: drive different row6 low
     load(2,0,0x10)
     store(2,7,4)
+    lit(1,ROW6)
+    store(1,0,4)         # release row6 before selecting row8
     lit(1,ROW8)
     store(1,0,8)         # select row8 again
     load(2,0,0x10)
