@@ -94,6 +94,7 @@ def run(a):
                EXESX_EXPERIMENTAL_LPTMR_IRQ="1",
                EXESX_EXPERIMENTAL_M4_PORT_IRQ="1",
                EXESX_EXPERIMENTAL_M4_TPM0_IRQ="1",
+               EXESX_EXPERIMENTAL_M4_TPM0_INPUT_MHZ=str(a.tpm0_mhz),
                EXESX_EXPERIMENTAL_LCD="1",
                EXESX_EXPERIMENTAL_DMA1_M2M="1",
                EXESX_USDHC1_EMMC="1",
@@ -120,6 +121,7 @@ def run(a):
         cmd+=["-d","exec,guest_errors","-D",str(trace)]
     report={"mode":"physical GPIO contacts, no debugger/no event injection",
             "key_sequence":[hex(x) for x in a.keys],
+            "tpm0_input_mhz_diagnostic":a.tpm0_mhz,
             "hold_seconds":a.hold,"gap_seconds":a.gap,
             "contacts":[],"observations":[],
             "m4_keydown_observed":False,
@@ -202,6 +204,8 @@ if __name__=="__main__":
     ap.add_argument("--profile",type=Path)
     ap.add_argument("--tag",default="version-event-wait")
     ap.add_argument("--keys",default="0x93,0x93,0x94")
+    ap.add_argument("--tpm0-mhz",type=int,default=1,
+                    help="EXPERIMENTAL M4 TPM0 source MHz; default 1 uncalibrated model, 48 is a diagnostic hypothesis")
     ap.add_argument("--hold",type=float,default=.12)
     ap.add_argument("--gap",type=float,default=.06)
     ap.add_argument("--delay",type=float,default=0.0)
@@ -218,6 +222,6 @@ if __name__=="__main__":
     args.keys=tuple(int(x,0) for x in args.keys.split(","))
     if not args.keys or any(x not in (0x93,0x94,0x95,0x80) for x in args.keys):
         ap.error("Only owner-ROM decoded matrix keys 0x93/0x94/0x95/0x80 are supported")
-    if args.seconds<=0 or args.poll<=0 or args.hold<=0 or args.gap<0 or args.idle_timeout<=0:
+    if args.seconds<=0 or args.poll<=0 or args.hold<=0 or args.gap<0 or args.idle_timeout<=0 or not 1 <= args.tpm0_mhz <= 120:
         ap.error("Require positive --seconds/--poll/--hold and nonnegative --gap")
     run(args)
