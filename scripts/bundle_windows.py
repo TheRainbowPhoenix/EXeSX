@@ -39,6 +39,11 @@ def bundle(prefix, executable, output):
     for name in ('COPYING', 'COPYING.LIB', 'LICENSE'):
         if (qemu_source / name).is_file():
             shutil.copy2(qemu_source / name, output / name)
+    dtc = qemu_source / 'subprojects/dtc'
+    for name in ('GPL', 'BSD-2-Clause'):
+        if (dtc / name).is_file():
+            (output / 'licenses/dtc').mkdir(parents=True, exist_ok=True)
+            shutil.copy2(dtc / name, output / 'licenses/dtc' / name)
     shutil.copy2(root / 'docs/windows.md', output / 'README.md')
     print(f'Bundled {executable.name} and {len(list(output.glob("*.dll")))} DLLs in {output}')
 

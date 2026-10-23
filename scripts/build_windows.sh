@@ -15,7 +15,7 @@ mkdir -p "$ROOT/build"
 cd "$ROOT/build"
 # Headless native PE executable. TCG plugins are not supported by this target.
 "$QEMU_SOURCE/configure" --target-list=arm-softmmu \
-  --without-default-features --enable-tcg --enable-fdt --enable-pixman \
+  --without-default-features --enable-tcg --enable-fdt=internal --enable-pixman \
   --disable-werror --disable-docs --disable-plugins --disable-guest-agent
 ninja -j "${JOBS:-2}" qemu-system-arm.exe
 ./qemu-system-arm.exe -machine help | grep exesx
