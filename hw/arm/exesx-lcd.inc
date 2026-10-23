@@ -76,7 +76,19 @@ static void exesx_lcd_ramwr_pixel(EXeSXProfileWindow *w, uint16_t rgb565)
 {
     unsigned x = w->lcd_x;
     unsigned y = w->lcd_y;
-    bool swap = (w->lcd_madctl & 0x20) != 0;
+    /*
+     * The original DY357 selects MADCTL=0x60 for its landscape
+     * 864x480 framebuffer and sends landscape CASET/PASET coordinates.
+     * These coordinates already describe the displayed orientation:
+     * swapping them a second time (and then making RAMWR page-major)
+     * clips all columns >=480 and paints only a 480px-wide stripe.
+     *
+     * Keep other MADCTL modes on the existing experimental mapping
+     * until the panel/controller identity and portrait dimensions are
+     * independently established.  This is not a global rotate hack.
+     */
+    bool landscape = (w->lcd_madctl & 0xe0) == 0x60;
+    bool swap = (w->lcd_madctl & 0x20) != 0 && !landscape;
     int px, py;
 
     if (w->lcd_x0 > w->lcd_x1 || w->lcd_y0 > w->lcd_y1 ||
@@ -84,7 +96,10 @@ static void exesx_lcd_ramwr_pixel(EXeSXProfileWindow *w, uint16_t rgb565)
         return; /* Do not wrap RAMWR into another rectangle. */
     }
 
-    if (swap) {
+    if (landscape) {
+        px = (int)x;
+        py = (int)y;
+    } else if (swap) {
         px = (w->lcd_madctl & 0x40) ?
             (EXESX_LCD_W - 1 - (int)y) : (int)y;
         py = (w->lcd_madctl & 0x80) ?
@@ -101,9 +116,11 @@ static void exesx_lcd_ramwr_pixel(EXeSXProfileWindow *w, uint16_t rgb565)
     ++w->lcd_pixel_writes;
 
     /*
-     * MV=0 traverses columns first; MV=1 traverses pages first.
-     * Mirroring is applied by the address transform above, NOT also by
-     * reversing the raw cursor (which would cancel MX/MY).
+     * Guest-selected landscape 0x60 uses column-major addressing
+     * in the sense of X advancing first on each raster line, the same
+     * as the guest's 864x480 CASET/PASET coordinate system. Other MV
+     * modes retain the existing experimental page-first traversal.
+     * Mirroring is never applied twice to cursor and pixels.
      */
     if (swap) {
         if (++w->lcd_y > w->lcd_y1) {
