@@ -107,15 +107,17 @@ static uint32_t exesx_m4_keyboard_column_levels(EXeSXProfileWindow *w,
     for (i = 0; i < G_N_ELEMENTS(exesx_m4_key_contacts); i++) {
         const EXeSXM4KeyContact *k = &exesx_m4_key_contacts[i];
         EXeSXProfileWindow *row_gpio;
-        uint32_t row_mask;
+        uint32_t row_mask, iomux_pin;
         uint64_t col_base;
         /*
-         * A physical closed key joins its column to its row whenever
-         * the row output is actually low. In idle, original firmware
-         * may leave multiple rows low to request PORTA logic-zero
-         * wakeup. Do NOT gate by our last PCOR-write row index:
-         * that C field is not a VMState register and cannot represent
-         * preexisting pin levels after loadvm.
+         * A physical closed key joins a column to its row only while
+         * the guest configures that row as a GPIO output AND selects
+         * its IOMUX function. Original M4 FUN_1FFD8412 writes
+         * IOMUXC0[pin + 32*bank] = 0x20100 for a selected row,
+         * and writes zero to de-select it. PDOR/PDDR alone persist
+         * after de-selection and led to erroneous keycode 0xC5
+         * (column 7, wrong row) in the original-ROM QEMU trace.
+         * Consult the serialized MMIO register, not last-PCOR state.
          */
         if (k->keycode != key) {
             continue;
@@ -125,9 +127,13 @@ static uint32_t exesx_m4_keyboard_column_levels(EXeSXProfileWindow *w,
             continue;
         }
         row_mask = UINT32_C(1) << exesx_m4_row_bit[k->row];
-        if (!(row_gpio->regfile[0x14 / 4] & row_mask) ||
+        iomux_pin = exesx_m4_row_bit[k->row] +
+                    (exesx_m4_row_bank[k->row] ? 32 : 0);
+        if (!b->m4_iomuxc0 ||
+            b->m4_iomuxc0->regfile[iomux_pin] != UINT32_C(0x20100) ||
+            !(row_gpio->regfile[0x14 / 4] & row_mask) ||
             (row_gpio->regfile[0] & row_mask)) {
-            continue; /* original M4 hasn't driven selected row low */
+            continue; /* row is unmuxed, not output, or not low */
         }
         col_base = exesx_m4_col_bank[k->column] ?
                    UINT64_C(0x4100f040) : UINT64_C(0x4100f000);
