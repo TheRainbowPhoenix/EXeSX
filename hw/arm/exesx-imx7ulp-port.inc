@@ -7,6 +7,73 @@
  *
  * The register data is VMState-serialized by the EXeSX profile board.
  */
+/*
+ * Register-derived M4 PORT edge/level interrupt model.
+ * Original M4 IRQ vector 72 -> external NVIC IRQ56/PCTLA;
+ * vector 73 -> IRQ57/PCTLB (NXP i.MX7ULP RM Table 3-1).
+ * Off unless EXESX_EXPERIMENTAL_M4_PORT_IRQ=1.
+ */
+static qemu_irq exesx_m4_port_irq(EXeSXProfileWindow *w)
+{
+    if (!w->board) {
+        return NULL;
+    }
+    return w->base == UINT64_C(0x4103f000) ?
+           w->board->m4_porta_irq :
+           w->base == UINT64_C(0x41040000) ?
+           w->board->m4_portb_irq : NULL;
+}
+static bool exesx_port_irqc_enabled(uint32_t pcr)
+{
+    unsigned irqc = (pcr >> 16) & 15;
+    return irqc >= 8 && irqc <= 12;
+}
+static void exesx_m4_port_irq_update(EXeSXProfileWindow *w)
+{
+    qemu_irq irq;
+    unsigned pin;
+    bool pending = false;
+    if (!w->m4_port_poll_timer || !(irq = exesx_m4_port_irq(w))) {
+        return;
+    }
+    for (pin = 0; pin < 32; ++pin) {
+        if ((w->regfile[0xa0 / 4] & (UINT32_C(1) << pin)) &&
+            exesx_port_irqc_enabled(w->regfile[pin])) {
+            pending = true;
+            break;
+        }
+    }
+    qemu_set_irq(irq, pending);
+}
+static void exesx_m4_port_observe_inputs(EXeSXProfileWindow *w,
+                                          uint32_t levels)
+{
+    uint32_t before = w->m4_port_previous;
+    unsigned pin;
+    w->m4_port_previous = levels;
+    if (!w->m4_port_sampled) {
+        w->m4_port_sampled = true; /* sample reference, not a fake edge */
+        return;
+    }
+    for (pin = 0; pin < 32; ++pin) {
+        uint32_t bit = UINT32_C(1) << pin;
+        uint32_t pcr = w->regfile[pin];
+        unsigned irqc = (pcr >> 16) & 15;
+        bool oldhigh = (before & bit) != 0;
+        bool newhigh = (levels & bit) != 0;
+        bool trigger = (irqc == 8 && !newhigh) ||
+                       (irqc == 9 && !oldhigh && newhigh) ||
+                       (irqc == 10 && oldhigh && !newhigh) ||
+                       (irqc == 11 && oldhigh != newhigh) ||
+                       (irqc == 12 && newhigh);
+        if (trigger) {
+            w->regfile[pin] |= UINT32_C(0x01000000); /* PCR.ISF */
+            w->regfile[0xa0 / 4] |= bit;             /* PORT.ISFR */
+        }
+    }
+    exesx_m4_port_irq_update(w);
+}
+
 static bool exesx_port_known_base(uint64_t base)
 {
     switch (base) {
@@ -65,6 +132,9 @@ static MemTxResult exesx_port_write(EXeSXProfileWindow *w, hwaddr off,
         w->regfile[off / 4] = bits;
     } else {
         w->regfile[off / 4] = bits;
+    }
+    if (w->m4_port_poll_timer) {
+        exesx_m4_port_irq_update(w);
     }
     qemu_log_mask(LOG_GUEST_ERROR,
                   "EXeSX PORT WRITE @0x%" HWADDR_PRIx
