@@ -165,3 +165,90 @@ against unchanged original Casio firmware.**
 Synthetic hardware pass does not prove these
 milestones. The original private firmware,
 binary/decomp, and snapshots are not in GitHub.
+
+## Unchanged owner-ROM QEMU runtime confirmation — TPM0 really fixes state2
+
+The **native QEMU artifact built from commit `28c70c9` passed
+Linux CI**, including the exact original ARM TPM0 overflow and
+three disabled/negative variants. An owner-private **original
+OSUP checkpoint**, saved before this change at A7 BIOS
+`0x600108A8`, was resumed without any guest code/data
+patches using `EXESX_EXPERIMENTAL_M4_TPM0_IRQ=1`.
+
+The initial original M4 state was 2, debounce
+remaining count 4, `TPM0.SC=0x4C`,
+`TPM0.CNT=0x514`, `TPM0.MOD=0x5DC`.
+With the corrected QEMU, real original M4 thread2
+executed:
+
+`0x1FFDB68C` TPM0 IRQ handler →
+`0x1FFD7D5A` original event-bit2 producer →
+`0x1FFD7B28` original task wait return →
+`0x1FFD7B42` original bit2 dispatch →
+`0x1FFD8088` state2 debounce handler →
+`0x1FFD809E` GPIO column resampling.
+
+**The original M4 debounce counter decremented from 4 to 3**
+and the genuine firmware subsequently returned to
+**state 0** with timer halted
+(`TPM0.SC=0x0`, `TPM0.MOD=0xFFFF`).
+No debugger fake event or forced PC was used.
+This directly validates the missing timer IRQ root cause.
+
+The subsequent three Python-driven key-contact attempts
+with different holds/releases also translated the original
+M4 `FUN_1FFD8200` keyboard event-builder path,
+but the original A7 did **not** hit the
+`0x93,0x93,0x94` diagnostic checks or
+`0x6003A878` factory menu; it exited normally
+at `0x60010974`. These tests **do not establish a
+genuine accepted A7 key-down event**.
+
+### Newly found second contact-model defect: the row IOMUX
+
+A focused one-shot original-M4 breakpoint at
+`FUN_1FFD8200` then `FUN_1FFD82D8`
+caught a genuine **type2/subtype1** event, but with
+keycode **`0xC5`**, not host-requested `0x93`.
+This is real original-ROM execution, not a fabricated
+event; it identifies a *wrong-row* contact.
+
+The decomp of `FUN_1FFD8412` explains it:
+the original M4 does **not** select a keyboard row
+only by GPIO.PCOR/PDOR/PDDR. It writes
+the row's **IOMUXC0** selector too:
+`DAT_1FFD89A0 = 0x4103D000` and
+`DAT_1FFD899C = 0x00020100`.
+Selecting row N writes `0x20100` to
+`IOMUXC0[pin + (bankB ? 32 : 0)]`;
+deselecting writes **0**. Rows can retain low
+GPIO PDOR/PDDR values after being de-muxed,
+but must be **electrically disconnected** from
+keyboard columns. Our first version modeled the
+GPIO output without testing this mux, allowing
+a pressed A31 column to register on row1,
+producing the wrong logical `0xC5`.
+
+The corrected opt-in physical key-contact model
+now checks **all three original conditions**:
+GPIO.PDDR output, GPIO.PDOR low, **IOMUXC0
+row selector == 0x20100**. It reads serialized
+guest MMIO state, not a host-only last-selected-row
+variable (which would break `loadvm`).
+The synthetic ARM matrix regression programs
+the IOMUX mux as the actual M4 does before
+sampling and zeroes it between rows.
+**Rebuilt-original-ROM acceptance of `0x93` /
+`0x94` is still pending.**
+
+Additional precise Ghidra symbols:
+
+| Address | Proposed label | Source evidence |
+|---|---|---|
+| `0x1FFD8412` | `M4_KeyboardSetRowIOMUXAndGPIO` | Original decomp writes mux then PCOR/PDDR |
+| `0x1FFD8470` | `M4_KeyboardConfigureAllRows` | Original 9-row mux setup |
+| `0x1FFD8998` | `m4_keyboard_row_table_literal` | Original points to `0x1FFD0DA8` |
+| `0x1FFD899C` | `m4_keyboard_active_iomux_value_literal` | Original `0x20100` |
+| `0x1FFD89A0` | `m4_iomuxc0_base_literal` | Original `0x4103D000` |
+| `0x4103D054` | `M4_IOMUXC0_PTA21` | Original row8 (logical key 0x93) |
+| `0x4103D044` | `M4_IOMUXC0_PTA17` | Original row6 (logical key 0x94) |
