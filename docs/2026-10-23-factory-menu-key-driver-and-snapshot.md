@@ -176,3 +176,25 @@ keyboard hardware or a genuine full boot.
 **Remaining two independent tasks:** fix/verify M4 scanner scheduling
 and real event delivery (authentic keypress), and then trace service
 0x4009/0x400B in the factory menu initializer (actual visible menu).
+
+### Refined original ARM post-entry IPC stop
+
+A follow-up private real native QEMU execution breakpoint run, resumed
+from `factory-menu-synthetic`, independently hit the original
+A7 callers `0x6003A878`, `0x6003A7D4`,
+`0x6003A7DC`, `0x6003A7E4`, `0x6003A7E8`.
+Within `FUN_6002D5D0(2)` it actually hit **`0x600061C4`**
+(IPC service 0x4009), then **`0x60006240`**
+(IPC service **0x400B** with argument **2**) at around
+0.89 seconds from the fast-reloaded snapshot.
+
+This means **0x4009 did return**, correcting the earlier
+broad statement about which menu initialization service might be
+blocked. No breakpoint at caller return `0x6003A7F0`
+fired within 13 seconds after these hits.
+The specific next unfulfilled observable dependency is
+the **response/completion of IPC 0x400B**, not
+the prior 0x4009 call. Trace its genuine destination
+and response before changing QEMU device behavior. The
+synthetic-entry LCD stayed entirely black because
+`FUN_60057668`'s menu painting had not yet been reached.
