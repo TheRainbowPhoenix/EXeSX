@@ -31,7 +31,14 @@ A7 = {0x60010898:"m4_service_0804_result",0x600108a8:"event_wait",
       0x60010910:"diagnostic_sequence",0x60010974:"dialog_exit",
       0x6003a878:"factory_test_menu",0x60058008:"lcd_unit_check",
       0x60400000:"os_entry"}
-M4 = {0x1ffd7b0c:"keyboard_event_flags_wait",
+M4 = {0x1ffd7d2e:"m4_pctla_irq56_wake",
+      0x1ffd53ba:"m4_rtos_post_event_flags",
+      0x1ffd7d5a:"m4_post_keyboard_bit2_callback",
+      0x1ffd8088:"m4_keyboard_bit2_debounce_state",
+      0x1ffd809e:"m4_keyboard_state2_resample_column",
+      0x1ffd7fa0:"m4_post_keyboard_bit1_timer",
+      0x1ffd7b42:"m4_worker_dispatch_bit2",
+      0x1ffd7b0c:"keyboard_event_flags_wait",
       0x1ffd7b28:"keyboard_event_flags_received",
       0x1ffd7b2e:"keyboard_event_bit0_dispatch",
       0x1ffd7fb0:"scan_task_entry",0x1ffd7fca:"scan_full_matrix_call",
@@ -258,6 +265,10 @@ def run(args):
                         for label,address in (
                             ("scan_task_state",0x1ffea320),
                             ("scan_task_count",0x1ffea324),
+                            ("keyboard_event_object10_flags",0x1fff4f08),
+                            ("port_a_isfr",0x4103f0a0),
+                            ("port_a_pcr23",0x4103f05c),
+                            ("port_a_pcr31",0x4103f07c),
                             ("lptmr0_csr",0x4102e000),
                             ("m4_nvic_enabled_32_63",0xe000e104),
                             ("m4_nvic_pending_32_63",0xe000e204),
@@ -312,6 +323,8 @@ def run(args):
                     # status-5 timer event is NOT a keyboard press;
                     # the initial one-shot debugger missed later input.
                     if tid==2 and args.trace_m4 and pc in (
+                        0x1ffd7d2e,0x1ffd53ba,0x1ffd7d5a,
+                        0x1ffd8088,0x1ffd809e,0x1ffd7fa0,0x1ffd7b42,
                         0x1ffd7b0c,0x1ffd7b28,0x1ffd7b2e,
                         0x1ffd7fb0,0x1ffd7fca,0x1ffd8634,
                         0x1ffd8412,0x1ffd8564,0x1ffd85c6,
