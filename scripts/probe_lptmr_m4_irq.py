@@ -34,8 +34,8 @@ def elf_bytes(tie):
     store(1,0,0)
     words.append(0xeafffffe) # tight wait, timer event is hardware driven
     start=len(words)
-    for i,r,v in literals:
-        diff = 4*(start-i)-8
+    for pool_index,(i,r,v) in enumerate(literals):
+        diff = 4*(start+pool_index-i)-8
         assert 0 <= diff < 4096
         words[i]=0xe59f0000 | r << 12 | diff
         words.append(v)
