@@ -109,8 +109,18 @@ def connect(port, proc):
     raise TimeoutError("QEMU connection timed out")
 
 
-def pulse(keys, a_file, b_file, hold, gap, events):
+def pulse(keys, a_file, b_file, hold, gap, events, matrix_file=None):
     for key in keys:
+        if matrix_file is not None:
+            # Physical contact only: QEMU gates low columns on real
+            # M4 GPIO row drive, and original firmware must generate events.
+            voltage(matrix_file, key)
+            events.append({"event":"physical_matrix_contact_closed","key_guess":hex(key)})
+            time.sleep(hold)
+            voltage(matrix_file, 0)
+            events.append({"event":"physical_matrix_contact_open","key_guess":hex(key)})
+            time.sleep(gap)
+            continue
         bank, bit = PINS[key]
         a = PTA_READY & ~bit if bank=="a" else PTA_READY
         b = PTB_READY & ~bit if bank=="b" else PTB_READY
@@ -148,6 +158,9 @@ def run(args):
     pa=dest/"gpioa-input-mask.txt";pb=dest/"gpiob-input-mask.txt"
     voltage(pa,PTA_READY if args.resume else 0)
     voltage(pb,PTB_READY if args.resume else 0x88)
+    matrix_file = dest/"m4-key-matrix-contact.txt" if args.matrix_keys else None
+    if matrix_file is not None:
+        voltage(matrix_file, 0)
     env=os.environ.copy()
     env.update(EXESX_MEMORY_PROFILE=str(profile),
                EXESX_EXPERIMENTAL_M4_BOOT="1",EXESX_EXPERIMENTAL_MU_IRQ="1",
@@ -161,6 +174,8 @@ def run(args):
                EXESX_GPIOA_INPUT_MASK_FILE=str(pa),
                EXESX_GPIOB_INPUT_MASK_FILE=str(pb),
                EXESX_LCD_SCREENSHOT=str(dest/"lcd-screenshot.ppm"))
+    if matrix_file is not None:
+        env["EXESX_M4_KEY_MATRIX_FILE"] = str(matrix_file)
     q=args.qemu.resolve()
     if (q.parent/"lib").is_dir():
         env["LD_LIBRARY_PATH"]=str(q.parent/"lib")+os.pathsep+env.get("LD_LIBRARY_PATH","")
@@ -242,7 +257,7 @@ def run(args):
                             saved=True
                         if sender is None and args.keys:
                             sender=threading.Thread(target=pulse,
-                                    args=(args.keys,pa,pb,args.hold,args.gap,events),
+                                    args=(args.keys,pa,pb,args.hold,args.gap,events,matrix_file),
                                     daemon=True)
                             sender.start()
                     if pc==0x6003a878:
@@ -295,6 +310,8 @@ def main():
     parser.add_argument("--tag",default="version-event-wait")
     parser.add_argument("--resume",action="store_true")
     parser.add_argument("--trace-m4",action="store_true")
+    parser.add_argument("--matrix-keys",action="store_true",
+                        help="Drive opt-in real M4 row-gated keyboard matrix contacts, not bare GPIO columns")
     args=parser.parse_args()
     args.keys=[int(x.strip(),0) for x in args.keys.split(",") if x.strip()]
     if not all(k in PINS for k in args.keys):
