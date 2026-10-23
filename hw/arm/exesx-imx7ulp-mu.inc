@@ -90,7 +90,7 @@ static MemTxResult exesx_mu_read(EXeSXProfileWindow *w, hwaddr off,
         chan = (off - 0x40) / 4;
         *value = w->regfile[off / 4];
         if (exesx_mu_trace_enabled()) {
-            qemu_log("EXeSX MU RX %s RR%u word=0x%08x rf_before=%u peer_te_before=%u\\n",
+            qemu_log("EXeSX MU RX %s RR%u word=0x%08x rf_before=%u peer_te_before=%u\n",
                      w->base == UINT64_C(0x40220000) ? "A7" : "M4",
                      chan, (uint32_t)*value,
                      !!(w->regfile[EXESX_MU_RF_INDEX] & exesx_mu_v1_mask(chan)),
@@ -144,18 +144,18 @@ static MemTxResult exesx_mu_write(EXeSXProfileWindow *w, hwaddr off,
              * data; model does not fabricate a peer acknowledgement.
              */
             if (exesx_mu_trace_enabled()) {
-                qemu_log("EXeSX MU TX %s TR%u word=0x%08x accepted=0 busy=1\\n",
+                qemu_log("EXeSX MU TX %s TR%u word=0x%08x accepted=0 busy=1\n",
                          w->base == UINT64_C(0x41022000) ? "M4" : "A7",
                          chan, bits);
             }
             qemu_log_mask(LOG_GUEST_ERROR,
                           "EXeSX MU busy TR%u at 0x%" HWADDR_PRIx
-                          " ignored data=0x%08x\\n",
+                          " ignored data=0x%08x\n",
                           chan, w->base + off, bits);
             return MEMTX_OK;
         }
         if (exesx_mu_trace_enabled()) {
-            qemu_log("EXeSX MU TX %s TR%u word=0x%08x accepted=1 peer=%u\\n",
+            qemu_log("EXeSX MU TX %s TR%u word=0x%08x accepted=1 peer=%u\n",
                      w->base == UINT64_C(0x41022000) ? "M4" : "A7",
                      chan, bits, !!peer);
         }
