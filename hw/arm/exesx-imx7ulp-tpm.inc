@@ -3,7 +3,8 @@
  * NXP MCIMX7U5 PERI_TPM.h and fsl_clock.h (TPM6 @0x40a10000).
  * Experimental clock period: QEMU virtual microseconds, not board-calibrated.
  * Internal epoch is kept in spare regfile indexes >0x100 and serialized with
- * all other board registers for snapshot rollback. No IRQ output yet.
+ * all other board registers for snapshot rollback. An opt-in TPM0 overflow
+ * IRQ38 model follows the original M4 timer's TOIE, TOF and clock mode.
  */
 /* All eight TPM instances from NXP MCIMX7U5_cm4_COMMON.h. */
 static bool exesx_tpm_base(uint64_t base)
@@ -55,6 +56,61 @@ static uint32_t exesx_tpm_counter(EXeSXProfileWindow *w)
     elapsed >>= sc & 7;
     return (uint32_t)((base + elapsed) % period);
 }
+/*
+ * Original relocated M4 firmware installs vector 0x36 (external IRQ38)
+ * with handler at 0x1FFDB68C. It checks TPM0.SC.TOF (bit7), invokes
+ * original keyboard debounce callback 0x1FFD7D5A, then clears TOF W1C.
+ * The original firmware starts TPM0 via FUN_1FFDB7C2(0) with SC=0x48,
+ * CNT=0, MOD=0x5DC. Do not synthesize any RTOS flag or A7 key event:
+ * let the firmware service the real NVIC interrupt.
+ */
+static void exesx_tpm0_update_irq(EXeSXProfileWindow *w)
+{
+    if (w->tpm0_timer && w->board && w->board->tpm0_irq) {
+        qemu_set_irq(w->board->tpm0_irq,
+                     (w->regfile[0x10 / 4] & 0xc0) == 0xc0);
+    }
+}
+
+static void exesx_tpm0_schedule(EXeSXProfileWindow *w)
+{
+    uint32_t sc, modulo, count;
+    uint64_t remaining, ns_per_tick;
+    int64_t now;
+
+    if (!w->tpm0_timer) {
+        return;
+    }
+    sc = w->regfile[0x10 / 4];
+    exesx_tpm0_update_irq(w);
+    if ((sc & 0x18) != 0x08) { /* timer counts only when CMOD=01 */
+        timer_del(w->tpm0_timer);
+        return;
+    }
+    now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+    modulo = w->regfile[0x18 / 4];
+    count = exesx_tpm_counter(w);
+    remaining = (uint64_t)modulo + 1 - count;
+    ns_per_tick = UINT64_C(1000) << (sc & 7);
+    timer_mod(w->tpm0_timer, now + remaining * ns_per_tick);
+}
+
+static void exesx_tpm0_timer_tick(void *opaque)
+{
+    EXeSXProfileWindow *w = opaque;
+    uint32_t sc = w->regfile[0x10 / 4];
+
+    if ((sc & 0x18) != 0x08) {
+        return;
+    }
+    /* Overflow flag is sticky until the guest explicitly clears it. */
+    w->regfile[0x10 / 4] = sc | 0x80;
+    w->regfile[0x108 / 4] = 0; /* counter wraps */
+    exesx_tpm_set_epoch(w);
+    exesx_tpm0_update_irq(w);
+    exesx_tpm0_schedule(w);
+}
+
 static MemTxResult exesx_tpm_read(EXeSXProfileWindow *w, hwaddr off,
                                   uint64_t *value, unsigned size)
 {
@@ -86,7 +142,12 @@ static MemTxResult exesx_tpm_write(EXeSXProfileWindow *w, hwaddr off,
         /* Snapshot the old count before changing divider / CMOD. */
         w->regfile[0x108 / 4] = exesx_tpm_counter(w);
         exesx_tpm_set_epoch(w);
-        w->regfile[0x10 / 4] = bits & ~UINT32_C(0x80);
+        /* TPM0.SC.TOF is write-one-to-clear, not cleared by
+         * unrelated control writes (firmware writes SC|0x80). */
+        w->regfile[0x10 / 4] =
+            (bits & ~UINT32_C(0x80)) |
+            (w->regfile[0x10 / 4] & UINT32_C(0x80) &
+             ~(bits & UINT32_C(0x80)));
     } else if (off == 0x14) {
         /* Counter write: resets CNT as described in the TPM SDK. */
         w->regfile[0x108 / 4] = 0;
@@ -103,6 +164,11 @@ static MemTxResult exesx_tpm_write(EXeSXProfileWindow *w, hwaddr off,
         w->regfile[0x08 / 4] = bits & ~2U;
     } else {
         w->regfile[off / 4] = bits;
+    }
+    if (w->tpm0_timer &&
+        (off == 0x10 || off == 0x14 || off == 0x18 ||
+         (off == 0x08 && (bits & 2)))) {
+        exesx_tpm0_schedule(w);
     }
     qemu_log_mask(LOG_GUEST_ERROR,
                   "EXeSX TPM WRITE @0x%" HWADDR_PRIx
