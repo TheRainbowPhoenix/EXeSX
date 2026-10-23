@@ -88,6 +88,15 @@ static void exesx_lcd_ramwr_pixel(EXeSXProfileWindow *w, uint16_t rgb565)
      * independently established.  This is not a global rotate hack.
      */
     bool landscape = (w->lcd_madctl & 0xe0) == 0x60;
+    /*
+     * Original 0x601B25E4 explicitly converts source[480][864] into a
+     * transposed 480x864 stream; 0x60015328(1) selects MADCTL=0x40 for
+     * this transfer.  The 0x40 CASET/PASET window is 480 columns by
+     * 864 rows, so (controller column, row) -> (screen Y, screen X).
+     * Unlike 0x60's direct landscape clear, these pixels have already
+     * been transposed by original ROM, NOT by the LCD controller.
+     */
+    bool transposed_frame = (w->lcd_madctl & 0xe0) == 0x40;
     bool swap = (w->lcd_madctl & 0x20) != 0 && !landscape;
     int px, py;
 
@@ -99,6 +108,9 @@ static void exesx_lcd_ramwr_pixel(EXeSXProfileWindow *w, uint16_t rgb565)
     if (landscape) {
         px = (int)x;
         py = (int)y;
+    } else if (transposed_frame) {
+        px = (int)y;
+        py = (int)x;
     } else if (swap) {
         px = (w->lcd_madctl & 0x40) ?
             (EXESX_LCD_W - 1 - (int)y) : (int)y;
@@ -116,11 +128,12 @@ static void exesx_lcd_ramwr_pixel(EXeSXProfileWindow *w, uint16_t rgb565)
     ++w->lcd_pixel_writes;
 
     /*
-     * Guest-selected landscape 0x60 uses column-major addressing
-     * in the sense of X advancing first on each raster line, the same
-     * as the guest's 864x480 CASET/PASET coordinate system. Other MV
-     * modes retain the existing experimental page-first traversal.
-     * Mirroring is never applied twice to cursor and pixels.
+     * Both genuine framebuffer paths send consecutive pixels along
+     * the LCD window's column axis: 0x60 has 864 columns x 480 rows;
+     * 0x40 has 480 columns x 864 rows after firmware transposition.
+     * Keep wrapping at the *guest's* inclusive column endpoint and
+     * clip only after mapping to the panel's 864x480 presentation.
+     * Other MV modes retain the experimental page-first traversal.
      */
     if (swap) {
         if (++w->lcd_y > w->lcd_y1) {
