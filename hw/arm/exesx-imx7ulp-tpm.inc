@@ -74,7 +74,27 @@ static uint32_t exesx_tpm_counter(EXeSXProfileWindow *w)
     }
     elapsed = (qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) -
                exesx_tpm_epoch(w)) / 1000;
-    elapsed *= exesx_tpm0_input_mhz(w);
+    /*
+     * Opt-in A7 TPM6 clock differential. The unchanged BIOS reads CNT
+     * twice at 0x60006904/08 while holding M4-visible SEMA42 gate2.
+     * An uncalibrated 1 MHz counter can increment between MMIO reads
+     * under TCG and leave both original cores spinning indefinitely.
+     * Permit a lower clock (e.g. 32 kHz), without changing TPM0 debounce,
+     * any guest register, the SEMA42 owner, or default clock behavior.
+     * This is a clock hypothesis, not a measured physical oscillator.
+     */
+    if (w->base == UINT64_C(0x40a10000)) {
+        const char *clock = g_getenv("EXESX_DIAGNOSTIC_A7_TPM6_KHZ");
+        if (clock && *clock) {
+            char *end;
+            uint64_t khz = g_ascii_strtoull(clock, &end, 0);
+            if (*end == '\0' && khz >= 1 && khz <= 1000) {
+                elapsed = elapsed * khz / 1000;
+            }
+        }
+    } else {
+        elapsed *= exesx_tpm0_input_mhz(w);
+    }
     elapsed >>= sc & 7;
     return (uint32_t)((base + elapsed) % period);
 }
