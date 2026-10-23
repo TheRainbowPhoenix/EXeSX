@@ -26,6 +26,21 @@ static void exesx_lptmr_restart(EXeSXProfileWindow *w)
     w->regfile[0x100 / 4] = (uint32_t)now;
     w->regfile[0x104 / 4] = (uint32_t)(now >> 32);
 }
+/*
+ * Optional genuine PCS=01 clock for original M4 LPTMR1. MCIMX7U5
+ * kCLOCK_LptmrSrcLPO1K selects the 1kHz LPO oscillator; the old
+ * diagnostic model always supplied 1MHz. With PSR=0x05 and CMR=4 the
+ * original ROM requests one compare every 5 LPO ticks, NOT every 5us.
+ * Keep other PCS inputs and the default emulator unchanged until validated.
+ */
+static uint64_t exesx_lptmr_tick_ns(EXeSXProfileWindow *w, uint32_t psr)
+{
+    if (!g_strcmp0(g_getenv("EXESX_EXPERIMENTAL_LPTMR_PCS_CLOCKS"), "1") &&
+        (psr & 3) == 1) {
+        return UINT64_C(1000000); /* LPO clock = 1kHz */
+    }
+    return UINT64_C(1000); /* legacy uncalibrated 1MHz */
+}
 static uint64_t exesx_lptmr_ticks(EXeSXProfileWindow *w)
 {
     uint32_t csr = w->regfile[0];
@@ -35,7 +50,7 @@ static uint64_t exesx_lptmr_ticks(EXeSXProfileWindow *w)
         return 0; /* Off, or pulse mode without an external pulse source. */
     }
     ticks = (qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) -
-             exesx_lptmr_start_ns(w)) / 1000;
+             exesx_lptmr_start_ns(w)) / exesx_lptmr_tick_ns(w, psr);
     if (!(psr & 4)) {
         unsigned shift = ((psr >> 3) & 15) + 1;
         ticks >>= shift; /* divide by 2,4,...,65536 */
@@ -77,8 +92,10 @@ static void exesx_lptmr_schedule(EXeSXProfileWindow *w)
         return;
     }
     now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
-    tick_ns = (psr & 4) ? 1000 :
-              (UINT64_C(1000) << (((psr >> 3) & 15) + 1));
+    tick_ns = exesx_lptmr_tick_ns(w, psr);
+    if (!(psr & 4)) {
+        tick_ns <<= ((psr >> 3) & 15) + 1;
+    }
     compare = compare ? compare : 0xffff;
     period = compare + 1;
     elapsed = (now - exesx_lptmr_start_ns(w)) / tick_ns;
