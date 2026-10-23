@@ -85,7 +85,11 @@ static uint16_t exesx_m4_keyboard_code(EXeSXState *board)
             }
             g_free(contents);
         }
-        /* A contact can change between successive hardware scan rows.\n         * The earlier 20 ms virtual-time file poll missed short presses\n         * and gave unrealistic start-of-window latency. The emulated\n         * electrical contact is refreshed every 1 ms of guest time. */\n        board->m4_keyboard_next_poll_ns = now + INT64_C(1000000);
+        /* A contact can change between successive hardware scan rows.
+         * The earlier 20 ms virtual-time file poll missed short presses
+         * and gave unrealistic start-of-window latency. The emulated
+         * electrical contact is refreshed every 1 ms of guest time. */
+        board->m4_keyboard_next_poll_ns = now + INT64_C(1000000);
     }
     return board->m4_keyboard_code;
 }
