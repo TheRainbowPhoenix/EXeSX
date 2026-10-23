@@ -2,6 +2,7 @@
 """Real ARM synthetic 32-byte eDMA1 channel15 request/copy regression."""
 import argparse,os,re,struct,subprocess,time
 from pathlib import Path
+from hmp_memory import memory_words
 BASE=0x60000000
 SRC=0x62016000
 DST=0x62017000
@@ -52,16 +53,11 @@ def run(qemu,profile,elf,enabled):
          '-device',f'loader,file={elf.resolve()},cpu-num=0']
     proc=subprocess.Popen(cmd,env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
     try:
-        time.sleep(.6)
-        output,_=proc.communicate('stop\n'+''.join(f'xp /1wx 0x{RESULT+4*i:08x}\n' for i in range(3))+'quit\n',timeout=12)
+        time.sleep(2.0 if os.name == 'nt' else .6)
+        output,_=proc.communicate(f'stop\nxp /3wx 0x{RESULT:08x}\nquit\n',timeout=12)
     finally:
         if proc.poll() is None:proc.kill();proc.wait()
-    values=[]
-    for i in range(3):
-        m=re.search(r'(?mi)^0*'+f'{RESULT+4*i:08x}'+r':\s+0x([0-9a-f]+)',output)
-        if not m:raise AssertionError('missing guest DMA result '+output[-1000:])
-        values.append(int(m.group(1),16))
-    return values
+    return memory_words(output,RESULT,3)
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--qemu',type=Path,default=Path('build/qemu-system-arm'))

@@ -6,6 +6,11 @@ with MSYS2 MINGW64, bundles recursive MinGW DLL imports and licenses, and
 runs CP15, peripheral, DMA1, LPIT1 IRQ and LCD probes using Windows Python
 with MSYS2 removed from PATH. Download its ZIP artifact and SHA256SUMS-windows.
 
+Windows uses a separate 650 MB ccache with compiler-content checks. The workflow
+restores prior entries and explicitly saves the cache with `actions/cache/save@v4`
+immediately after compilation, before packaging/runtime probes. A failed runtime
+probe therefore retains compiled objects for the next run, like the Linux job.
+
 Extract the whole ZIP before running `qemu-system-arm.exe`. No MSYS2 installation
 is needed at runtime. This is a headless research build: no GTK/SDL window or
 TCG memory-tracer plugin. The HMP monitor, GDB stub, and experimental LCD PPM
