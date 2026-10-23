@@ -27,6 +27,7 @@ PINS = {0x93: ("a", 0x80000000), 0x94: ("a", 0x00800000),
         0x95: ("a", 0x00800000), 0x80: ("b", 0x40)}
 A7 = {0x60010898:"m4_service_0804_result",0x600108a8:"event_wait",
       0x600108b4:"event_reader_return",0x600108cc:"event_type_check",
+      0x60010928:"diagnostic_key_accept",
       0x60010910:"diagnostic_sequence",0x60010974:"dialog_exit",
       0x6003a878:"factory_test_menu",0x60058008:"lcd_unit_check",
       0x60400000:"os_entry"}
@@ -241,6 +242,21 @@ def run(args):
                          "name":marks.get(pc,"unknown"),"thread":tid,
                          "r0":hex(registers["r0"]),
                          "seconds":round(time.monotonic()-started,2)}
+                    if tid==1 and pc==0x600108cc:
+                        # Original BIOS has copied the event's 20-byte payload
+                        # from [SP+0x24] to [SP]. Read the genuine copied
+                        # record, not stale mailbox data and not a host pulse.
+                        sp=registers["r13"]
+                        raw=rsp.command(f"m{sp:x},24")
+                        if not raw.startswith("E"):
+                            record=bytes.fromhex(raw)
+                            hit["bios_event_type"]=int.from_bytes(record[0:2],"little")
+                            hit["bios_event_subtype"]=int.from_bytes(record[2:4],"little")
+                            hit["bios_key_code"]=hex(int.from_bytes(record[8:10],"little"))
+                            hit["bios_event_status"]=int.from_bytes(record[0x1c:0x20],"little")
+                            hit["genuine_key_down"]=(
+                                hit["bios_event_type"]==2 and
+                                hit["bios_event_subtype"]==1)
                     events.append(hit)
                     print("HIT",hit,flush=True)
                     if pc==0x60010898 and not ready:
@@ -270,6 +286,16 @@ def run(args):
                     if rsp.command(f"z0,{pc:x},{2 if pc in M4 else 4}")!="OK":
                         raise RuntimeError("Cannot disarm breakpoint")
                     counts[pc]=counts.get(pc,0)+1
+                    # Re-arm the two original A7 event breakpoints. A
+                    # status-5 timer event is NOT a keyboard press;
+                    # the initial one-shot debugger missed later input.
+                    if tid==1 and pc in (0x600108b4,0x600108cc,
+                                          0x60010910,0x60010928) and counts[pc]<100:
+                        gdb.sendall(encode_packet("s"))
+                        if stopped_thread(rsp.receive(4))!=1:
+                            raise RuntimeError("A7 event inspection single-step failed")
+                        if rsp.command(f"Z0,{pc:x},4")!="OK":
+                            raise RuntimeError("Could not re-arm original event breakpoint")
                     if pc==0x60010898 and counts[pc]<12:
                         gdb.sendall(encode_packet("s"))
                         if stopped_thread(rsp.receive(4))!=1:
