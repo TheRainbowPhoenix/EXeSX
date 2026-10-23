@@ -120,6 +120,32 @@ static uint32_t exesx_gpioa_external_input_mask(void)
         &cached, &next_read_ns, &initialized);
 }
 
+/*
+ * Model the *external* PORT pin input edges while the original M4 sleeps
+ * in RTOS flag wait. PDIR read interception alone is insufficient: the
+ * CPU cannot notice a newly closed contact without a hardware IRQ.
+ * PORT PCR.IRQC and ISFR remain the authoritative interrupt source.
+ */
+static void exesx_m4_port_tick(void *opaque)
+{
+    EXeSXProfileWindow *port = opaque;
+    EXeSXState *b = port->board;
+    EXeSXProfileWindow *gpio = port->base == 0x4103f000 ?
+                               b->m4_gpio_a : b->m4_gpio_b;
+    uint32_t external, levels, pddr;
+    if (gpio) {
+        external = port->base == 0x4103f000 ?
+                   exesx_gpioa_external_input_mask() :
+                   exesx_gpiob_external_input_mask();
+        external = exesx_m4_keyboard_column_levels(gpio, external);
+        pddr = gpio->regfile[0x14 / 4];
+        levels = (gpio->regfile[0] & pddr) | (external & ~pddr);
+        exesx_m4_port_observe_inputs(port, levels);
+    }
+    timer_mod(port->m4_port_poll_timer,
+              qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + INT64_C(20000000));
+}
+
 static bool exesx_imx7ulp_kind(const char *kind)
 {
     return g_strcmp0(kind, "imx7ulp-pcc") == 0 ||
