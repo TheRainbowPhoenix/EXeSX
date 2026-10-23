@@ -8,7 +8,8 @@ import sys
 import time
 
 root = Path(__file__).resolve().parents[1]
-qemu = root / "build/qemu-system-arm"
+qemu = Path(os.environ.get("EXESX_QEMU", str(root / "build" /
+            ("qemu-system-arm.exe" if os.name == "nt" else "qemu-system-arm"))))
 elf = root / "build/cp15-probe.elf"
 cmd = [str(qemu), "-machine", "exesx", "-m", "64M", "-accel", "tcg",
        "-display", "none", "-serial", "none", "-monitor", "stdio",

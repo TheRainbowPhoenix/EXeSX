@@ -1,0 +1,90 @@
+name: Build and smoke-test EXeSX QEMU for Windows
+on:
+  push:
+    branches: [main, test/dy357-dma1-boot-20261022]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: exesx-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-qemu:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            base-devel git
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-glib2
+            mingw-w64-x86_64-pixman
+            mingw-w64-x86_64-dtc
+            mingw-w64-x86_64-zlib
+            mingw-w64-x86_64-meson
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-python
+            mingw-w64-x86_64-python-setuptools
+      - name: Build pinned QEMU with EXeSX board
+        shell: msys2 {0}
+        env:
+          JOBS: '4'
+        run: bash scripts/build_windows.sh
+      - name: Bundle executable and recursive MinGW DLL dependencies
+        shell: msys2 {0}
+        run: |
+          python scripts/bundle_windows.py --prefix "$(cygpath -m /mingw64)"
+          pacman -Q > dist/exesx-qemu-windows-x86_64/BUILD-PACKAGES.txt
+          git rev-parse HEAD > dist/exesx-qemu-windows-x86_64/SOURCE_COMMIT
+      - name: Execute ARM probes with Windows Python and no MSYS2 on PATH
+        shell: pwsh
+        run: |
+          $pythonExe = Join-Path $env:pythonLocation 'python.exe'
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+          $qemu = (Resolve-Path 'dist/exesx-qemu-windows-x86_64/qemu-system-arm.exe').Path
+          & $qemu --version
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & $pythonExe scripts/make_probe.py build/cp15-probe.elf
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $env:EXESX_QEMU = $qemu
+          & $pythonExe scripts/test_qemu.py
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          foreach ($probe in @('probe_imx7ulp.py', 'probe_dma1_memcpy.py', 'probe_lpit1_irq.py', 'probe_lcd_screenshot.py')) {
+            & $pythonExe "scripts/$probe" --qemu $qemu --profile profiles/imx7ulp-early-boot.ini
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          }
+      - name: Archive tested Windows distribution
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist/exesx-qemu-windows-x86_64 -DestinationPath dist/exesx-qemu-windows-x86_64.zip
+          $hash = (Get-FileHash dist/exesx-qemu-windows-x86_64.zip -Algorithm SHA256).Hash.ToLower()
+          "$hash  exesx-qemu-windows-x86_64.zip" | Set-Content dist/SHA256SUMS-windows -Encoding ascii
+      - uses: actions/upload-artifact@v4
+        with:
+          name: exesx-qemu-windows-x86_64-${{ github.sha }}
+          path: |
+            dist/exesx-qemu-windows-x86_64.zip
+            dist/SHA256SUMS-windows
+          if-no-files-found: error
+      - name: Upload configure and build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exesx-windows-logs-${{ github.run_id }}
+          path: |
+            build/meson-logs/meson-log.txt
+            build/config.log
+            build/config-host.mak
+          if-no-files-found: ignore
