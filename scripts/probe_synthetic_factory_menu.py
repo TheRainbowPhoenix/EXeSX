@@ -40,6 +40,7 @@ def run(args):
     env.update(EXESX_MEMORY_PROFILE=str(profile),
                EXESX_EXPERIMENTAL_M4_BOOT="1",EXESX_EXPERIMENTAL_MU_IRQ="1",
                EXESX_EXPERIMENTAL_LPIT1_IRQ="1",
+               EXESX_EXPERIMENTAL_LPTMR_IRQ="1" if args.lptmr_irq else "0",
                EXESX_I2C4B_REGISTER_MIRROR="1",EXESX_I2C40_REGISTER_MIRROR="1",
                EXESX_SNVS_DIAGNOSTIC_SECURITY_PULSES="1",
                EXESX_USDHC1_EMMC="1",EXESX_EXPERIMENTAL_LCD="1",
@@ -161,6 +162,7 @@ def run(args):
 
 if __name__=="__main__":
     ap=argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--lptmr-irq",action="store_true",help="Opt-in M4 LPTMR0/1 NVIC compare interrupts")
     ap.add_argument("--qemu",type=Path,default=Path("build/qemu-system-arm"))
     ap.add_argument("--output-dir",type=Path,default=Path("private/factory-menu"))
     ap.add_argument("--seconds",type=float,default=15)
