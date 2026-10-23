@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Real ARM MMIO / virtual-time PCTLA IRQ56 from an external GPIO pin edge.
 
-No Casio ROM. Synthetic ARM enables PORTA.PCR[23] IRQC=0xb, host
+No Casio ROM. Synthetic ARM uses original PORTA.GICHR global write to enable IRQC=0xb on A23, host
 toggles M4 PTA23 electrically. Checks PORTA.ISFR and M4 NVIC IRQ56;
 negative controls prove no automatic interrupt with IRQC=0 or bridge off.
 """
@@ -30,8 +30,10 @@ def synthetic_arm(irqc):
     def lit(reg,value):
         literals.append((len(words),reg,value));words.append(0)
     lit(0,PORTA)
-    lit(1,irqc<<16)
-    words.append(0xe5801000 | (PIN*4))  # STR r1,[r0,#PCR23]
+    # Original M4 GICHR bulk write configures A18, A19, A23, A31.
+    # QEMU must expand GIWD (top 16) to the selected PCR interrupt modes.
+    lit(1,(irqc<<16)|0x808c)
+    words.append(0xe580108c)  # STR r1,[r0,#PORTA.GICHR]
     words.append(0xeafffffe)
     pool=len(words)
     for n,(pos,reg,value) in enumerate(literals):
@@ -101,6 +103,10 @@ def experiment(qemu,profile,bridge,irqc):
                     # Let ARM program PCR and QEMU establish idle high sample.
                     time.sleep(.35)
                     initial=memory(ISFR)
+                    pcr=memory(PORTA+PIN*4)
+                    if ((pcr >> 16) & 15) != irqc:
+                        raise AssertionError(
+                            f"Original GICHR bulk write failed: PCR23={pcr:#x} IRQC={irqc}")
                     if initial & (1<<PIN):
                         raise AssertionError(f"Spurious initial IRQ {initial:#x}")
                     new=folder/"new-input.txt"
