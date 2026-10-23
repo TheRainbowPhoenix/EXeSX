@@ -25,3 +25,37 @@ class HmpMemoryTests(unittest.TestCase):
     def test_missing_word_fails_with_address(self):
         with self.assertRaisesRegex(AssertionError, '0x62002004'):
             hmp_memory.memory_words('62002000: 0x1\n', 0x62002000, 2)
+
+
+    def test_qmp_survives_heavy_child_diagnostics(self):
+        # A noisy fake QEMU produces >256 KiB of output BEFORE answering its
+        # first QMP command. Using an unread subprocess.PIPE would deadlock.
+        fake_qemu = r'''
+import json
+import re
+import socket
+import sys
+arg = sys.argv[sys.argv.index("-qmp") + 1]
+port = int(re.search(r":(\d+),server=on", arg).group(1))
+with socket.socket() as listener:
+    listener.bind(("127.0.0.1", port))
+    listener.listen(1)
+    with listener.accept()[0] as conn:
+        conn.sendall((json.dumps({"QMP": {"version": {}, "capabilities": []}}) + "\n").encode())
+        with conn.makefile("rb") as incoming:
+            for line in incoming:
+                request = json.loads(line)
+                # Real EXeSX QEMU emits large diagnostic profile logs.
+                sys.stdout.write("early board diagnostics\n" * 16000)
+                sys.stdout.flush()
+                name = request["execute"]
+                result = ("62002000: 0x00000010 0x00000020\n" if
+                          name == "human-monitor-command" else {})
+                conn.sendall((json.dumps({"return": result}) + "\n").encode())
+                if name == "human-monitor-command":
+                    break
+'''
+        values = hmp_memory.qmp_memory_words(
+            [sys.executable, "-u", "-c", fake_qemu, "-monitor", "stdio"],
+            os.environ.copy(), 0x62002000, 2, delay=0.01)
+        self.assertEqual(values, [0x10, 0x20])
