@@ -117,15 +117,17 @@ def experiment(qemu,profile,bridge,irqc):
                     # M-profile SCS is not an A7 monitor-visible MMIO window.
                     call("stop")
                     status=memory(ISFR)
+                    pdir=memory(0x4100f010)
+                    pddr=memory(0x4100f014)
                     rsp=RSP(g);rsp.command("?")
                     assert rsp.command("Hg2")=="OK"
                     pending=rsp.memory(NVIC_PENDING_1,4)
                     if pending is None:
                         raise AssertionError("Could not inspect Cortex-M4 NVIC")
-                    expected=(1<<PIN) if bridge and irqc==11 else 0
+                    expected=(1<<PIN) if bridge and irqc==8 else 0
                     if status & (1<<PIN)!=expected:
                         raise AssertionError(f"PORTA IRQ bridge={bridge} IRQC={irqc} "
-                                             f"ISFR={status:#x}, expected bit={expected:#x}")
+                                             f"ISFR={status:#x}, PDIR={pdir:#x}, PDDR={pddr:#x}, expected bit={expected:#x}")
                     nv_expected=(1<<(56-32)) if bridge and irqc==11 else 0
                     if pending & (1<<(56-32))!=nv_expected:
                         raise AssertionError(f"M4 NVIC IRQ56 bridge={bridge}, "
@@ -143,7 +145,7 @@ def main():
     ap.add_argument("--profile",type=Path,
                     default=Path("profiles/imx7ulp-early-boot.ini"))
     args=ap.parse_args()
-    for enabled,irqc in ((False,11),(True,0),(True,11)):
+    for enabled,irqc in ((False,8),(True,0),(True,8)):
         experiment(args.qemu,args.profile,enabled,irqc)
     print("PASS physical M4 PORTA pin edge -> PCR.ISF/ISFR -> NVIC IRQ56; no forged RTOS flag")
 
