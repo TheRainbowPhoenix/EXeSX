@@ -113,9 +113,17 @@ static MemTxResult exesx_port_write(EXeSXProfileWindow *w, hwaddr off,
         w->regfile[off / 4] = (bits & ~UINT32_C(0x01000000)) |
             (w->regfile[off / 4] & UINT32_C(0x01000000) &
              ~bits);
+        if (bits & UINT32_C(0x01000000)) {
+            w->regfile[0xa0 / 4] &= ~(UINT32_C(1) << (off / 4));
+        }
     } else if (off == 0xa0) {
         /* ISFR is a bitmap of sticky pin flags, write-one-to-clear. */
         w->regfile[off / 4] &= ~bits;
+        for (unsigned pin = 0; pin < 32; pin++) {
+            if (bits & (UINT32_C(1) << pin)) {
+                w->regfile[pin] &= ~UINT32_C(0x01000000);
+            }
+        }
     } else if (off == 0x80 || off == 0x84) {
         /* Global pin write data GPWD applied to pins selected by GPWE. */
         unsigned n;
