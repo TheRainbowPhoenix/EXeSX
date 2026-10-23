@@ -196,3 +196,95 @@ nonzero M4 RTOS object10 bit0, M4 row scan,
 and actual A7 type2/subtype1 key-down records.
 No menu-entry claim follows merely from positive
 synthetic ARM peripheral tests.
+
+## Verified original-ROM end-to-end Port A IRQ -> RTOS scanner wake
+
+The EXeSX QEMU **native Linux compiler artifact** built from
+`a5adf1613263d7d5858217e69333935073d25396` was
+run against the **unchanged original OSUP**, original
+source-derived synthetic eMMC, experimental M4/MU/LPIT/LPTMR,
+and opt-in `EXESX_EXPERIMENTAL_M4_PORT_IRQ=1`.
+The experiment used real GDB instruction breakpoints and
+a **write watchpoint**, but **never** wrote guest registers,
+RAM, or event queues to force a response.
+
+The cold-boot trace actually hit, in order:
+
+| Original firmware PC/event | Observed guest hardware/response |
+|---|---|
+| `0x1FFD7D2E` M4 PCTLA IRQ handler | `PORTA.PCR23=PCR31=0x01080000`; `ISFR=0x808C6008`; NVIC IRQ56 pending |
+| `0x1FFD530C` original RTOS flag write | Bit0 became **1** on event object10 `0x1FFF4F08` |
+| `0x1FFD7B1A` keyboard worker waits | Object10/MASK7; bit0 pending |
+| `0x1FFD6B48` original RTOS consumes flags | Event bit0 consumed/reset |
+| `0x1FFD7B28` bitfield return | Original task resumed from wait |
+| `0x1FFD7B2E` bit0 dispatcher | Original code branches into keyboard scan task |
+| `0x1FFD7FB0` keyboard task | Real M4 entry |
+| `0x1FFD8634` matrix scanner | Original 9×8 scan executed |
+
+**This proves** that previously missing PORT.GICLR/GICHR semantics
+and IRQ56 hardware were the root cause of the absent **M4 task wakeup**.
+No fabricated RTOS flag was needed. The owner-private cold run's
+full watchpoint data and firmware dumps are not in GitHub.
+
+### New independent gate: M4 keyboard state 2 / debounce timer
+
+A subsequent original-firmware A7 trace observed
+`0x60010898` return `1`, then `0` after changing
+only M4 external input voltages, reaching `0x600108A8`.
+A fresh `version-event-wait` QCOW2 snapshot, successfully
+restored with the fixed QEMU, showed the original M4 keyboard
+state at **`0x1FFEA320=2`**.
+Python drove actual row-gated physical contact files
+`0x93,0x93,0x94`, but the A7 at `0x600108CC`
+received only **ten timeout-class (status=5/type=0)
+records** and no genuine type2/subtype1 key-down.
+
+This is now understandable from disassembly: the bit0 handler
+`0x1FFD7FB0` reads `g_m4_keyboard_scan_state`
+at `0x1FFD7FB8`, then at `0x1FFD7FBA/BC`
+**skips the full 9×8 scan if state != 0**. The state2
+path is in the **separate bit2 callback
+`0x1FFD8088`**, which checks for state2 at
+`0x1FFD8090` and calls the M4 column scanner
+`0x1FFD8564` at `0x1FFD809E`. The known
+`0x1FFD7D5A` routine posts RTOS object10 **bit2=0x4**
+(or takes a direct state-dependent callback).
+A source of that *recurring* bit2 event is not yet
+verified. Thus additional IRQ56/bit0 alone cannot
+complete key debounce once state2 is entered.
+
+The cold-boot original state was initialized with
+GPIOA input mask=0, which leaves IRQ-enabled keyboard
+columns low and can create an early *apparent held key*
+before the A7 version dialog; this is a candidate
+reason the M4 subsequently entered state2.
+The actual physical board's pull-up/wake input levels
+are not independently verified. A separate attempted
+cold boot with all GPIOA keyboard columns initially high,
+GPIOB6 still low, did **not** reach the same BIOS
+version-dialog checkpoint within the bounded run.
+Do not claim that hardcoding pull-ups reproduces
+authentic board boot behavior.
+
+**Additional suggested Ghidra renames / comments:**
+
+| Address | Suggested name | Evidence |
+| --- | --- | --- |
+| `0x1FFD7FB8` | `M4_KeyboardScanState_Read` | `LDR R0,[R4]` |
+| `0x1FFD7FBC` | `M4_KeyboardSkipBit0ScanIfDebouncing` | `BNE 0x1FFD8002` |
+| `0x1FFD8088` | `M4_KeyboardBit2StateMachine` | Checks state2/3 and samples columns |
+| `0x1FFD809E` | `M4_KeyboardState2_ResampleColumn` | `BL 0x1FFD8564` |
+| `0x1FFD7D5A` | `M4_KeyboardPostBit2Event` | `R0=10,R1=4 -> 0x1FFD53BA` |
+| `0x4103F088` | `M4_PORTA_GICLR_KeyboardIRQC8` | Original guest write `0x00086008` |
+| `0x4103F08C` | `M4_PORTA_GICHR_KeyboardIRQC8` | Original guest write `0x0008808C` |
+
+The path toward real A7 key events is now **a specific
+mode-2 debounce/RTOS bit2 scheduling problem**, not
+an unimplemented electrical key matrix or missing
+PCTLA IRQ56. Investigate the producer/cadence of
+`0x1FFD7D5A` and any M4 scheduler timer that
+should invoke it; verify real `0x1FFD8088` and
+`0x1FFD8564` execution after a held contact.
+The BIOS TEST MENU has still **not** been reached
+through real keyboard events, and synthetic
+key-response injection remains separate.
