@@ -93,7 +93,7 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           & $pythonExe scripts/test_qemu.py
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          foreach ($probe in @('probe_imx7ulp.py', 'probe_dma1_memcpy.py', 'probe_lpit1_irq.py', 'probe_lcd_screenshot.py', 'probe_lcd_landscape.py', 'probe_gpioa_input.py', 'probe_gpioa_live_input.py')) {
+          foreach ($probe in @('probe_imx7ulp.py', 'probe_dma1_memcpy.py', 'probe_lpit1_irq.py', 'probe_lcd_screenshot.py', 'probe_lcd_landscape.py', 'probe_gpioa_input.py', 'probe_gpioa_live_input.py', 'probe_factory_snapshot.py')) {
             & $pythonExe "scripts/$probe" --qemu $qemu --profile profiles/imx7ulp-early-boot.ini
             if ($LASTEXITCODE) { exit $LASTEXITCODE }
           }
