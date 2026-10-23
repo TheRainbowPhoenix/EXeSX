@@ -1,6 +1,8 @@
 import importlib.util
 from pathlib import Path
 import unittest
+import os
+import sys
 
 SPEC = importlib.util.spec_from_file_location(
     'hmp_memory', Path(__file__).resolve().parents[1] / 'scripts/hmp_memory.py')
