@@ -271,3 +271,59 @@ QMP memory sample cannot prove payload
 delivery solely from type2 in M4 SRAM.
 Do not bypass firmware waits, patch the
 A7 event loop, or manually post a mailbox.
+
+## Confirmed passive M4 MU TX / A7 MU RX hardware handshakes
+
+A source-controlled opt-in **read-only MU transaction trace**
+(`EXESX_TRACE_MU_MAILBOX=1`) was added to the EXeSX
+MU register device; it logs TX acceptance/busy and
+matching RR read/TE release but **does not change MU
+status, guest memory, IRQ, clock or payload semantics**.
+`scripts/drive_physical_menu_qmp.py --mailbox-trace`
+turns on that targeted logging without GDB or
+large intrusive CPU-TB instruction tracing.
+
+The native Linux QEMU compiler artifact from
+`ce48881ba48385c048dda0c787391fbc077f4410`
+was run against the unchanged owner-private OSUP
+checkpoint using only three genuine host
+matrix contacts and the explicitly diagnostic
+48MHz TPM0 source. A bounded **1.0s**
+run recorded **13 M4 TR3 accepted writes and
+13 matching A7 RR3 reads**, plus **4 M4 TR0
+accepted writes and 4 matching A7 RR0 reads**.
+Every observed TX word in those channels was
+`0x00000000` with peer enabled; an A7 read
+showed `rf_before=1` and `peer_te_before=0`
+before the model's natural acknowledgement.
+There were no observed busy/dropped TX attempts
+in this sample. The original M4 key queue also
+contained genuine type2/subtype1 0x93 and 0x94
+records during this run.
+
+**This is positive evidence of real M4→A7
+MU signaling and original A7 hardware
+acknowledgement.** Zero-valued MU words may
+represent a shared-memory *doorbell*, not the
+keyboard record payload; matching MU TX/RX
+does **not** by itself prove the actual keycode
+reached A7 `FUN_60009FB0`. QEMU MMIO trace
+output must remain local/private. Passive
+logging can alter host timing; do not
+infer event-to-event physical latencies
+from a logged run.
+
+Current remaining *specific* verification:
+original M4 keyboard slot
+`0x1FFEA34C` →
+`FUN_1FFD838A` dequeue →
+`FUN_1FFD874A` keyboard IPC routing →
+`FUN_1FFDE672` envelope →
+`FUN_1FFDE74A` queue →
+MU notification TR0/TR3 →
+shared RAM payload →
+A7 RTOS event `FUN_60009FB0`
+with original copied `type2/subtype1,0x93/0x94`.
+The authentic original BIOS
+`0x6003A878` factory menu has
+still **NOT been observed**.
