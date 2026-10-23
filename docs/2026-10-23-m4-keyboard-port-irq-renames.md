@@ -288,3 +288,99 @@ should invoke it; verify real `0x1FFD8088` and
 The BIOS TEST MENU has still **not** been reached
 through real keyboard events, and synthetic
 key-response injection remains separate.
+
+## Original-ROM validation: PCTLA IRQ56 really posts bit0 and wakes the scanner
+
+A native Linux QEMU compiler artifact at commit `a5adf1613263d7d5858217e69333935073d25396`
+was run against the **unchanged** owner-held original OSUP, private
+source-derived synthetic eMMC, and experimental M4/MU/LPIT/LPTMR/PORT
+devices. Only hardware input masks changed; no debugger ROM/RAM patch,
+forced IRQ, fake RTOS event, or fabricated key response.
+
+A real original-M4 GDB **write watchpoint** at event object10
+`0x1FFF4F08` and genuine execution breakpoints established:
+
+| Original M4 address | Genuine execution evidence |
+|---|---|
+| `0x1FFD7D2E` | PCTLA IRQ56 handler entered, with `PORTA.PCR23=PCR31=0x01080000`, `PORTA.ISFR=0x808C6008` |
+| `0x1FFD530C` | Actual RTOS flag store changed object10 bit0 at `0x1FFF4F08` from 0 to 1 |
+| `0x1FFD7B1A` | Original worker waiting on event object10 mask7 |
+| `0x1FFD6B48` | Original RTOS consumed/reset pending bit0 |
+| `0x1FFD7B28` | Original keyboard worker returned from flag wait |
+| `0x1FFD7B2E` | Original event-bit0 keyboard dispatcher taken |
+| `0x1FFD7FB0` | Entered keyboard scan-state helper |
+| `0x1FFD8634` | Original complete 9×8 keyboard scanner executed |
+
+**The missing GICLR/GICHR expansion and PCTLA IRQ56 were conclusively
+blocking the original scanner wakeup.** They were not merely potential
+dependencies. This trace was captured with the original firmware and
+a watchpoint, not with an artificial `0x1FFF4F08` write.
+
+### Separate remaining M4 debounce-state gate, not another missing bit0
+
+At the actual A7 version-dialog event wait `0x600108A8`,
+a fresh private QCOW2 checkpoint `version-event-wait` was
+saved/restored with the corrected emulator. The original M4
+scan-state global **`0x1FFEA320=2`**, whereas
+the beginning of a cold run showed scan-state 0.
+A complete Python matrix-contact sequence `0x93, 0x93, 0x94`
+from the real checkpoint caused **ten** A7 event
+records at `0x600108CC` with
+`status=5, event_type=0, event_subtype=0` — **no**
+authentic key-down type2/subtype1 event and no BIOS menu.
+Both slower and shorter contact timings were tested.
+The private VM state and raw guest event buffers remain private.
+
+Static original Thumb instructions explain the
+later missing full-scan hits: `0x1FFD7FB8` loads the
+global state at `0x1FFEA320`, and
+`0x1FFD7FBA/BC` **skips full matrix scanning
+when state != 0**. In contrast, the separate
+event-bit2 handler at **`0x1FFD8088`** checks
+for state **2** at `0x1FFD8090`, then
+calls the original input-column sampler
+`0x1FFD8564` at `0x1FFD809E`.
+Original `0x1FFD7D5A` posts **RTOS event bit2
+(mask 0x4)** to object10 via `0x1FFD53BA`
+depending on global conditions. The
+**producer/cadence of this bit2 callback is not
+yet verified by a runtime breakpoint**. By contrast
+original `0x1FFD7FA0` appears to post mask0x2,
+which is *event bit1*, not bit2.
+
+The original M4 state2 may reflect an **early
+phantom held key**: with GPIOA external input mask=0
+at cold start, the newly correctly armed IRQ-on-low
+keyboard columns are all low, driving IRQ56 before
+board input-voltage files are raised. The physical
+DY357 board's electrical pull-up state is not
+independently established. A controlled all-high
+cold-start variant followed a different early BIOS
+path without reaching the same checkpoint within
+the run; therefore blindly forcing board-wide
+pull-ups is **not a validated fix**.
+
+Additional high-value suggested Ghidra renames:
+
+| Address | Suggested name / annotation | Confidence |
+|---|---|---|
+| `0x1FFD530C` | `M4_RTOS_EventFlagWordStore` | Confirmed: watched write of bit0 |
+| `0x1FFD6B48` | `M4_RTOS_ConsumeEventFlags` | Confirmed: watched bit0 consumption |
+| `0x1FFD7FB8` | `M4_KeyboardScanState_Read` | Confirmed original LDR |
+| `0x1FFD7FBC` | `M4_SkipFullScanWhenDebouncing` | Confirmed original state!=0 branch |
+| `0x1FFD8088` | `M4_KeyboardEventBit2_StateMachine` | Static confirmed state branch; exact callback scheduling uncertain |
+| `0x1FFD8090` | `M4_KeyboardCheckDebounceState2` | Confirmed state==2 compare |
+| `0x1FFD809E` | `M4_KeyboardDebounce_ResampleColumnCall` | Confirmed original BL |
+| `0x1FFD7D5A` | `M4_PostKeyboardEventBit2` | Static call with object10 mask4; producer not verified |
+| `0x1FFD7FA0` | `M4_PostKeyboardEventBit1Timer` | Likely: object10 mask2 callback; distinct from bit2 |
+| `0x1FFEA320` | `g_m4_keyboard_scan_debounce_state` | Confirmed live state2; semantic significance evidenced by branch |
+
+**Next decisive experiment:** put genuine M4 breakpoints at
+`0x1FFD7D5A`, `0x1FFD8088`, `0x1FFD809E`,
+and the actual event-flag writer on original
+`0x1FFF4F08`, then identify which peripheral or
+RTOS software timer dispatches the state2 bit2 event.
+Run shorter physical contact pulses only after restoring a
+validated checkpoint. Do not force state2 back to zero,
+inject an RTOS flag, or claim a working TEST MENU until
+original A7 event type2/subtype1 is received.
