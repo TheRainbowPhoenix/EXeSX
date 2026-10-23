@@ -360,6 +360,11 @@ static MemTxResult exesx_imx7ulp_read(EXeSXProfileWindow *w,
                 exesx_gpioa_external_input_mask() :
                 w->base == UINT64_C(0x4100f040) ?
                 exesx_gpiob_external_input_mask() : 0;
+            if (w->base == UINT64_C(0x4100f000) ||
+                w->base == UINT64_C(0x4100f040)) {
+                external_inputs = exesx_m4_keyboard_column_levels(
+                    w, external_inputs);
+            }
             if (w->base == UINT64_C(0x400f00c0) &&
                 exesx_lcd_te_high(w->board)) {
                 external_inputs |= 1U << 13;
@@ -568,7 +573,10 @@ static MemTxResult exesx_imx7ulp_write(EXeSXProfileWindow *w,
         switch (off) {
         case 0x00: w->regfile[0] = bits; break;
         case 0x04: w->regfile[0] |= bits; break; /* PSOR */
-        case 0x08: w->regfile[0] &= ~bits; break; /* PCOR */
+        case 0x08:
+            w->regfile[0] &= ~bits; /* PCOR */
+            exesx_m4_keyboard_row_drive(w->board, w->base, bits);
+            break;
         case 0x0c: w->regfile[0] ^= bits; break; /* PTOR */
         case 0x14: w->regfile[index] = bits; break; /* PDDR */
         default: return MEMTX_ERROR;
