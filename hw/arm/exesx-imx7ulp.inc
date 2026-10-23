@@ -36,9 +36,13 @@
  * to set A7 boot-gate word 0x2f029284 (0xffffffff or 0). The real Casio
  * board's attached signal and active polarity are still unverified.
  */
-static uint32_t exesx_gpiob_external_input_mask(void)
+/* The firmware-free diagnostic permits board input levels only on
+ * pins configured as GPIO inputs. PDOR/PDDR output state always wins.
+ * This does not infer actual DY357 pull-ups or keyboard matrix wiring.
+ */
+static uint32_t exesx_external_gpio_input_mask(const char *name)
 {
-    const char *source = g_getenv("EXESX_GPIOB_INPUT_MASK");
+    const char *source = g_getenv(name);
     char *end;
     uint64_t value;
     if (!source || !*source) {
@@ -46,10 +50,20 @@ static uint32_t exesx_gpiob_external_input_mask(void)
     }
     value = g_ascii_strtoull(source, &end, 0);
     if (*end != '\0' || value > UINT32_MAX) {
-        error_report("EXeSX EXESX_GPIOB_INPUT_MASK invalid (expect 0..0xffffffff)");
+        error_report("EXeSX %s invalid (expect 0..0xffffffff)", name);
         exit(1);
     }
     return (uint32_t)value;
+}
+
+static uint32_t exesx_gpiob_external_input_mask(void)
+{
+    return exesx_external_gpio_input_mask("EXESX_GPIOB_INPUT_MASK");
+}
+
+static uint32_t exesx_gpioa_external_input_mask(void)
+{
+    return exesx_external_gpio_input_mask("EXESX_GPIOA_INPUT_MASK");
 }
 
 static bool exesx_imx7ulp_kind(const char *kind)
@@ -288,6 +302,8 @@ static MemTxResult exesx_imx7ulp_read(EXeSXProfileWindow *w,
             uint32_t output_direction = w->regfile[0x14 / 4];
             uint32_t output_levels = w->regfile[0] & output_direction;
             uint32_t external_inputs =
+                w->base == UINT64_C(0x4100f000) ?
+                exesx_gpioa_external_input_mask() :
                 w->base == UINT64_C(0x4100f040) ?
                 exesx_gpiob_external_input_mask() : 0;
             if (w->base == UINT64_C(0x400f00c0) &&
