@@ -252,3 +252,73 @@ Additional precise Ghidra symbols:
 | `0x1FFD89A0` | `m4_iomuxc0_base_literal` | Original `0x4103D000` |
 | `0x4103D054` | `M4_IOMUXC0_PTA21` | Original row8 (logical key 0x93) |
 | `0x4103D044` | `M4_IOMUXC0_PTA17` | Original row6 (logical key 0x94) |
+
+## Unchanged original M4 **genuine 0x93 key-down produced** after IOMUX correction
+
+The native Linux QEMU compiled from the source containing the
+serialized row-IOMUX gating change (Linux compiler artifact from
+Actions run `40035234331`) was run locally against the same
+**unchanged original OSUP.BIN**, restored from the private
+`version-event-wait` checkpoint, with host-controlled
+`EXESX_M4_KEY_MATRIX_FILE`,
+`EXESX_EXPERIMENTAL_M4_PORT_IRQ=1`,
+`EXESX_EXPERIMENTAL_M4_TPM0_IRQ=1` and the original
+firmware's LPIT/LPTMR/MU paths enabled.
+
+A one-shot read-only M4 GDB breakpoint at the *original*
+`FUN_1FFD8200` (original key-event builder) observed
+`R0=1` (key-down subtype), `R1=0x1FFEA334`
+(current selected key entry), and the source row/column
+bytes **`07 08`** (column 7, row 8).
+At the original queued-event function
+**`FUN_1FFD82D8`**, the genuine M4 frame
+began with these literal **observed data values**:
+`02 00 01 00 00 00 00 00 93 00 ...`.
+Thus **type=2, subtype=1, keycode=0x0093**.
+The GDB monitor only read these values and
+resumed execution; no guest register, memory, RTOS flag
+or IPC result was overwritten or synthesized.
+
+A control run before the IOMUX correction on identical
+OSUP/snapshot/host input had produced **row1, col7**
+and event code **`0xC5`**.
+After the change, **row8, col7** and code
+**`0x93`** were observed. Both codes match the
+original `0x1FFD0E14` 9×8 table. This is genuine
+original-M4 keyboard key-down construction, not
+merely a synthetic ARM GPIO regression.
+
+**Still not the menu:** in that run the original
+A7 hit `0x60010974`, its **normal version-dialog
+exit**, at approximately **0.25 host seconds**,
+*before* the M4 first built the intended key event
+at ~0.47s and queued it at ~0.82s with debugger
+observation overhead. Hence no A7
+`0x93,0x93,0x94` diagnostic entry nor
+`0x6003A878` factory TEST MENU executed.
+These host-time observations are not calibrated
+hardware times: debugger stop/resume overhead and
+the current experimental RTOS timer rates can change
+their relationship.
+
+The independent next gate is **A7/M4 event
+delivery timing and queue consumption before the
+BIOS's ten status5 timeout events dismiss the
+version dialog**. Trace original M4
+`FUN_1FFD874A` (keyboard event dispatch),
+its `FUN_1FFDE672`/`FUN_1FFDE678` service
+transport and A7 `FUN_60009FB0` returned
+records while preserving the unchanged firmware.
+Do **not** claim the menu is reached, change the
+original A7 timeout counter, or inject direct
+keyboard messages.
+
+Additional high-confidence Ghidra renames:
+
+| Address | Suggested label | Grounding |
+|---|---|---|
+| `0x1FFD8200` | `M4_BuildKeyDownOrUpEvent` | Original M4 called with subtype1 and selected 0x93 |
+| `0x1FFD82D8` | `M4_QueueTypedKeyboardEvent` | Original queued 20-byte type2/subtype1/code0x93 message |
+| `0x1FFD874A` | `M4_ForwardKeyboardEventToMUService` | Original decomp gates and dispatches via `FUN_1FFDE672/678`, runtime delivery unproven |
+| `0x1FFEA334` | `m4_selected_keyboard_row_col` | **Runtime RAM** selected record pointed by original builder |
+| `0x1FFD0E14` | `m4_keyboard_keycode_matrix_9x8` | ROM static 16-bit lookup, row8 col7 0x93, row1 col7 0xC5 |
