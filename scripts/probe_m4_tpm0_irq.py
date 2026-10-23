@@ -67,6 +67,7 @@ def run(qemu, profile, enable, sc):
         env = os.environ.copy()
         env["EXESX_MEMORY_PROFILE"] = str(profile.resolve())
         env["EXESX_EXPERIMENTAL_M4_TPM0_IRQ"] = "1" if enable else "0"
+        env["EXESX_EXPERIMENTAL_M4_TPM0_INPUT_MHZ"] = "1"
         lib = qemu.resolve().parent / "lib"
         if lib.is_dir():
             env["LD_LIBRARY_PATH"] = str(lib) + os.pathsep + env.get("LD_LIBRARY_PATH", "")
