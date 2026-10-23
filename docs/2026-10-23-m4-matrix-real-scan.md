@@ -130,3 +130,69 @@ py -3 .\scripts\drive_factory_menu.py $osup `
 `guest_breakpoint` events. Only an observed guest
 `factory_test_menu` PC can set `factory_menu_observed=true`.
 Do not publish the QCOW2, synthetic eMMC, raw ROM-derived ELF or LCD.
+
+## Genuine original firmware snapshot experiment: still no accepted keyboard event
+
+**Distinct from the passing synthetic ARM test above**, an original
+owner-held unchanged OSUP run used the compiled Linux QEMU corresponding
+to commit `fadb83883541e319062bf277c6cc2de9c7e3c3ab` and a
+**real previously saved** QCOW2 `version-event-wait` checkpoint.
+Original A7 IPC `0x0804` was verified R0=1 before the GPIO voltage
+transition, R0=0 after, and A7 PC `0x600108A8` was reached. The
+saved checkpoint includes M4 VM state and source-derived eMMC bytes
+and was restored into a fresh QEMU process.
+
+With `EXESX_EXPERIMENTAL_LPTMR_IRQ=1` and
+`EXESX_M4_KEY_MATRIX_FILE` enabled on the restored emulator,
+the Python host drove **0x93, release, 0x93, release, 0x94,
+release** (each closed for 3 seconds, with 2-second release gaps).
+The original A7 event reader returned repeatedly, but
+the **ten observed copied records** at `0x600108CC` all had
+`local_34/status = 5`, `event_type=0`,
+`event_subtype=0`, not accepted key-down type 2 / subtype 1;
+there was **no genuine original keycode 0x93 or 0x94**.
+No authentic menu-entry PC `0x6003A878` executed.
+
+M4 LPTMR0 interrupt handler `0x1FFED3B0` was observed
+once after reload, but the original M4 scanner breakpoints
+`0x1FFD8412` / `0x1FFD8564` / `0x1FFD85C6` /
+`0x1FFD8610` did **not** fire again in the bounded
+post-checkpoint replay. This contrasts with the **separate
+cold-start** original-ROM trace, where scanner instructions
+executed early in initialization. Do **not** infer from
+the earlier trace that LPTMR0 itself always starts recurring
+scans; initial and periodic scheduling must be separated.
+
+New static Thumb reverse engineering identifies the actual
+full matrix scan caller `0x1FFD7FCA` and full scanner
+`0x1FFD8634`. Its parent `0x1FFD7FB0` reads the M4
+scan-state word at `0x1FFEA320` (literal loaded at
+`0x1FFD860C`) and bypasses scanning for certain
+nonzero states. A focused second private QEMU replay
+sampled `0x1FFEA320=0` at an M4 timer ISR, but did not
+hit **any** of these scan-task entry/call breakpoints
+after checkpoint reload; the disabled condition may be
+a task scheduler/wake dependency rather than that state
+word alone. This is bounded negative execution evidence,
+**not yet proof of a permanent scheduling failure**.
+
+The private Python driver now optionally records repeated
+M4 entries `0x1FFD7FB0`, `0x1FFD7FCA`,
+`0x1FFD8634`, the LPTMR ISR, original NVIC
+pending/enabled bits, and the M4 `0x1FFEA320`
+scan-state word with `--trace-m4`.
+Only genuine A7 copied event fields count as keys.
+A new complete cold original-firmware validation
+with the latest runtime is still required before declaring
+hardware key support or merging this experiment.
+
+### Next precise hardware target
+
+Identify **which M4 scheduler ISR or IPC mode-0x0803
+callback dispatches the task at `0x1FFD7FB0`**,
+why it does not reexecute after version-dialog checkpoint
+restore, and whether QEMU is missing a required NVIC or
+timer/RTC wakeup. Then verify actual original M4
+`0x1FFD7FCA` scan calls and A7 type=2/subtype=1 events
+for each host matrix contact. Do not fabricate a BIOS
+event or set the M4 task-state word by hand.
