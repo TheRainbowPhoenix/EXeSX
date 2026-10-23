@@ -12,7 +12,7 @@ import re
 import struct
 import subprocess
 import time
-from hmp_memory import memory_words
+from hmp_memory import memory_words, qmp_memory_words
 
 BASE = 0x60000000
 OUT = 0x6200b200
@@ -90,6 +90,8 @@ def probe(qemu, profile, elf, enabled, mask):
            "-accel", "tcg", "-display", "none", "-serial", "none",
            "-monitor", "stdio", "-no-reboot",
            "-device", f"loader,file={elf.resolve()},cpu-num=0"]
+    if os.name == "nt":
+        return qmp_memory_words(cmd, env, OUT, 3)
     guest = subprocess.Popen(cmd, env=env, stdin=subprocess.PIPE,
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                              text=True)
