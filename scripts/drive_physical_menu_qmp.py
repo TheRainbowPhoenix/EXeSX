@@ -107,6 +107,8 @@ def run(a):
                EXESX_GPIOB_INPUT_MASK_FILE=str(ptb),
                EXESX_M4_KEY_MATRIX_FILE=str(keyfile),
                EXESX_LCD_SCREENSHOT=str(dest/"physical-keys-lcd.ppm"))
+    if a.mailbox_trace:
+        env["EXESX_TRACE_MU_MAILBOX"]="1"
     qemu=a.qemu.resolve()
     if (qemu.parent/"lib").is_dir():
         env["LD_LIBRARY_PATH"]=str(qemu.parent/"lib")+os.pathsep+env.get("LD_LIBRARY_PATH","")
@@ -117,8 +119,9 @@ def run(a):
          "-device",f"loader,file={elf},cpu-num=0",
          "-S","-qmp",f"tcp:127.0.0.1:{port},server=on,wait=off"]
     trace=dest/"physical-keys-original-trace-private.log"
-    if a.trace:
-        cmd+=["-d","exec,guest_errors","-D",str(trace)]
+    if a.trace or a.mailbox_trace:
+        cmd+=["-d","exec,guest_errors" if a.trace else "guest_errors",
+              "-D",str(trace)]
     report={"mode":"physical GPIO contacts, no debugger/no event injection",
             "key_sequence":[hex(x) for x in a.keys],
             "tpm0_input_mhz_diagnostic":a.tpm0_mhz,
@@ -175,6 +178,53 @@ def run(a):
                     next_sample+=a.poll
                 worker.join(timeout=max(0,a.seconds))
                 qmp.execute("stop")
+                if a.mailbox_trace and trace.exists():
+                    # Mailbox-level evidence only. A receive clears RF and
+                    # restores peer TE; it does NOT prove keyboard semantics.
+                    tx=[]
+                    rx=[]
+                    for line in trace.read_text(errors="replace").splitlines():
+                        match=re.search(
+                            r"EXeSX MU (TX|RX) (M4|A7) (?:TR|RR)([0-3]) "
+                            r"word=0x([0-9a-fA-F]{8})", line)
+                        if not match:
+                            continue
+                        kind,cpu,chan,word=match.groups()
+                        entry={"cpu":cpu,"channel":int(chan),
+                               "word":word.lower(),"line":line}
+                        if kind=="TX":
+                            entry["accepted"]="accepted=1" in line
+                            tx.append(entry)
+                        else:
+                            entry["rf_before"]="rf_before=1" in line
+                            rx.append(entry)
+                    # Pair accepted M4 TX with subsequent A7 RF=1 reads
+                    # by channel + value, preserving order and duplicates.
+                    matched=[]
+                    outstanding=[]
+                    for line in trace.read_text(errors="replace").splitlines():
+                        match=re.search(
+                            r"EXeSX MU (TX|RX) (M4|A7) (?:TR|RR)([0-3]) "
+                            r"word=0x([0-9a-fA-F]{8})",line)
+                        if not match:
+                            continue
+                        kind,cpu,channel,word=match.groups()
+                        key=(int(channel),word.lower())
+                        if kind=="TX" and cpu=="M4" and "accepted=1" in line:
+                            outstanding.append(key)
+                        elif kind=="RX" and cpu=="A7" and "rf_before=1" in line:
+                            if key in outstanding:
+                                outstanding.remove(key)
+                                matched.append({"channel":key[0],"word":key[1]})
+                    report["mu_m4_tx_accepted"]=sum(
+                        x["cpu"]=="M4" and x["accepted"] for x in tx)
+                    report["mu_a7_rr_consumed"]=sum(
+                        x["cpu"]=="A7" and x["rf_before"] for x in rx)
+                    report["mu_m4_to_a7_words_acknowledged"]=matched
+                    report["mu_unmatched_m4_tx_words"]=len(outstanding)
+                    report["mailbox_trace_path"]=str(trace)
+                    # Do not set mu_payload_delivery_proven: MU words alone
+                    # cannot identify the original typed keyboard envelope.
                 if a.trace and trace.exists():
                     # Passive QEMU TB execution trace; CPU TB boundaries are
                     # not always identical to the original function entry.
@@ -215,6 +265,8 @@ if __name__=="__main__":
                     help="Bounded host seconds to observe original M4 state0 after each release")
     ap.add_argument("--no-wait-idle",action="store_true",
                     help="Skip QMP-confirmed release gate (may turn a second press into subtype2 repeat)")
+    ap.add_argument("--mailbox-trace",action="store_true",
+                    help="Passive MU TX/RX consumption trace, without costly guest exec trace")
     ap.add_argument("--trace",action="store_true",
                     help="Log passive guest TB execution and MU MMIO to PRIVATE file")
     ap.add_argument("--overwrite",action="store_true")
