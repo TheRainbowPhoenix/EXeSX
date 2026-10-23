@@ -180,6 +180,7 @@ def run(args):
                EXESX_EXPERIMENTAL_LPIT1_IRQ="1",
                EXESX_EXPERIMENTAL_LPTMR_IRQ="1" if args.lptmr_irq else "0",
                EXESX_EXPERIMENTAL_M4_PORT_IRQ="1" if args.port_irq else "0",
+               EXESX_EXPERIMENTAL_M4_TPM0_IRQ="1" if args.tpm0_irq else "0",
                EXESX_I2C4B_REGISTER_MIRROR="1",EXESX_I2C40_REGISTER_MIRROR="1",
                EXESX_SNVS_DIAGNOSTIC_SECURITY_PULSES="1",
                EXESX_USDHC1_EMMC="1",EXESX_EXPERIMENTAL_LCD="1",
@@ -373,6 +374,8 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("osup",type=Path,help="Original private OSUP.BIN")
     parser.add_argument("--lptmr-irq",action="store_true",help="Opt-in M4 LPTMR0/1 NVIC compare interrupts")
+    parser.add_argument("--tpm0-irq",action="store_true",
+                        help="Enable guest-register driven M4 TPM0 overflow IRQ38 for real keyboard debounce")
     parser.add_argument("--port-irq",action="store_true",help="Opt-in register-driven M4 PCTLA/PCTLB NVIC IRQ56/57 from external GPIO pin voltage changes")
     parser.add_argument("--qemu",type=Path,default=Path("build/qemu-system-arm"))
     parser.add_argument("--profile",type=Path,default=Path("profiles/imx7ulp-early-boot.ini"))
