@@ -68,7 +68,7 @@ def prepare(osup, dest):
     return elf, media, manifest
 
 
-def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin, dma1_m2m=False, handoff_probe=False, gpiob3_high=False, ipc1808_probe=False, gpioa_input_mask=0, gpiob_input_mask=None):
+def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin, dma1_m2m=False, handoff_probe=False, gpiob3_high=False, ipc1808_probe=False, gpioa_input_mask=0, gpiob_input_mask=None, ipc0804_probe=False):
     env = os.environ.copy()
     # Explicitly labeled temporary LCD-bus address sink for runs without
     # an implemented display model. It does NOT acknowledge any LCD
@@ -117,6 +117,14 @@ def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin, dma1_m2m
         cmd += ["-plugin", f"{plugin.resolve()},virtual_only=1,values=1,"
                 "max=25000,range=0xb0000000:0xb0000004,"
                 "range=0x400f0004:0x400f000c"]
+    if ipc0804_probe:
+        from probe_ipc_0804 import run_probe as trace_input_ready
+        print("PRIVATE M4 GPIO/input-ready IPC 0x0804 diagnostic; A/B masks",
+              env["EXESX_GPIOA_INPUT_MASK"], env["EXESX_GPIOB_INPUT_MASK"], flush=True)
+        report = trace_input_ready(cmd, env, seconds, dest)
+        print("IPC 0x0804 metadata:", dest / "ipc0804-summary.json",
+              "events:", len(report["events"]), flush=True)
+        return
     if ipc1808_probe:
         from probe_ipc_1808 import run_probe as trace_ipc
         print("PRIVATE A7/M4 IPC 0x1808 diagnostic; GPIOB input mask",
@@ -178,6 +186,8 @@ def main():
                     help="Research-only override for external M4 GPIOB input pins (e.g. 0xc8); supersedes --gpiob3-high")
     ap.add_argument("--gpiob3-high", action="store_true",
                     help="Diagnostic only: drive unverified M4 GPIOB PDIR bit3 HIGH (0x88 vs default 0x80)")
+    ap.add_argument("--ipc0804-probe", action="store_true",
+                    help="Private read-only original M4 IPC 0x0804 GPIO input-ready producer trace")
     ap.add_argument("--ipc1808-probe", action="store_true",
                     help="Read-only A7/M4 shared-slot response provenance trace for service 0x1808")
     ap.add_argument("--handoff-probe",action="store_true",
@@ -189,8 +199,8 @@ def main():
     if a.seconds <= 0: ap.error("--seconds must be positive")
     if not 0 <= a.gpioa_input_mask <= 0xffffffff or (a.gpiob_input_mask is not None and not 0 <= a.gpiob_input_mask <= 0xffffffff):
         ap.error("GPIO input masks must fit in unsigned 32-bit register")
-    if a.handoff_probe and a.ipc1808_probe:
-        ap.error("Use only one of --handoff-probe and --ipc1808-probe")
+    if sum((a.handoff_probe, a.ipc1808_probe, a.ipc0804_probe)) > 1:
+        ap.error("Use only one GDB probe option at a time")
     elf,media,manifest=prepare(a.osup,a.output_dir)
     print(json.dumps(manifest,indent=2))
     if not a.prepare_only:
@@ -212,7 +222,7 @@ def main():
                            cwd=root, check=True)
         launch(a.qemu,elf,media,a.profile,a.output_dir,a.seconds,
                a.lcd_trace,a.plugin,a.dma1_m2m,a.handoff_probe,
-               a.gpiob3_high,a.ipc1808_probe,a.gpioa_input_mask,a.gpiob_input_mask)
+               a.gpiob3_high,a.ipc1808_probe,a.gpioa_input_mask,a.gpiob_input_mask,a.ipc0804_probe)
 
 
 if __name__=="__main__":
