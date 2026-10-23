@@ -196,3 +196,55 @@ timer/RTC wakeup. Then verify actual original M4
 `0x1FFD7FCA` scan calls and A7 type=2/subtype=1 events
 for each host matrix contact. Do not fabricate a BIOS
 event or set the M4 task-state word by hand.
+
+### Original ROM RTOS keyboard-dispatch chain (new static and dynamic evidence)
+
+The M4 Thumb original-code caller of the full scanner was recovered
+by decoding all original M4 BL instructions, independently of the
+QEMU keyboard model. Only caller of `0x1FFD7FB0` within the
+original relocated image is **`0x1FFD7B2E`**. The full scanner
+`0x1FFD8634` is called at **`0x1FFD7FCA`**.
+
+The original M4 code at `0x1FFD7B0C` enters a loop that sets
+`R0=10, R1=7, R2=1, R3=SP+4` then calls an original RTOS
+event wait at **`0x1FFD7B1A`**; it loops when the request
+fails. On success the saved event bitfield at `[SP+4]`
+controls three different callback branches:
+- **bit 0** → `0x1FFD7B2E` → `0x1FFD7FB0`,
+  dispatching the keyboard scan path;
+- bit 1 → another M4 service;
+- bit 2 → a further M4 service.
+
+The original `0x1FFD7FB0` checks a global M4 state
+at `0x1FFEA320`, tests an internal condition and only
+then calls the full 9x8 scanner at `0x1FFD7FCA`.
+Thus simply presenting external key-row voltages does not
+create a scan pass; the **original RTOS event flag**
+must be posted and the task scheduled.
+
+A new **12-second owner-private original firmware replay**
+from the real `version-event-wait` snapshot using compiled
+native QEMU `fadb838`, opt-in LPTMR IRQ, and physical
+row-gated key contacts observed M4 LPTMR ISR
+`0x1FFED3B0` once, an original M4 scan-state sample
+`0x1FFEA320=0`, and ten original A7 event records
+all timeout-class `status=5`. No breakpoint hit
+occurred at original M4 event-flag wait
+`0x1FFD7B0C`, callback `0x1FFD7B2E`,
+scan entry `0x1FFD7FB0` or full scanner
+`0x1FFD8634`. The LPTMR0.CSR did change
+between `0x41` and `0xC1` in the replay, so
+at least some timer flag activity continued. No
+genuine A7 key-down or menu entry occurred.
+
+**Current precise unproven producer:** which real M4
+peripheral interrupt, callback or MU IPC action signals
+the RTOS keyboard task's bit0 event; an observed LPTMR
+ISR does not by itself prove the keyboard event was posted.
+The private `drive_factory_menu.py --trace-m4` now
+breaks repeatedly at `0x1FFD7B0C`, `0x1FFD7B28`
+(record the original `[SP+4]` event bits),
+`0x1FFD7B2E`, `0x1FFD7FB0`,
+`0x1FFD7FCA` and `0x1FFD8634`, while
+checking the real A7 event type/subtype/code. No
+RTOS event or IPC response is fabricated by this probe.
