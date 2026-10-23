@@ -56,14 +56,68 @@ static uint32_t exesx_external_gpio_input_mask(const char *name)
     return (uint32_t)value;
 }
 
+/*
+ * Optional host-controlled board voltage input. Poll a user-owned plain-text
+ * hex/decimal file at most every 20ms of guest virtual time, allowing a
+ * private researcher to change external pin levels after initial boot.
+ * Missing/temporarily invalid files leave the last accepted mask unchanged.
+ * No guest RAM, device response, IRQ, or output GPIO direction is changed.
+ */
+static uint32_t exesx_live_external_gpio_input_mask(const char *mask_env,
+                                                     const char *file_env,
+                                                     uint32_t *cached,
+                                                     int64_t *next_read_ns,
+                                                     bool *initialized)
+{
+    const char *path = g_getenv(file_env);
+    int64_t now;
+    gchar *content = NULL;
+    char *end;
+    uint64_t parsed;
+
+    if (!path || !*path) {
+        return exesx_external_gpio_input_mask(mask_env);
+    }
+    if (!*initialized) {
+        *cached = exesx_external_gpio_input_mask(mask_env);
+        *initialized = true;
+    }
+    now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+    if (now < *next_read_ns) {
+        return *cached;
+    }
+    *next_read_ns = now + INT64_C(20000000);
+    if (g_file_get_contents(path, &content, NULL, NULL)) {
+        g_strstrip(content);
+        if (*content) {
+            parsed = g_ascii_strtoull(content, &end, 0);
+            if (*end == '\0' && parsed <= UINT32_MAX) {
+                *cached = (uint32_t)parsed;
+            }
+        }
+        g_free(content);
+    }
+    return *cached;
+}
+
 static uint32_t exesx_gpiob_external_input_mask(void)
 {
-    return exesx_external_gpio_input_mask("EXESX_GPIOB_INPUT_MASK");
+    static uint32_t cached;
+    static int64_t next_read_ns;
+    static bool initialized;
+    return exesx_live_external_gpio_input_mask(
+        "EXESX_GPIOB_INPUT_MASK", "EXESX_GPIOB_INPUT_MASK_FILE",
+        &cached, &next_read_ns, &initialized);
 }
 
 static uint32_t exesx_gpioa_external_input_mask(void)
 {
-    return exesx_external_gpio_input_mask("EXESX_GPIOA_INPUT_MASK");
+    static uint32_t cached;
+    static int64_t next_read_ns;
+    static bool initialized;
+    return exesx_live_external_gpio_input_mask(
+        "EXESX_GPIOA_INPUT_MASK", "EXESX_GPIOA_INPUT_MASK_FILE",
+        &cached, &next_read_ns, &initialized);
 }
 
 static bool exesx_imx7ulp_kind(const char *kind)
