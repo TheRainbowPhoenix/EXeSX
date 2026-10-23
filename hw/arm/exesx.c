@@ -43,7 +43,7 @@ typedef struct EXeSXState {
     uint64_t cp15_ttbr1_s_saved;
     bool m4_released;
     /* MU_A input is M4 NVIC IRQ22; MU_B is GIC SPI19 on A7. */
-    qemu_irq mu_a_irq, mu_b_irq, lpit1_irq, lptmr0_irq, lptmr1_irq, m4_porta_irq, m4_portb_irq;
+    qemu_irq mu_a_irq, mu_b_irq, lpit1_irq, lptmr0_irq, lptmr1_irq, tpm0_irq, m4_porta_irq, m4_portb_irq;
     MemoryRegion firmware, vectors, sram, ipc, provisional_writable;
 } EXeSXState;
 
@@ -75,7 +75,7 @@ struct EXeSXProfileWindow {
     GHashTable *registers;
     char *kind;
     EXeSXState *board;
-    QEMUTimer *lpit_timer, *lptmr_timer, *lcd_screenshot_timer, *m4_port_poll_timer;
+    QEMUTimer *lpit_timer, *lptmr_timer, *tpm0_timer, *lcd_screenshot_timer, *m4_port_poll_timer;
     uint32_t m4_port_previous;
     bool m4_port_sampled;
     uint16_t *lcd_fb;
@@ -143,6 +143,11 @@ static int exesx_registers_post_load(void *opaque, int version_id)
         /* Device flags/epoch are saved in regfile; rearm this
          * host QEMU timer after loading a private VM checkpoint. */
         exesx_lptmr_schedule(w);
+    }
+    if (w->tpm0_timer) {
+        /* TPM0 phase/overflow flag live in saved regfile. Recompute the
+         * upcoming original M4 IRQ38 delivery after loadvm. */
+        exesx_tpm0_schedule(w);
     }
     if (w->m4_port_poll_timer) {
         /* The saved PORT regfile is authoritative, external host inputs are
@@ -431,6 +436,11 @@ static void exesx_load_profile(MemoryRegion *sysmem, EXeSXState *board)
                 w->lptmr_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
                                                  exesx_lptmr_timer_tick, w);
             }
+            if (!strcmp(kind, "imx7ulp-tpm") && w->base == 0x41030000 &&
+                !g_strcmp0(g_getenv("EXESX_EXPERIMENTAL_M4_TPM0_IRQ"), "1")) {
+                w->tpm0_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
+                                              exesx_tpm0_timer_tick, w);
+            }
             memory_region_init_io(&w->mr, NULL, &exesx_reg_ops, w,
                                   w->name, w->size);
             if (vmstate_register(NULL, k, &exesx_registers_vmstate, w)) {
@@ -661,6 +671,9 @@ static void exesx_init(MachineState *ms)
     /* NXP i.MX7ULP NVIC: LPTMR0_IRQn=36, LPTMR1_IRQn=37. */
     s->lptmr0_irq = qdev_get_gpio_in(DEVICE(&s->m4), 36);
     s->lptmr1_irq = qdev_get_gpio_in(DEVICE(&s->m4), 37);
+    /* Original M4 binary: vector 0x36 (54) -> external IRQ38 TPM0,
+     * whose handler @0x1FFDB68C invokes keyboard debounce callback. */
+    s->tpm0_irq = qdev_get_gpio_in(DEVICE(&s->m4), 38);
     /* Reference manual: vectors 72/73 = M4 external IRQ56/57, PORT A/B. */
     s->m4_porta_irq = qdev_get_gpio_in(DEVICE(&s->m4), 56);
     s->m4_portb_irq = qdev_get_gpio_in(DEVICE(&s->m4), 57);
