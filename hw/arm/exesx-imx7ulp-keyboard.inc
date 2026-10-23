@@ -109,7 +109,15 @@ static uint32_t exesx_m4_keyboard_column_levels(EXeSXProfileWindow *w,
         EXeSXProfileWindow *row_gpio;
         uint32_t row_mask;
         uint64_t col_base;
-        if (k->keycode != key || b->m4_keyboard_row != k->row) {
+        /*
+         * A physical closed key joins its column to its row whenever
+         * the row output is actually low. In idle, original firmware
+         * may leave multiple rows low to request PORTA logic-zero
+         * wakeup. Do NOT gate by our last PCOR-write row index:
+         * that C field is not a VMState register and cannot represent
+         * preexisting pin levels after loadvm.
+         */
+        if (k->keycode != key) {
             continue;
         }
         row_gpio = exesx_m4_row_bank[k->row] ? b->m4_gpio_b : b->m4_gpio_a;
