@@ -15,6 +15,7 @@ from hmp_memory import qmp_memory_words
 BASE=0x60000000
 RESULT=0x6200B600
 GPIOA=0x4100F000
+IOMUXC0=0x4103D000
 A_HIGH=0x808C6008
 ROW8=(1<<21)
 ROW6=(1<<17)
@@ -31,24 +32,32 @@ def make_elf(output_override=False):
     def load(dst,reg,off):
         words.append(0xe5900000 | reg<<16 | dst<<12 | off)
     lit(0,GPIOA)
+    lit(3,IOMUXC0)
+    lit(4,0x20100)        # original M4 active matrix row pin mux
+    lit(5,0)              # de-selected row pin mux
     lit(7,RESULT)
     lit(1,ROW8|ROW6|(COL93 if output_override else 0))
     store(1,0,0x14)      # PDDR rows are outputs
     lit(1,ROW8|ROW6|(COL93 if output_override else 0))
     store(1,0,4)         # PSOR idle high
     lit(1,ROW8)
+    store(4,3,0x54)      # IOMUXC0.PTA21 active row8 mux
     store(1,0,8)         # PCOR: original M4 drove row8 low
     load(2,0,0x10)
     store(2,7,0)
+    store(5,3,0x54)      # un-mux row8 as firmware does
     lit(1,ROW8)
     store(1,0,4)         # release row8 before selecting row6
     lit(1,ROW6)
+    store(4,3,0x44)      # IOMUXC0.PTA17 active row6 mux
     store(1,0,8)         # PCOR: drive different row6 low
     load(2,0,0x10)
     store(2,7,4)
+    store(5,3,0x44)      # un-mux row6
     lit(1,ROW6)
     store(1,0,4)         # release row6 before selecting row8
     lit(1,ROW8)
+    store(4,3,0x54)      # select IOMUXC0.PTA21 again
     store(1,0,8)         # select row8 again
     load(2,0,0x10)
     store(2,7,8)
