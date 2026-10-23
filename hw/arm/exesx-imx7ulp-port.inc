@@ -49,6 +49,14 @@ static void exesx_m4_port_observe_inputs(EXeSXProfileWindow *w,
                                           uint32_t levels)
 {
     uint32_t before = w->m4_port_previous;
+    /*
+     * Opt-in diagnostic A/B only: suppress repeated level-trigger ISF
+     * assertion while a pin is held. This is NOT the default silicon
+     * behavior; use only to determine whether M4 IRQ56 repetition can
+     * starve the original key-IPC worker after its RTOS flag posts.
+     */
+    bool edge_only = !g_strcmp0(
+        g_getenv("EXESX_DIAGNOSTIC_M4_PORT_EDGE_ONLY"), "1");
     unsigned pin;
     w->m4_port_previous = levels;
     if (!w->m4_port_sampled) {
@@ -61,11 +69,13 @@ static void exesx_m4_port_observe_inputs(EXeSXProfileWindow *w,
         unsigned irqc = (pcr >> 16) & 15;
         bool oldhigh = (before & bit) != 0;
         bool newhigh = (levels & bit) != 0;
-        bool trigger = (irqc == 8 && !newhigh) ||
+        bool trigger = (irqc == 8 && !newhigh &&
+                        (!edge_only || oldhigh)) ||
                        (irqc == 9 && !oldhigh && newhigh) ||
                        (irqc == 10 && oldhigh && !newhigh) ||
                        (irqc == 11 && oldhigh != newhigh) ||
-                       (irqc == 12 && newhigh);
+                       (irqc == 12 && newhigh &&
+                        (!edge_only || !oldhigh));
         if (trigger) {
             w->regfile[pin] |= UINT32_C(0x01000000); /* PCR.ISF */
             w->regfile[0xa0 / 4] |= bit;             /* PORT.ISFR */
