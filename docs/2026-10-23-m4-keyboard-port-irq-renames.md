@@ -61,18 +61,43 @@ and M4 NVIC ISER1 `0xE000E104=0x0F000010`
 (IRQ56 and IRQ57 **enabled**).
 The corresponding NVIC pending register
 `0xE000E204=0`; no PCTLA IRQ was pending.
-At this checkpoint, GPIOA pins are driven or externally
-pulled high where expected, but all **PORTA.PCR[0..31]
-IRQC fields at 0x4103F000..0x4103F07C are zero**,
-so changing column inputs does **not** necessarily
-produce a configured PORTA pin interrupt yet.
-By contrast PORTB PCR registers contain nonzero IRQC
-configuration, including PTB6 IRQC=0x8.
-This is a vital independent observation: merely
-connecting NVIC IRQ56 does not establish why original
-firmware left PORTA pin interrupts disabled in the
-checkpoint. Investigate M4 input mode/arming code and
-actual PCTLA configuration before claiming real keys.
+At this checkpoint, all **PORTA.PCR[0..31] IRQC
+fields at 0x4103F000..0x4103F07C read as zero**,
+even though IRQ56 is enabled. This originally looked
+like missing firmware initialization, but a subsequent
+**33-second original cold-boot QEMU PORT write trace**
+identified the *actual original M4 configuration*:
+`PORTA.GICLR (0x4103F088) = 0x00086008` and
+`PORTA.GICHR (0x4103F08C) = 0x0008808C`, each
+written twice. The current EXeSX port model only
+stored these values, without applying **GIWE/GIWD**
+to PCR fields, leaving every PORTA keyboard
+interrupt disabled. This is a verified **emulator
+register-semantics defect**, not proof the firmware
+failed to initialize PORTA.
+
+Per NXP PORT global interrupt-control definition:
+`GICLR/GICHR[15:0]=GIWE` selects the low/high
+16-pin group, while `[31:16]=GIWD` is written
+to each selected `PCR[n][31:16]`.
+The genuine ROM writes thus configure
+`IRQC=8` (**logic-zero pin interrupt**) for
+A3/A13/A14 and A18/A19/A23/A31.
+In particular this arms both key-code columns
+`0x93=PTA31` and `0x94=PTA23`.
+PORTB individually configures PCR registers,
+including PTB6 `IRQC=8`.
+
+The repaired emulator now expands GICLR/GICHR
+into the selected PCRs. A separate IRQ model
+detects a configured external low and asserts
+M4 IRQ56. Original-firmware key-down reception
+remains to be tested with the rebuilt QEMU.
+
+The newly identified original PORT global register addresses are
+`0x4103F088 = M4_PORTA_GICLR_KeyboardArmLowPins` and
+`0x4103F08C = M4_PORTA_GICHR_KeyboardArmHighPins`
+(guest-written hardware MMIO, not functions).
 
 The output of an actual Cortex-M4 GDB snapshot showed
 original VTOR `0xE000ED08=0x1FFD0000`, vector72
@@ -144,6 +169,9 @@ functions):
 
 Research-only **`EXESX_EXPERIMENTAL_M4_PORT_IRQ=1`**
 adds a virtual-time host-input sampler to M4 PORTA/B.
+The independently corrected PORT.GICLR/GICHR handling
+is always-on accurate register behavior: it expands
+the original bulk writes to PCR IRQC fields.
 It uses *original guest-written* PCR.IRQC (disabled,
 low, rising/falling/either, high), drives PCR.ISF and
 ISFR sticky status only for a matching electrical
@@ -161,8 +189,10 @@ two negative controls (disabled bridge/disabled IRQC).
 Only when both Windows and Linux CI pass may the new
 QEMU hardware bridge be considered tested. **No genuine
 A7 keyboard event or usable TEST MENU is claimed yet.**
-The actual ROM currently leaves PORTA PCR.IRQC disabled
-at the saved checkpoint, so the remaining question is
-*which original M4 mode/initialization should arm the
-PCTLA pin IRQ*, and/or whether another GPIO pin needs
-to be stimulated to dispatch the scan.
+Original ROM itself already arms PCTLA through GICLR/GICHR;
+the emulator had discarded those writes. After rebooting with
+the fix, we must verify original IRQ56 handler dispatch,
+nonzero M4 RTOS object10 bit0, M4 row scan,
+and actual A7 type2/subtype1 key-down records.
+No menu-entry claim follows merely from positive
+synthetic ARM peripheral tests.
