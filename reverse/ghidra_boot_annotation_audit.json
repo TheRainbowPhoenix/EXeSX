@@ -3,7 +3,7 @@
   "program": "/EXWRom/XD-SX9850/XD-SX9850.0",
   "source_sha256": "d5791bec1c7739315fb6113b5d6890a21f6c454fcf7a05a0381cfaaa70808fb0",
   "bios_sha256": "eb7dafa1b544bbb8d79081866af280e6c0f88197de9f635c6887f8486155da66",
-  "verification": "Each of 77 A7 annotation sites and 16 M4 source sites matched 32 bytes read from Ghidra against locally extracted checksum-validated OSUP; no full-database hash was computed. No new firmware execution trace was collected.",
+  "verification": "Each of 90 A7 annotation sites and 16 M4 source sites matched 32 bytes read from Ghidra against locally extracted checksum-validated OSUP; no full-database hash was computed. No new firmware execution trace was collected.",
   "a7_sites": [
     {
       "address": "0x6017a11c",
@@ -620,6 +620,110 @@
       "confidence": "high",
       "evidence": "Original BIOS channel15 CSR.DONE bit7 dependency; pending ca800-byte RAM copy",
       "matched_bytes": 32
+    },
+    {
+      "address": "0x6001a760",
+      "name": "A7_LPIT1_InitializeTimerService",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Resets LPIT1, programs four channels, registers ISR and initializes 12 software timer slots",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x6001af60",
+      "name": "A7_LPIT1_RegisterISR57",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Creates uC3 ISR intno57 handler6001adc8 mask80",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x6001adc8",
+      "name": "A7_LPIT1_InterruptHandler",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Dispatches channel0 shared tick then channels1..3 and DSB; static chain to traced callback",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x6001ae08",
+      "name": "A7_LPIT1_DispatchSharedTimerTick",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Acknowledges MSR bit0, decrements active slots3..11, calls callback at zero; prior callback LR6001ae68",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x6001aea4",
+      "name": "A7_LPIT1_DispatchDedicatedTimer",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Acknowledges MSR channel1..3 and dispatches corresponding software slot0..2",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x6001ac0c",
+      "name": "A7_LPIT1_ProgramChannelReload",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Disables channel, writes TVAL; channel0 fallback300000 cycles; actual input clock unverified",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x6001acc0",
+      "name": "A7_LPIT1_EnableChannelIRQ",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Programs TCTRL840000, SETTEN, MIER, enables uC3 interrupt57",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x6001ad4c",
+      "name": "A7_LPIT1_DisableChannelIRQ",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Writes CLRTEN, clears channel MIER and tracks enabled state",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x6001ab70",
+      "name": "A7_LPIT1_StopAllChannels",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Stops all four channels then disables interrupt57",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x601b40cc",
+      "name": "A7_LCD_WriteFrameAfterGPIOF13Sync",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Waits DMA, sets864x480 window, waits GPIOF13 high-low, writes16 or32-bit pixels to b0000000; physical TE wiring unverified",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x601b44f4",
+      "name": "A7_DMA1_WaitFrameCopyDone",
+      "kind": "function",
+      "confidence": "high",
+      "evidence": "Live caller loops on601b82a8(handle622cc62c)==13ed after LCD progress",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x601b4144",
+      "name": "A7_LCD_WaitGPIOF13High",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "Original GPIOF.PDIR400f00d0 bit13 high poll; experimental TE hypothesis",
+      "matched_bytes": 32
+    },
+    {
+      "address": "0x601b4150",
+      "name": "A7_LCD_WaitGPIOF13Low",
+      "kind": "site",
+      "confidence": "high",
+      "evidence": "Original GPIOF.PDIR bit13 low poll after high phase",
+      "matched_bytes": 32
     }
   ],
   "function_changes": [
@@ -881,6 +985,83 @@
       "new_name": "A7_SEMA42_ReleaseGate0Domain2",
       "status": "success",
       "result": "Success: Renamed function at 0x601774a0 from 'FUN_601774a0' to 'A7_SEMA42_ReleaseGate0Domain2'"
+    },
+    {
+      "address": "0x6001a760",
+      "old_name": "FUN_6001a760",
+      "new_name": "A7_LPIT1_InitializeTimerService",
+      "status": "success",
+      "result": "Success: Renamed function at 0x6001a760 from 'FUN_6001a760' to 'A7_LPIT1_InitializeTimerService'"
+    },
+    {
+      "address": "0x6001af60",
+      "old_name": "FUN_6001af60",
+      "new_name": "A7_LPIT1_RegisterISR57",
+      "status": "success",
+      "result": "Success: Renamed function at 0x6001af60 from 'FUN_6001af60' to 'A7_LPIT1_RegisterISR57'"
+    },
+    {
+      "address": "0x6001adc8",
+      "old_name": "FUN_6001adc8",
+      "new_name": "A7_LPIT1_InterruptHandler",
+      "status": "success",
+      "result": "Success: Renamed function at 0x6001adc8 from 'FUN_6001adc8' to 'A7_LPIT1_InterruptHandler'"
+    },
+    {
+      "address": "0x6001ae08",
+      "old_name": "FUN_6001ae08",
+      "new_name": "A7_LPIT1_DispatchSharedTimerTick",
+      "status": "success",
+      "result": "Success: Renamed function at 0x6001ae08 from 'FUN_6001ae08' to 'A7_LPIT1_DispatchSharedTimerTick'"
+    },
+    {
+      "address": "0x6001aea4",
+      "old_name": "FUN_6001aea4",
+      "new_name": "A7_LPIT1_DispatchDedicatedTimer",
+      "status": "success",
+      "result": "Success: Renamed function at 0x6001aea4 from 'FUN_6001aea4' to 'A7_LPIT1_DispatchDedicatedTimer'"
+    },
+    {
+      "address": "0x6001ac0c",
+      "old_name": "FUN_6001ac0c",
+      "new_name": "A7_LPIT1_ProgramChannelReload",
+      "status": "success",
+      "result": "Success: Renamed function at 0x6001ac0c from 'FUN_6001ac0c' to 'A7_LPIT1_ProgramChannelReload'"
+    },
+    {
+      "address": "0x6001acc0",
+      "old_name": "FUN_6001acc0",
+      "new_name": "A7_LPIT1_EnableChannelIRQ",
+      "status": "success",
+      "result": "Success: Renamed function at 0x6001acc0 from 'FUN_6001acc0' to 'A7_LPIT1_EnableChannelIRQ'"
+    },
+    {
+      "address": "0x6001ad4c",
+      "old_name": "FUN_6001ad4c",
+      "new_name": "A7_LPIT1_DisableChannelIRQ",
+      "status": "success",
+      "result": "Success: Renamed function at 0x6001ad4c from 'FUN_6001ad4c' to 'A7_LPIT1_DisableChannelIRQ'"
+    },
+    {
+      "address": "0x6001ab70",
+      "old_name": "FUN_6001ab70",
+      "new_name": "A7_LPIT1_StopAllChannels",
+      "status": "success",
+      "result": "Success: Renamed function at 0x6001ab70 from 'FUN_6001ab70' to 'A7_LPIT1_StopAllChannels'"
+    },
+    {
+      "address": "0x601b40cc",
+      "old_name": "FUN_601b40cc",
+      "new_name": "A7_LCD_WriteFrameAfterGPIOF13Sync",
+      "status": "success",
+      "result": "Success: Renamed function at 0x601b40cc from 'FUN_601b40cc' to 'A7_LCD_WriteFrameAfterGPIOF13Sync'"
+    },
+    {
+      "address": "0x601b44f4",
+      "old_name": "FUN_601b44f4",
+      "new_name": "A7_DMA1_WaitFrameCopyDone",
+      "status": "success",
+      "result": "Success: Renamed function at 0x601b44f4 from 'FUN_601b44f4' to 'A7_DMA1_WaitFrameCopyDone'"
     }
   ],
   "m4_source_sites": [
@@ -1036,7 +1217,7 @@
   "prototypes": [
     {
       "address": "0x6000fd5c",
-      "prototype": "unsigned char A7_TimerDelay_WaitForCallback(int delay_ms)"
+      "prototype": "unsigned char A7_TimerDelay_WaitForCallback(int delay_units)"
     },
     {
       "address": "0x6000fea0",
