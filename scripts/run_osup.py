@@ -68,7 +68,7 @@ def prepare(osup, dest):
     return elf, media, manifest
 
 
-def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin, dma1_m2m=False, handoff_probe=False, gpiob3_high=False, ipc1808_probe=False):
+def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin, dma1_m2m=False, handoff_probe=False, gpiob3_high=False, ipc1808_probe=False, gpioa_input_mask=0, gpiob_input_mask=None):
     env = os.environ.copy()
     # Explicitly labeled temporary LCD-bus address sink for runs without
     # an implemented display model. It does NOT acknowledge any LCD
@@ -88,7 +88,8 @@ def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin, dma1_m2m
         "EXESX_I2C4B_REGISTER_MIRROR":"1",
         "EXESX_I2C40_REGISTER_MIRROR":"1",
         "EXESX_SNVS_DIAGNOSTIC_SECURITY_PULSES":"1",
-        "EXESX_GPIOB_INPUT_MASK":"0x88" if gpiob3_high else "0x80",
+        "EXESX_GPIOB_INPUT_MASK":hex(gpiob_input_mask) if gpiob_input_mask is not None else ("0x88" if gpiob3_high else "0x80"),
+        "EXESX_GPIOA_INPUT_MASK":hex(gpioa_input_mask),
         "EXESX_USDHC1_EMMC":"1",
         "EXESX_EXPERIMENTAL_LCD":"1",
         "EXESX_EXPERIMENTAL_DMA1_M2M":"1" if dma1_m2m else "0",
@@ -171,6 +172,10 @@ def main():
     ap.add_argument("--lcd-trace",action="store_true")
     ap.add_argument("--plugin",type=Path)
     ap.add_argument("--prepare-only",action="store_true")
+    ap.add_argument("--gpioa-input-mask", type=lambda value: int(value,0), default=0,
+                    help="Research-only external M4 GPIOA input pin-high mask; no authenticated board wiring")
+    ap.add_argument("--gpiob-input-mask", type=lambda value: int(value,0), default=None,
+                    help="Research-only override for external M4 GPIOB input pins (e.g. 0xc8); supersedes --gpiob3-high")
     ap.add_argument("--gpiob3-high", action="store_true",
                     help="Diagnostic only: drive unverified M4 GPIOB PDIR bit3 HIGH (0x88 vs default 0x80)")
     ap.add_argument("--ipc1808-probe", action="store_true",
@@ -182,6 +187,8 @@ def main():
     a=ap.parse_args()
     if not a.osup.is_file(): ap.error("OSUP input file not found")
     if a.seconds <= 0: ap.error("--seconds must be positive")
+    if not 0 <= a.gpioa_input_mask <= 0xffffffff or (a.gpiob_input_mask is not None and not 0 <= a.gpiob_input_mask <= 0xffffffff):
+        ap.error("GPIO input masks must fit in unsigned 32-bit register")
     if a.handoff_probe and a.ipc1808_probe:
         ap.error("Use only one of --handoff-probe and --ipc1808-probe")
     elf,media,manifest=prepare(a.osup,a.output_dir)
@@ -205,7 +212,7 @@ def main():
                            cwd=root, check=True)
         launch(a.qemu,elf,media,a.profile,a.output_dir,a.seconds,
                a.lcd_trace,a.plugin,a.dma1_m2m,a.handoff_probe,
-               a.gpiob3_high,a.ipc1808_probe)
+               a.gpiob3_high,a.ipc1808_probe,a.gpioa_input_mask,a.gpiob_input_mask)
 
 
 if __name__=="__main__":
