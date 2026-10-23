@@ -29,17 +29,40 @@ def ram(qmp, addr, count=1):
     return result[:count]
 
 
-def press(file, keys, hold, gap, delay, start, log):
+def press(file, keys, hold, gap, delay, start, log, observations,
+          idle_timeout, wait_idle=True):
     time.sleep(delay)
-    for key in keys:
+    for index,key in enumerate(keys):
         voltage(file,key)
         log.append({"host_elapsed":round(time.monotonic()-start,4),
                     "action":"physical_contact_close","requested_key":hex(key)})
         time.sleep(hold)
         voltage(file,0)
-        log.append({"host_elapsed":round(time.monotonic()-start,4),
+        released=round(time.monotonic()-start,4)
+        log.append({"host_elapsed":released,
                     "action":"physical_contact_open","requested_key":hex(key)})
         time.sleep(gap)
+        if index + 1 == len(keys) or not wait_idle:
+            continue
+        # Original M4 firmware must ACK release and finish debounce.
+        # Merely setting contact=0 is NOT a complete key-up cycle.
+        # QMP's independent sampler appends real firmware state; this
+        # host-only wait never writes M4 RAM, IRQs or the A7 queue.
+        deadline=time.monotonic()+idle_timeout
+        while time.monotonic()<deadline:
+            if len(observations)>1 and all(
+                x["m4_state"]==0 and x["host_elapsed"]>released
+                for x in observations[-2:]):
+                log.append({"host_elapsed":round(time.monotonic()-start,4),
+                            "action":"observed_real_M4_keyboard_idle",
+                            "after_key":hex(key)})
+                break
+            time.sleep(.008)
+        else:
+            log.append({"host_elapsed":round(time.monotonic()-start,4),
+                        "action":"M4_keyboard_release_not_confirmed",
+                        "after_key":hex(key)})
+            return
 
 
 def run(a):
@@ -116,7 +139,8 @@ def run(a):
                     raise RuntimeError("Cannot resume owner-private checkpoint: "+error)
                 begin=time.monotonic()
                 worker=threading.Thread(target=press,
-                         args=(keyfile,a.keys,a.hold,a.gap,a.delay,begin,report["contacts"]),
+                         args=(keyfile,a.keys,a.hold,a.gap,a.delay,begin,report["contacts"],
+                               report["observations"],a.idle_timeout,not a.no_wait_idle),
                          daemon=True)
                 worker.start()
                 qmp.execute("cont")
@@ -183,6 +207,10 @@ if __name__=="__main__":
     ap.add_argument("--delay",type=float,default=0.0)
     ap.add_argument("--seconds",type=float,default=1.8)
     ap.add_argument("--poll",type=float,default=.035)
+    ap.add_argument("--idle-timeout",type=float,default=1.0,
+                    help="Bounded host seconds to observe original M4 state0 after each release")
+    ap.add_argument("--no-wait-idle",action="store_true",
+                    help="Skip QMP-confirmed release gate (may turn a second press into subtype2 repeat)")
     ap.add_argument("--trace",action="store_true",
                     help="Log passive guest TB execution and MU MMIO to PRIVATE file")
     ap.add_argument("--overwrite",action="store_true")
@@ -190,6 +218,6 @@ if __name__=="__main__":
     args.keys=tuple(int(x,0) for x in args.keys.split(","))
     if not args.keys or any(x not in (0x93,0x94,0x95,0x80) for x in args.keys):
         ap.error("Only owner-ROM decoded matrix keys 0x93/0x94/0x95/0x80 are supported")
-    if args.seconds<=0 or args.poll<=0 or args.hold<=0 or args.gap<0:
+    if args.seconds<=0 or args.poll<=0 or args.hold<=0 or args.gap<0 or args.idle_timeout<=0:
         ap.error("Require positive --seconds/--poll/--hold and nonnegative --gap")
     run(args)
