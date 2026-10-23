@@ -68,7 +68,7 @@ def prepare(osup, dest):
     return elf, media, manifest
 
 
-def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin, dma1_m2m=False, handoff_probe=False, gpiob3_high=False, ipc1808_probe=False, gpioa_input_mask=0, gpiob_input_mask=None, ipc0804_probe=False):
+def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin, dma1_m2m=False, handoff_probe=False, gpiob3_high=False, ipc1808_probe=False, gpioa_input_mask=0, gpiob_input_mask=None, ipc0804_probe=False, gpioa_input_file=None, gpiob_input_file=None):
     env = os.environ.copy()
     # Explicitly labeled temporary LCD-bus address sink for runs without
     # an implemented display model. It does NOT acknowledge any LCD
@@ -95,6 +95,10 @@ def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin, dma1_m2m
         "EXESX_EXPERIMENTAL_DMA1_M2M":"1" if dma1_m2m else "0",
         "EXESX_LCD_SCREENSHOT":str((dest/"lcd-screenshot.ppm").resolve()),
     })
+    if gpioa_input_file is not None:
+        env["EXESX_GPIOA_INPUT_MASK_FILE"] = str(gpioa_input_file.resolve())
+    if gpiob_input_file is not None:
+        env["EXESX_GPIOB_INPUT_MASK_FILE"] = str(gpiob_input_file.resolve())
     lib = qemu.resolve().parent/"lib"
     if lib.is_dir():
         env["LD_LIBRARY_PATH"] = str(lib) + os.pathsep + env.get("LD_LIBRARY_PATH","")
@@ -180,6 +184,10 @@ def main():
     ap.add_argument("--lcd-trace",action="store_true")
     ap.add_argument("--plugin",type=Path)
     ap.add_argument("--prepare-only",action="store_true")
+    ap.add_argument("--gpioa-input-file", type=Path,
+                    help="Research-only live M4 GPIOA pin-high mask text file; reloaded by QEMU every ~20ms guest time")
+    ap.add_argument("--gpiob-input-file", type=Path,
+                    help="Research-only live M4 GPIOB pin-high mask text file; reloaded by QEMU every ~20ms guest time")
     ap.add_argument("--gpioa-input-mask", type=lambda value: int(value,0), default=0,
                     help="Research-only external M4 GPIOA input pin-high mask; no authenticated board wiring")
     ap.add_argument("--gpiob-input-mask", type=lambda value: int(value,0), default=None,
@@ -222,7 +230,7 @@ def main():
                            cwd=root, check=True)
         launch(a.qemu,elf,media,a.profile,a.output_dir,a.seconds,
                a.lcd_trace,a.plugin,a.dma1_m2m,a.handoff_probe,
-               a.gpiob3_high,a.ipc1808_probe,a.gpioa_input_mask,a.gpiob_input_mask,a.ipc0804_probe)
+               a.gpiob3_high,a.ipc1808_probe,a.gpioa_input_mask,a.gpiob_input_mask,a.ipc0804_probe,a.gpioa_input_file,a.gpiob_input_file)
 
 
 if __name__=="__main__":
