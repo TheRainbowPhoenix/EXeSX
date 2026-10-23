@@ -2,7 +2,7 @@
 """Real ARM synthetic 32-byte eDMA1 channel15 request/copy regression."""
 import argparse,os,re,struct,subprocess,time
 from pathlib import Path
-from hmp_memory import memory_words
+from hmp_memory import memory_words, qmp_memory_words
 BASE=0x60000000
 SRC=0x62016000
 DST=0x62017000
@@ -51,6 +51,8 @@ def run(qemu,profile,elf,enabled):
     cmd=[str(qemu.resolve()),'-machine','exesx','-m','64M','-accel','tcg',
          '-display','none','-serial','none','-monitor','stdio','-no-reboot',
          '-device',f'loader,file={elf.resolve()},cpu-num=0']
+    if os.name == 'nt':
+        return qmp_memory_words(cmd, env, RESULT, 3)
     proc=subprocess.Popen(cmd,env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
     try:
         time.sleep(2.0 if os.name == 'nt' else .6)
