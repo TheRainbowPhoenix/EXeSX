@@ -1,7 +1,7 @@
 name: Build and smoke-test EXeSX QEMU
 on:
   push:
-    branches: [main]
+    branches: [main, test/dy357-dma1-boot-20261022, fix/lcd-madctl-window-20261023]
   pull_request:
   workflow_dispatch:
 
@@ -66,7 +66,7 @@ jobs:
           python3 scripts/make_probe.py build/cp15-probe.elf
           python3 scripts/test_qemu.py
       - name: Static checks for modular tools
-        run: python3 -m py_compile scripts/analyze_init_regions.py scripts/make_gdb_commands.py scripts/fuzz_mmio.py scripts/recover_exesx.py scripts/analyze_lpi2c_trace.py scripts/probe_lpi2c4b.py scripts/prepare_i2c_ghidra.py scripts/decode_i2c_transactions.py scripts/i2c_boot_triage.py scripts/probe_gpio_ipc.py scripts/probe_i2c_register_mirror.py scripts/probe_i2c40_register_mirror.py scripts/probe_dma0.py scripts/analyze_a7_kernel_mu.py scripts/probe_mu_irq.py scripts/probe_mu_v1_channels.py scripts/probe_snvs_hp.py scripts/probe_a7_early_devices.py scripts/probe_usdhc1_no_media.py scripts/probe_upstream_emmc.py scripts/probe_usdhc1_clock_gate.py scripts/probe_snvs_hp_rtc.py scripts/probe_gpiob_input.py scripts/probe_a7_boot_gate.py scripts/probe_postdma_handoff.py scripts/probe_ipc_1808.py scripts/summarize_lcd_screenshot.py
+        run: python3 -m py_compile scripts/analyze_init_regions.py scripts/make_gdb_commands.py scripts/fuzz_mmio.py scripts/recover_exesx.py scripts/analyze_lpi2c_trace.py scripts/probe_lpi2c4b.py scripts/prepare_i2c_ghidra.py scripts/decode_i2c_transactions.py scripts/i2c_boot_triage.py scripts/probe_gpio_ipc.py scripts/probe_i2c_register_mirror.py scripts/probe_i2c40_register_mirror.py scripts/probe_dma0.py scripts/analyze_a7_kernel_mu.py scripts/probe_mu_irq.py scripts/probe_mu_v1_channels.py scripts/probe_snvs_hp.py scripts/probe_a7_early_devices.py scripts/probe_usdhc1_no_media.py scripts/probe_upstream_emmc.py scripts/probe_usdhc1_clock_gate.py scripts/probe_snvs_hp_rtc.py scripts/probe_gpiob_input.py scripts/probe_a7_boot_gate.py scripts/probe_postdma_handoff.py scripts/probe_ipc_1808.py scripts/summarize_lcd_screenshot.py scripts/probe_lcd_landscape.py
           python3 scripts/fuzz_mmio.py --help
       - name: Check cold-start OSUP recovery launcher
         run: python3 scripts/recover_exesx.py --help
@@ -117,6 +117,8 @@ jobs:
             --profile profiles/imx7ulp-early-boot.ini
       - name: Verify LCD synthetic ARM framebuffer screenshot
         run: python3 scripts/probe_lcd_screenshot.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
+      - name: Verify DY357 landscape LCD MADCTL and centered window
+        run: python3 scripts/probe_lcd_landscape.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
       - name: Verify synthetic ARM DMA1 actual 32-byte copy and disabled negative control
         run: python3 scripts/probe_dma1_memcpy.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
       - name: Verify actual A7 LPIT1 GIC25 IRQ with real ARM negative/positive controls
@@ -160,7 +162,7 @@ jobs:
           cp -L /usr/lib/x86_64-linux-gnu/libfdt.so.1 dist/exesx-qemu-linux-x86_64/lib/
           cp scripts/qemu-wrapper.sh dist/exesx-qemu-linux-x86_64/
           if test -f /usr/share/doc/libfdt1/copyright; then cp /usr/share/doc/libfdt1/copyright dist/exesx-qemu-linux-x86_64/LIBFDT-COPYRIGHT.txt; fi
-          cp scripts/make_probe.py scripts/test_qemu.py scripts/prepare_osup.py scripts/run_firmware.py scripts/analyze_init_regions.py scripts/make_gdb_commands.py scripts/probe_profile.py scripts/fuzz_mmio.py scripts/probe_imx7ulp.py scripts/probe_m4_handoff.py scripts/recover_exesx.py scripts/probe_lpi2c4b.py scripts/analyze_lpi2c_trace.py scripts/probe_adc.py scripts/compare_i2c_boot.py scripts/prepare_i2c_ghidra.py scripts/decode_i2c_transactions.py scripts/i2c_boot_triage.py scripts/probe_gpio_ipc.py scripts/probe_i2c_register_mirror.py scripts/probe_i2c40_register_mirror.py scripts/probe_dma0.py scripts/analyze_a7_kernel_mu.py scripts/probe_mu_irq.py scripts/probe_mu_v1_channels.py scripts/probe_snvs_hp.py scripts/probe_a7_early_devices.py scripts/probe_usdhc1_no_media.py scripts/probe_upstream_emmc.py scripts/probe_usdhc1_clock_gate.py scripts/probe_snvs_hp_rtc.py scripts/probe_gpiob_input.py scripts/probe_a7_boot_gate.py scripts/run_osup.py scripts/analyze_osup_install_layout.py scripts/probe_postdma_handoff.py dist/exesx-qemu-linux-x86_64/
+          cp scripts/make_probe.py scripts/test_qemu.py scripts/prepare_osup.py scripts/run_firmware.py scripts/analyze_init_regions.py scripts/make_gdb_commands.py scripts/probe_profile.py scripts/fuzz_mmio.py scripts/probe_imx7ulp.py scripts/probe_m4_handoff.py scripts/recover_exesx.py scripts/probe_lpi2c4b.py scripts/analyze_lpi2c_trace.py scripts/probe_adc.py scripts/compare_i2c_boot.py scripts/prepare_i2c_ghidra.py scripts/decode_i2c_transactions.py scripts/i2c_boot_triage.py scripts/probe_gpio_ipc.py scripts/probe_i2c_register_mirror.py scripts/probe_i2c40_register_mirror.py scripts/probe_dma0.py scripts/analyze_a7_kernel_mu.py scripts/probe_mu_irq.py scripts/probe_mu_v1_channels.py scripts/probe_snvs_hp.py scripts/probe_a7_early_devices.py scripts/probe_usdhc1_no_media.py scripts/probe_upstream_emmc.py scripts/probe_usdhc1_clock_gate.py scripts/probe_snvs_hp_rtc.py scripts/probe_gpiob_input.py scripts/probe_a7_boot_gate.py scripts/run_osup.py scripts/analyze_osup_install_layout.py scripts/probe_postdma_handoff.py scripts/probe_ipc_1808.py scripts/summarize_lcd_screenshot.py scripts/probe_lcd_landscape.py dist/exesx-qemu-linux-x86_64/
           cp build/exesx-memtrace.so dist/exesx-qemu-linux-x86_64/
           cp scripts/hmp_memory.py dist/exesx-qemu-linux-x86_64/
           cp -r profiles dist/exesx-qemu-linux-x86_64/

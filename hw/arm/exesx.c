@@ -76,7 +76,7 @@ struct EXeSXProfileWindow {
     unsigned lcd_x0, lcd_x1, lcd_y0, lcd_y1, lcd_x, lcd_y;
     unsigned lcd_param_count;
     uint16_t lcd_params[4];
-    uint8_t lcd_cmd;
+    uint8_t lcd_cmd, lcd_madctl;
     bool lcd_dc, lcd_te_enabled, lcd_rgb565;
     uint64_t lcd_pixel_writes;
     /* Stable addresses; preserved by VMState on loadvm. */
