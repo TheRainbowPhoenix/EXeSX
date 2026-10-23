@@ -39,7 +39,7 @@ typedef struct EXeSXState {
     uint64_t cp15_ttbr1_s_saved;
     bool m4_released;
     /* MU_A input is M4 NVIC IRQ22; MU_B is GIC SPI19 on A7. */
-    qemu_irq mu_a_irq, mu_b_irq, lpit1_irq;
+    qemu_irq mu_a_irq, mu_b_irq, lpit1_irq, lptmr0_irq, lptmr1_irq;
     MemoryRegion firmware, vectors, sram, ipc, provisional_writable;
 } EXeSXState;
 
@@ -71,7 +71,7 @@ struct EXeSXProfileWindow {
     GHashTable *registers;
     char *kind;
     EXeSXState *board;
-    QEMUTimer *lpit_timer, *lcd_screenshot_timer;
+    QEMUTimer *lpit_timer, *lptmr_timer, *lcd_screenshot_timer;
     uint16_t *lcd_fb;
     unsigned lcd_x0, lcd_x1, lcd_y0, lcd_y1, lcd_x, lcd_y;
     unsigned lcd_param_count;
@@ -129,8 +129,19 @@ static void exesx_m4_rom_handoff(EXeSXState *s, uint32_t entry)
 #include "exesx-lcd.inc"
 #include "exesx-imx7ulp.inc"
 
+static int exesx_registers_post_load(void *opaque, int version_id)
+{
+    EXeSXProfileWindow *w = opaque;
+    if (w->lptmr_timer) {
+        /* Device flags/epoch are saved in regfile; rearm this
+         * host QEMU timer after loading a private VM checkpoint. */
+        exesx_lptmr_schedule(w);
+    }
+    return 0;
+}
 static const VMStateDescription exesx_registers_vmstate = {
     .name = "exesx-experimental-registers",
+    .post_load = exesx_registers_post_load,
     .version_id = 1,
     .minimum_version_id = 1,
     .fields = (const VMStateField[]) {
@@ -379,6 +390,12 @@ static void exesx_load_profile(MemoryRegion *sysmem, EXeSXState *board)
                 w->lpit_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
                                              exesx_lpit_timer_tick, w);
             }
+            if (g_strcmp0(kind, "imx7ulp-lptmr") == 0 &&
+                (w->base == 0x4102e000 || w->base == 0x4102f000) &&
+                !g_strcmp0(g_getenv("EXESX_EXPERIMENTAL_LPTMR_IRQ"), "1")) {
+                w->lptmr_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
+                                                 exesx_lptmr_timer_tick, w);
+            }
             memory_region_init_io(&w->mr, NULL, &exesx_reg_ops, w,
                                   w->name, w->size);
             if (vmstate_register(NULL, k, &exesx_registers_vmstate, w)) {
@@ -606,6 +623,9 @@ static void exesx_init(MachineState *ms)
     sysbus_realize(SYS_BUS_DEVICE(&s->m4), &error_fatal);
     /* MCIMX7U5_cm4_COMMON.h: MU_A_IRQn = 22 (external NVIC line). */
     s->mu_a_irq = qdev_get_gpio_in(DEVICE(&s->m4), 22);
+    /* NXP i.MX7ULP NVIC: LPTMR0_IRQn=36, LPTMR1_IRQn=37. */
+    s->lptmr0_irq = qdev_get_gpio_in(DEVICE(&s->m4), 36);
+    s->lptmr1_irq = qdev_get_gpio_in(DEVICE(&s->m4), 37);
 
     armv7m_load_kernel(s->m4.cpu, NULL, 0x1ffd0000, 0x40000);
 }
