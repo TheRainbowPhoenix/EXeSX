@@ -107,6 +107,9 @@ def experiment(qemu,profile,bridge,irqc):
                     new.write_text(hex(MASK & ~(1<<PIN))+"\n")
                     os.replace(new,inputs)
                     time.sleep(.35)
+                    # Pause the guest before inspecting M4 NVIC through GDB.
+                    # M-profile SCS is not an A7 monitor-visible MMIO window.
+                    call("stop")
                     status=memory(ISFR)
                     rsp=RSP(g);rsp.command("?")
                     assert rsp.command("Hg2")=="OK"
