@@ -31,7 +31,9 @@ A7 = {0x60010898:"m4_service_0804_result",0x600108a8:"event_wait",
       0x60010910:"diagnostic_sequence",0x60010974:"dialog_exit",
       0x6003a878:"factory_test_menu",0x60058008:"lcd_unit_check",
       0x60400000:"os_entry"}
-M4 = {0x1ffd8412:"row_drive",0x1ffd8564:"column_scan",
+M4 = {0x1ffd7fb0:"scan_task_entry",0x1ffd7fca:"scan_full_matrix_call",
+      0x1ffd8634:"scan_full_matrix",0x1ffed3b0:"lptmr0_isr",
+      0x1ffd8412:"row_drive",0x1ffd8564:"column_scan",
       0x1ffd85c6:"gpio_column_read",0x1ffd8610:"key_debounce"}
 
 
@@ -242,6 +244,18 @@ def run(args):
                          "name":marks.get(pc,"unknown"),"thread":tid,
                          "r0":hex(registers["r0"]),
                          "seconds":round(time.monotonic()-started,2)}
+                    if tid==2 and args.trace_m4:
+                        # Read the original M4 scan task's state fields,
+                        # not a synthetic keyboard status or virtual event.
+                        for label,address in (
+                            ("scan_task_state",0x1ffea320),
+                            ("scan_task_count",0x1ffea324),
+                            ("lptmr0_csr",0x4102e000),
+                            ("m4_nvic_enabled_32_63",0xe000e104),
+                            ("m4_nvic_pending_32_63",0xe000e204),
+                        ):
+                            value=rsp.memory(address,4)
+                            hit[label]=None if value is None else hex(value)
                     if tid==1 and pc==0x600108cc:
                         # Original BIOS has copied the event's 20-byte payload
                         # from [SP+0x24] to [SP]. Read the genuine copied
@@ -289,6 +303,17 @@ def run(args):
                     # Re-arm the two original A7 event breakpoints. A
                     # status-5 timer event is NOT a keyboard press;
                     # the initial one-shot debugger missed later input.
+                    if tid==2 and args.trace_m4 and pc in (
+                        0x1ffd7fb0,0x1ffd7fca,0x1ffd8634,
+                        0x1ffd8412,0x1ffd8564,0x1ffd85c6,
+                        0x1ffd8610,0x1ffed3b0) and counts[pc]<32:
+                        # A repeatable scan cycle needs multiple original
+                        # Thumb breakpoint samples. Step once then rearm.
+                        gdb.sendall(encode_packet("s"))
+                        if stopped_thread(rsp.receive(4))!=2:
+                            raise RuntimeError("M4 scanner single-step failed")
+                        if rsp.command(f"Z0,{pc:x},2")!="OK":
+                            raise RuntimeError("Could not re-arm M4 task breakpoint")
                     if tid==1 and pc in (0x600108b4,0x600108cc,
                                           0x60010910,0x60010928) and counts[pc]<100:
                         gdb.sendall(encode_packet("s"))
