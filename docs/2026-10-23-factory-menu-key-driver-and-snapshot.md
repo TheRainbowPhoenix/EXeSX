@@ -110,3 +110,69 @@ Check whether the scan is interrupt-driven, GPIO-triggered,
 or disabled due to another modeled MCU peripheral, then
 provide a native emulated keyboard source with verified
 row stimulation and real M4 IPC-to-RTOS event delivery.
+
+## Separate synthetic debugger-only preview: BIOS menu entry achieved
+
+This is **not** a hardware keyboard test, and must never be reported
+as a real original M4 keypress. The hardware GPIO candidate experiment
+above still produced **no key events**.
+
+Using the genuine owner-private original firmware resumed from the
+validated `version-event-wait` QCOW2 snapshot, a second opt-in
+experiment stopped at A7 `0x600108B0` (the instruction that calls
+the blocking event reader), placed a synthetic 40-byte event-return
+record in its **volatile guest stack**, and set **CPU0 R0=0 /
+PC=0x600108B4** to skip *only that one blocked call*. The synthetic
+record used the real decompiled event ABI: status word at record+8=0,
+type=2/subtype=1 at record+16/18, key-code halfword at record+24.
+
+Three explicitly synthetic injected records, `0x93,0x93,0x94`,
+caused genuine untouched BIOS control flow to hit:
+- A7 `0x60010910` twice, with R0=`0x93` and R4=0 then 1;
+- A7 `0x60010928`, R0=`0x94`, R4=2;
+- **A7 `0x6003A878`**, the actual original BIOS factory-menu
+  entry, R0=`0xFFFFFFFF`.
+
+The corresponding host-only QCOW2 **`factory-menu-synthetic`**
+snapshot was successfully saved at that original menu entry.
+This proves the BIOS version-dialog/menu-branch logic is executable;
+it does **not** demonstrate the M4 scan, keyboard IRQ/IPC delivery,
+or successful visual display of the menu.
+
+Resuming `factory-menu-synthetic` in another QEMU instance and
+allowing 10 more seconds generated an **entirely black 864x480 LCD**
+instead of menu text. Original-ROM A7 breakpoints then reached
+`FUN_6003A878` and its initializer `FUN_6003A7D4`,
+returning from `FUN_6000FF90`, `FUN_60008E28`,
+and `FUN_60008EC0`, but **not returning** from the next
+`FUN_6002D5D0(2)` within a bounded 20-second run.
+Ghidra shows this call requests BIOS service **0x4009**
+via `FUN_600061C4`, then service **0x400B** with argument
+2 via `FUN_60006240`, conditional on boot-mode flags.
+Which service is awaited, and its real M4/IPC response semantics,
+still requires execution-level investigation. The first currently
+demonstrated post-menu-entry wait is separate from the keyboard gate.
+
+The source-controlled `scripts/probe_synthetic_factory_menu.py`
+reproduces this *debugger-only control-flow experiment* with an
+explicit acknowledgement flag:
+
+```powershell
+py -3 .\scripts\probe_synthetic_factory_menu.py `
+  --qemu .\qemu-system-arm.exe `
+  --output-dir .\private\factory-menu `
+  --allow-synthetic-events --seconds 15
+```
+
+It will refuse to run without `--allow-synthetic-events`.
+It requires the owner's original private `version-event-wait`
+checkpoint created by `drive_factory_menu.py`, never uploads
+firmware or snapshot, and saves a second private snapshot only when
+the **real BIOS `0x6003A878` breakpoint** fires.
+The command deliberately changes A7 RAM registers at the event
+reader, so it must **never** be described as functional emulated
+keyboard hardware or a genuine full boot.
+
+**Remaining two independent tasks:** fix/verify M4 scanner scheduling
+and real event delivery (authentic keypress), and then trace service
+0x4009/0x400B in the factory menu initializer (actual visible menu).
