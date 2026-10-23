@@ -126,7 +126,7 @@ jobs:
       - name: Verify M4 PCTLA IRQ56 hardware edge with NVIC positive and negative controls
         run: python3 scripts/probe_m4_port_irq.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
       - name: Verify ROM-keymap M4 keyboard row and column contacts via ARM QMP
-        run: python3 scripts/probe_m4_key_matrix.py scripts/probe_m4_port_irq.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
+        run: python3 scripts/probe_m4_key_matrix.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
       - name: Verify LPTMR0 NVIC IRQ36 via synthetic ARM
         run: python3 scripts/probe_lptmr_m4_irq.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
       - name: Verify persistent raw-backed QCOW2 VM snapshot in a second native QEMU process
