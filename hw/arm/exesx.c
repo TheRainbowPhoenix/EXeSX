@@ -35,7 +35,7 @@ typedef struct EXeSXState {
     Clock *m4cpuclk, *m4refclk;
     ARMCPU *a7cpu;
     EXeSXProfileWindow *mu_a, *mu_b, *lcd, *dmamux1, *m4_gpio_a, *m4_gpio_b;
-    EXeSXProfileWindow *m4_port_a, *m4_port_b;
+    EXeSXProfileWindow *m4_port_a, *m4_port_b, *m4_iomuxc0;
     uint16_t m4_keyboard_code;
     int m4_keyboard_row;
     int64_t m4_keyboard_next_poll_ns;
@@ -370,6 +370,11 @@ static void exesx_load_profile(MemoryRegion *sysmem, EXeSXState *board)
             }
             if (g_strcmp0(kind, "imx7ulp-dmamux") == 0 && w->base == 0x40210000) {
                 board->dmamux1 = w;
+            }
+            if (!strcmp(kind, "imx7ulp-pctl") && w->base == 0x4103d000) {
+                /* Original M4 FUN_1FFD8412 selects the active keyboard
+                 * matrix row through IOMUXC0 before driving GPIO low. */
+                board->m4_iomuxc0 = w;
             }
             if (!strcmp(kind, "imx7ulp-port") &&
                 (w->base == 0x4103f000 || w->base == 0x41040000)) {
