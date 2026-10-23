@@ -82,7 +82,7 @@ def experiment(qemu,profile,bridge,irqc):
                     try:return socket.create_connection(("127.0.0.1",port),.3)
                     except OSError:time.sleep(.05)
                 raise AssertionError("QEMU monitor unavailable")
-            with connect(mp) as q,connect(gp) as g:
+            with connect(mp) as q:
                 q.settimeout(8)
                 with q.makefile("rb") as reader:
                     assert "QMP" in json.loads(reader.readline())
@@ -119,16 +119,19 @@ def experiment(qemu,profile,bridge,irqc):
                     status=memory(ISFR)
                     pdir=memory(0x4100f010)
                     pddr=memory(0x4100f014)
-                    rsp=RSP(g);rsp.command("?")
-                    assert rsp.command("Hg2")=="OK"
-                    pending=rsp.memory(NVIC_PENDING_1,4)
+                    # Attaching GDB halts QEMU; connect only AFTER
+                    # the virtual-timer/host-input transition has run.
+                    with connect(gp) as g:
+                        rsp=RSP(g);rsp.command("?")
+                        assert rsp.command("Hg2")=="OK"
+                        pending=rsp.memory(NVIC_PENDING_1,4)
                     if pending is None:
                         raise AssertionError("Could not inspect Cortex-M4 NVIC")
                     expected=(1<<PIN) if bridge and irqc==8 else 0
                     if status & (1<<PIN)!=expected:
                         raise AssertionError(f"PORTA IRQ bridge={bridge} IRQC={irqc} "
                                              f"ISFR={status:#x}, PDIR={pdir:#x}, PDDR={pddr:#x}, expected bit={expected:#x}")
-                    nv_expected=(1<<(56-32)) if bridge and irqc==11 else 0
+                    nv_expected=(1<<(56-32)) if bridge and irqc==8 else 0
                     if pending & (1<<(56-32))!=nv_expected:
                         raise AssertionError(f"M4 NVIC IRQ56 bridge={bridge}, "
                                              f"IRQC={irqc}, pending={pending:#x}")
