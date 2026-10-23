@@ -193,8 +193,8 @@ jobs:
         run: |
           python3 scripts/make_probe.py build/cp15-probe.elf
           timeout 20s gdb -q -batch \
-            -ex "set pagination off" -ex run -ex "frame 0" \u005c
-            -ex "p mr" -ex "p subregion->container" -ex "p subregion" \u005c
+            -ex "set pagination off" -ex run -ex "frame 0" \
+            -ex "p mr" -ex "p subregion->container" -ex "p subregion" \
             -ex "thread apply all bt 12" --args \
             build/qemu-system-arm -machine exesx -m 64M \
             -accel tcg -display none -serial none -monitor none \
