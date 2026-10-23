@@ -43,6 +43,27 @@ static void exesx_tpm_set_epoch(EXeSXProfileWindow *w)
     w->regfile[0x100 / 4] = (uint32_t)ns;
     w->regfile[0x104 / 4] = (uint32_t)(ns >> 32);
 }
+/*
+ * DIAGNOSTIC CLOCK ONLY. The original EXeSX TPM model assumes 1MHz,
+ * not the real i.MX7ULP PCC-selected input clock. For a controlled
+ * physical-key timing experiment, permit a private TPM0-only source
+ * frequency override; do NOT apply it to A7 LPIT or to other TPMs.
+ * The default is bit-identical to the old virtual-time model.
+ */
+static unsigned exesx_tpm0_input_mhz(EXeSXProfileWindow *w)
+{
+    const char *s;
+    uint64_t mhz;
+    if (!w->tpm0_timer || w->base != 0x41030000) {
+        return 1;
+    }
+    s = g_getenv("EXESX_EXPERIMENTAL_M4_TPM0_INPUT_MHZ");
+    if (!s || !*s) {
+        return 1;
+    }
+    mhz = g_ascii_strtoull(s, NULL, 0);
+    return mhz >= 1 && mhz <= 120 ? (unsigned)mhz : 1;
+}
 static uint32_t exesx_tpm_counter(EXeSXProfileWindow *w)
 {
     uint32_t sc = w->regfile[0x10 / 4];
@@ -53,6 +74,7 @@ static uint32_t exesx_tpm_counter(EXeSXProfileWindow *w)
     }
     elapsed = (qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) -
                exesx_tpm_epoch(w)) / 1000;
+    elapsed *= exesx_tpm0_input_mhz(w);
     elapsed >>= sc & 7;
     return (uint32_t)((base + elapsed) % period);
 }
@@ -92,7 +114,12 @@ static void exesx_tpm0_schedule(EXeSXProfileWindow *w)
     count = exesx_tpm_counter(w);
     remaining = (uint64_t)modulo + 1 - count;
     ns_per_tick = UINT64_C(1000) << (sc & 7);
-    timer_mod(w->tpm0_timer, now + remaining * ns_per_tick);
+    /* Always progress at least one virtual nanosecond. */
+    timer_mod(w->tpm0_timer, now +
+              MAX(UINT64_C(1),
+                  (remaining * ns_per_tick +
+                   exesx_tpm0_input_mhz(w) - 1) /
+                  exesx_tpm0_input_mhz(w)));
 }
 
 static void exesx_tpm0_timer_tick(void *opaque)
