@@ -143,7 +143,9 @@ static void exesx_m4_port_tick(void *opaque)
         exesx_m4_port_observe_inputs(port, levels);
     }
     timer_mod(port->m4_port_poll_timer,
-              qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + INT64_C(20000000));
+              qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
+              (g_getenv("EXESX_M4_KEY_MATRIX_FILE") ?
+               INT64_C(1000000) : INT64_C(20000000)));
 }
 
 static bool exesx_imx7ulp_kind(const char *kind)
