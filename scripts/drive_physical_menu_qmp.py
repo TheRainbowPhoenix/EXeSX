@@ -115,10 +115,6 @@ def run(a):
         env["EXESX_EXPERIMENTAL_LPTMR_PCS_CLOCKS"]="1"
     if a.m4_tstmr_khz:
         env["EXESX_DIAGNOSTIC_M4_TSTMR_KHZ"]=str(a.m4_tstmr_khz)
-    if a.m4_tstmr_coherent:
-        env["EXESX_DIAGNOSTIC_M4_TSTMR_COHERENT_READS"]="1"
-    if a.m4_tstmr_quantum:
-        env["EXESX_DIAGNOSTIC_M4_TSTMR_QUANTUM_TICKS"]=str(a.m4_tstmr_quantum)
     qemu=a.qemu.resolve()
     if (qemu.parent/"lib").is_dir():
         env["LD_LIBRARY_PATH"]=str(qemu.parent/"lib")+os.pathsep+env.get("LD_LIBRARY_PATH","")
@@ -139,8 +135,6 @@ def run(a):
             "a7_tpm6_khz_diagnostic":a.a7_tpm6_khz,
             "lptmr_pcs_clock_model":a.lptmr_pcs_clocks,
             "m4_tstmr_khz_diagnostic":a.m4_tstmr_khz,
-            "m4_tstmr_coherent_diagnostic":a.m4_tstmr_coherent,
-            "m4_tstmr_quantum_diagnostic":a.m4_tstmr_quantum,
             "contacts":[],"observations":[],
             "m4_keydown_observed":False,
             "a7_received_keydown_proven":False,
@@ -311,11 +305,6 @@ if __name__=="__main__":
     ap.add_argument("--profile",type=Path)
     ap.add_argument("--tag",default="version-event-wait")
     ap.add_argument("--keys",default="0x93,0x93,0x94")
-    ap.add_argument("--m4-tstmr-quantum",type=int,default=0,
-                    choices=(0,32,64,128,256,512,1024,2048,4096,8192),
-                    help="Diagnostic M4 TSTMR read-visible tick quantum, 0 for original model")
-    ap.add_argument("--m4-tstmr-coherent",action="store_true",
-                    help="Diagnostic coherent low/high/low/high M4 timestamp quartet (original-clock rate)")
     ap.add_argument("--m4-tstmr-khz",type=int,default=0,
                     help="Diagnostic original M4 TSTMR source in kHz (0 retains historical 1MHz)")
     ap.add_argument("--a7-tpm6-khz",type=int,default=0,
