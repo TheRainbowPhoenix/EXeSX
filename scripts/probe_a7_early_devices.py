@@ -64,6 +64,20 @@ def make_elf():
     lit(1, 0)
     strw(1, 0, 0)
     ldr(2, 0, 0); strw(2, 7, 136)    # Disable restores zero
+    # M4 eDMA0 has the same 32-channel TCD layout and one-byte
+    # SERQ/CERQ commands as eDMA1.  Registers should be writable,
+    # but never report DONE without a real transfer.
+    lit(0, 0x41009000)               # DMA0 + 0x1000 TCD ch0
+    lit(1, 0x11223344)
+    strw(1, 0, 0)
+    ldr(2, 0, 0); strw(2, 7, 140)
+    lit(0, 0x41008000)
+    lit(1, 0)
+    emit(0xe5c0101b)                 # STRB r1,[r0,#0x1b], SERQ ch0
+    ldr(2, 0, 0x0c); strw(2, 7, 144)
+    emit(0xe5c0101a)                 # CERQ ch0
+    ldr(2, 0, 0x0c); strw(2, 7, 148)
+    ldr(2, 0, 0x24); strw(2, 7, 152) # INT remains zero
     lit(0, 0x40080000)
     lit(1, 15)
     emit(0xe5c0101b)                 # STRB r1,[r0,#0x1b] DMA1.SERQ ch15
@@ -154,16 +168,16 @@ def main():
                             stderr=subprocess.STDOUT,text=True)
     try:
         time.sleep(0.5)
-        script="".join(f"xp /1wx 0x{OUT+4*i:08x}\n" for i in range(35))+"quit\n"
+        script="".join(f"xp /1wx 0x{OUT+4*i:08x}\n" for i in range(39))+"quit\n"
         output,_=guest.communicate(script,timeout=15)
     finally:
         if guest.poll() is None: guest.kill();guest.wait()
     actual=[]
-    for i in range(35):
+    for i in range(39):
         m=re.search(r"(?im)^0*"+f"{OUT+i*4:08x}"+r":\s+0x([0-9a-f]+)",output)
         if not m: raise AssertionError("Missing guest ARM output: "+output[-1600:])
         actual.append(int(m.group(1),16))
-    expected=[8,0x90,0,0xaabbccdd,0x1234,0x15,0x302,0xa0000054,0,0,0x100,0,0,8,0x00800000,0,0x08200820,0,0x157f51ff,0x157f51ff,0,1,0,0,0,0x1aa,0x08020000,0,0x20,0x8000001f,0x8000,0,0xa0000035,0xe000007f,0]
+    expected=[8,0x90,0,0xaabbccdd,0x1234,0x15,0x302,0xa0000054,0,0,0x100,0,0,8,0x00800000,0,0x08200820,0,0x157f51ff,0x157f51ff,0,1,0,0,0,0x1aa,0x08020000,0,0x20,0x8000001f,0x8000,0,0xa0000035,0xe000007f,0,0x11223344,1,0,0]
     if actual != expected:
         raise AssertionError(f"Mixed-width A7 startup MMIO mismatch: {list(map(hex,actual))}")
     print("PASS A7 ARM USDHC0/1 host clocks with no card, DMA1/TCD, DMAMUX1 and LPSPI2 controls; DMAMUX1 32-bit CHCFG8 and byte SERQ/CERQ")
