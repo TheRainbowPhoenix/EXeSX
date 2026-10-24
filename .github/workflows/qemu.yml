@@ -129,6 +129,8 @@ jobs:
         run: python3 scripts/probe_m4_port_irq.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
       - name: Verify ROM-keymap M4 keyboard row and column contacts via ARM QMP
         run: python3 scripts/probe_m4_key_matrix.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
+      - name: Verify genuine BIOS simultaneous startup chord via ARM GPIO MMIO
+        run: python3 scripts/probe_startup_chord.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
       - name: Verify LPTMR0 NVIC IRQ36 via synthetic ARM
         run: python3 scripts/probe_lptmr_m4_irq.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
       - name: Verify persistent raw-backed QCOW2 VM snapshot in a second native QEMU process
