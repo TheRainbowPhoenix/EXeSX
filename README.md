@@ -6,4 +6,6 @@ Current goal: use upstream QEMU ARM TCG to execute privileged Cortex-A7 CP15 sta
 
 See the GitHub Actions builds and [measured project status](docs/STATUS.md) for verification results.
 
+[Native Windows x64 build and usage](docs/windows.md) is an additional GitHub Actions target.
+
 **Hardware references:** [NXP i.MX7ULP reference/security manuals, original CMSIS headers, SNVS SDK, MU/Linux drivers, and RTOS naming resources](docs/HARDWARE_REFERENCES.md). Latest [SNVS HP initialization and real-firmware study](docs/2026-10-21-snvs-hp-investigation.md).

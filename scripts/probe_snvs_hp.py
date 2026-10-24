@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Firmware-free real ARM test of bounded i.MX7ULP SNVS HPCOMR / HPCR model.
+"""Firmware-free real ARM test of i.MX7ULP SNVS HPCOMR/HPCR.
 
-The default test never invokes security violations. --diagnostic exercises
-opt-in, explicitly *unimplemented* security-violation command pulses; it
-DOES NOT emulate a trusted state or timekeeping.
+Original M4 B000 service writes HPCOMR software-security pulse commands.
+Their legal MMIO writes must not fault; no security state is fabricated.
+--diagnostic enables verbose security-command logging only.
 """
 from pathlib import Path
 import argparse
@@ -46,11 +46,10 @@ def make_elf(diagnostic=False):
     lit(1, 0x30)
     store(1, 0, 4)                 # LP_SWR pulse blocked by LP_SWR_DIS
     load(2, 0, 4); store(2, 7, 16)
-    if diagnostic:
-        lit(1, 0x500)
-        store(1, 0, 4)             # security violations, NO state change
-        load(2, 0, 4); store(2, 7, 20)  # pulsed flags never stick
-        load(2, 0, 8); store(2, 7, 24)  # RTC control remains 1
+    lit(1, 0x500)
+    store(1, 0, 4)                 # original M4 B000 security command pulse
+    load(2, 0, 4); store(2, 7, 20) # legal command is self-clearing
+    load(2, 0, 8); store(2, 7, 24) # RTC control unchanged, no fake state
     emit(0xEAFFFFFE)
     for index, reg, value in literal_relocations:
         offset = len(code) * 4 - (index * 4 + 8)
@@ -108,17 +107,16 @@ def main():
     a = p.parse_args()
     a.elf.parent.mkdir(parents=True, exist_ok=True)
     a.elf.write_bytes(make_elf(a.diagnostic))
-    count = 7 if a.diagnostic else 5
+    count = 7
     actual, log = run(a.qemu, a.profile, a.elf, count, a.diagnostic)
-    expected = [0, 0, 1, 0x20, 0x20] + ([0, 1] if a.diagnostic else [])
+    expected = [0, 0, 1, 0x20, 0x20, 0, 1]
     if actual != expected:
         raise AssertionError(f"SNVS guest ARM: {list(map(hex,actual))} "
                              f"!= {list(map(hex,expected))}")
     if a.diagnostic and "DIAGNOSTIC security command pulse" not in log:
         raise AssertionError("Missing explicit diagnostic warning for security pulse")
     print("PASS SNVS guest ARM: HPCOMR pulse/reset/readback, RTC_EN, LP reset disable")
-    if a.diagnostic:
-        print("PASS diagnostic-only security command pulses; NO secure state emulated")
+    print("PASS normal original M4 security command pulse without BusFault; NO secure state emulated")
 
 
 if __name__ == "__main__":

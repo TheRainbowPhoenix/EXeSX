@@ -1,4 +1,6 @@
 vendor/
+dist/
+.ccache/
 build/
 *.BIN
 *.bin

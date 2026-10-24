@@ -94,12 +94,21 @@ static MemTxResult exesx_snvs_hp_write(EXeSXProfileWindow *w, hwaddr off,
                           "EXeSX SNVS unsupported HPCOMR 0x%08x\n", bits);
             return MEMTX_ERROR;
         }
+        /*
+         * SW_SV/SW_LPSV are documented HPCOMR write-only command strobes.
+         * The unmodified M4 ROM invokes them in its B000 boot service.
+         * A legal command write must not create a Cortex-M precise
+         * BusFault; that previously trapped the M4 in HardFault and
+         * prevented all later A7<->M4 control IPC. We acknowledge the
+         * register transaction and keep the command bits self-clearing.
+         * No security-state transition, alarm, or trusted status is
+         * invented. Diagnostic mode controls verbose trace ONLY.
+         */
         if (secure && !exesx_snvs_diagnostic_security()) {
-            qemu_log_mask(LOG_GUEST_ERROR,
-                          "EXeSX SNVS security command 0x%08x requires "
-                          "explicit diagnostic mode; no secure-state engine\n",
+            qemu_log_mask(LOG_UNIMP,
+                          "EXeSX SNVS security command 0x%08x accepted "
+                          "without modeled security-state transition\n",
                           secure);
-            return MEMTX_ERROR;
         }
         /* LP reset is disabled by persistent HPCOMR.LP_SWR_DIS bit5.
          * Even in that case the command is never stored/readable.
