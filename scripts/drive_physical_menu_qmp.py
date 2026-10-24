@@ -184,6 +184,16 @@ def run(a):
                     next_sample+=a.poll
                 worker.join(timeout=max(0,a.seconds))
                 qmp.execute("stop")
+                # Read the genuine A7<->M4 shared request slot. Its presence
+                # alone is not proof that the remote service completed.
+                ipc_slot=ram(qmp,0x2f028000,6)
+                report["ipc400b_shared_request_present"]=(
+                    len(ipc_slot)>=5 and
+                    (ipc_slot[3]&0xffff)==0x400b and ipc_slot[4]==2)
+                report["ipc400b_shared_request_word"]=(
+                    hex(ipc_slot[3]) if len(ipc_slot)>=4 else None)
+                report["ipc400b_shared_argument"]=(
+                    ipc_slot[4] if len(ipc_slot)>=5 else None)
                 if a.mailbox_trace and trace.exists():
                     # Mailbox-level evidence only. A receive clears RF and
                     # restores peer TE; it does NOT prove keyboard semantics.
@@ -236,10 +246,30 @@ def run(a):
                     # not always identical to the original function entry.
                     with trace.open(errors="replace") as tracefile:
                         menu=False
+                        ipc_call=False
+                        ipc_return=False
+                        menu_resume=False
+                        menu_paint=False
+                        m4_wake=False
                         for line in tracefile:
                             if "/000000006003a878/" in line:
                                 menu=True
+                            if "/0000000060006240/" in line:
+                                ipc_call=True
+                            if "/0000000060006268/" in line:
+                                ipc_return=True
+                            if "/000000006003a7f0/" in line:
+                                menu_resume=True
+                            if "/0000000060057668/" in line:
+                                menu_paint=True
+                            if "/000000001ffe4776/" in line:
+                                m4_wake=True
                     report["factory_menu_observed"]=menu
+                    report["ipc400b_call_tb_seen"]=ipc_call
+                    report["ipc400b_return_tb_seen"]=ipc_return
+                    report["factory_menu_post_ipc_tb_seen"]=menu_resume
+                    report["factory_menu_paint_tb_seen"]=menu_paint
+                    report["m4_mu_event7_wake_tb_seen"]=m4_wake
                     report["private_trace_path"]=str(trace)
                     if menu:
                         # This native BIOS control-flow route requires
