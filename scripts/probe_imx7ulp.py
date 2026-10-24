@@ -7,6 +7,7 @@ import re
 import struct
 import subprocess
 import time
+from hmp_memory import memory_words, qmp_memory_words
 
 RESET=0x60000000
 OUT=0x62002000
@@ -272,23 +273,21 @@ def main():
          '-accel','tcg','-display','none','-serial','none','-monitor','stdio',
          '-no-reboot','-device',
          f'loader,file={args.elf.resolve()},cpu-num=0']
-    proc=subprocess.Popen(cmd,env=env,stdin=subprocess.PIPE,
-                          stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
-                          text=True)
-    try:
-        time.sleep(0.65)
-        commands=''.join(f'xp /1wx 0x{OUT+i*4:08x}\n' for i in range(48))+'quit\n'
-        output,_=proc.communicate(commands,timeout=12)
-    finally:
-        if proc.poll() is None:
-            proc.kill();proc.wait()
-    values=[]
-    for i in range(48):
-        match=re.search(r'(?im)^0*'+f'{OUT+i*4:08x}'+
-                        r':\s+0x([0-9a-f]+)',output)
-        if not match:
-            raise AssertionError(f'Missing guest result {i}: {output[-1200:]}')
-        values.append(int(match.group(1),16))
+    if os.name == 'nt':
+        values = qmp_memory_words(cmd, env, OUT, 48)
+    else:
+        proc=subprocess.Popen(cmd,env=env,stdin=subprocess.PIPE,
+                              stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
+                              text=True)
+        try:
+            time.sleep(2.0 if os.name == 'nt' else 0.65)
+            # One bulk dump avoids overflowing Windows stdio's monitor input.
+            commands=f'xp /48wx 0x{OUT:08x}\nquit\n'
+            output,_=proc.communicate(commands,timeout=12)
+        finally:
+            if proc.poll() is None:
+                proc.kill();proc.wait()
+        values=memory_words(output,OUT,48)
     expected=[0x10,0,0x10,0xc0000000,0xc0000000,0x20100]
     expected += [0x2000,0,0x6000,0xabcd,0x01000001,0,0x01000001,0x5d,0x9d,0,8,0xffffffff,0x40000,0x10000000,0x40020000,0x3ff]
     if values[:6]+values[8:24]!=expected or (values[24] & 0x1f)!=4 or values[25]!=0 or values[26:41]!=[0x90000,0x90000,1,0xffff,1,1,0,0x01000001,0,0x01000001,1,4,0x1000,8,0xffff] or values[41:45]!=[0x08f00000,0x12345678,0x00f00000,0x00f00000] or values[45:]!=[1,0x401,1]:

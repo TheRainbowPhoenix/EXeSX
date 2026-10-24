@@ -68,7 +68,7 @@ def prepare(osup, dest):
     return elf, media, manifest
 
 
-def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin):
+def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin, dma1_m2m=False, handoff_probe=False, gpiob3_high=False, ipc1808_probe=False, gpioa_input_mask=0, gpiob_input_mask=None, ipc0804_probe=False, gpioa_input_file=None, gpiob_input_file=None):
     env = os.environ.copy()
     # Explicitly labeled temporary LCD-bus address sink for runs without
     # an implemented display model. It does NOT acknowledge any LCD
@@ -88,14 +88,23 @@ def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin):
         "EXESX_I2C4B_REGISTER_MIRROR":"1",
         "EXESX_I2C40_REGISTER_MIRROR":"1",
         "EXESX_SNVS_DIAGNOSTIC_SECURITY_PULSES":"1",
-        "EXESX_GPIOB_INPUT_MASK":"0x80",
+        "EXESX_GPIOB_INPUT_MASK":hex(gpiob_input_mask) if gpiob_input_mask is not None else ("0x88" if gpiob3_high else "0x80"),
+        "EXESX_GPIOA_INPUT_MASK":hex(gpioa_input_mask),
         "EXESX_USDHC1_EMMC":"1",
         "EXESX_EXPERIMENTAL_LCD":"1",
+        "EXESX_EXPERIMENTAL_DMA1_M2M":"1" if dma1_m2m else "0",
         "EXESX_LCD_SCREENSHOT":str((dest/"lcd-screenshot.ppm").resolve()),
     })
+    if gpioa_input_file is not None:
+        env["EXESX_GPIOA_INPUT_MASK_FILE"] = str(gpioa_input_file.resolve())
+    if gpiob_input_file is not None:
+        env["EXESX_GPIOB_INPUT_MASK_FILE"] = str(gpiob_input_file.resolve())
     lib = qemu.resolve().parent/"lib"
     if lib.is_dir():
         env["LD_LIBRARY_PATH"] = str(lib) + os.pathsep + env.get("LD_LIBRARY_PATH","")
+    screenshot_file = dest/"lcd-screenshot.ppm"
+    previous_screenshot_mtime = (screenshot_file.stat().st_mtime_ns
+                                if screenshot_file.is_file() else None)
     log = dest/"qemu-trace-private.log"
     stdout_log = dest/"qemu-console-private.log"
     cmd = [str(qemu.resolve()), "-machine","exesx","-m","64M",
@@ -112,6 +121,29 @@ def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin):
         cmd += ["-plugin", f"{plugin.resolve()},virtual_only=1,values=1,"
                 "max=25000,range=0xb0000000:0xb0000004,"
                 "range=0x400f0004:0x400f000c"]
+    if ipc0804_probe:
+        from probe_ipc_0804 import run_probe as trace_input_ready
+        print("PRIVATE M4 GPIO/input-ready IPC 0x0804 diagnostic; A/B masks",
+              env["EXESX_GPIOA_INPUT_MASK"], env["EXESX_GPIOB_INPUT_MASK"], flush=True)
+        report = trace_input_ready(cmd, env, seconds, dest)
+        print("IPC 0x0804 metadata:", dest / "ipc0804-summary.json",
+              "events:", len(report["events"]), flush=True)
+        return
+    if ipc1808_probe:
+        from probe_ipc_1808 import run_probe as trace_ipc
+        print("PRIVATE A7/M4 IPC 0x1808 diagnostic; GPIOB input mask",
+              env["EXESX_GPIOB_INPUT_MASK"], flush=True)
+        report = trace_ipc(cmd, env, seconds, dest)
+        print("IPC 0x1808 metadata:", dest / "ipc1808-summary.json",
+              "events:", len(report["events"]), flush=True)
+        return
+    if handoff_probe:
+        from probe_postdma_handoff import run_probe
+        print("Private A7 GDB post-DMA probe; no firmware or logs uploaded.", flush=True)
+        report = run_probe(cmd, env, seconds, dest)
+        print("Probe results:", dest / "handoff-summary.json",
+              "milestones hit:", len(report["hits"]), flush=True)
+        return
     print("Running owner-held firmware in synthetic QEMU media; no input uploaded.",
           flush=True)
     print("Experimental LCD device; 60Hz TE timing and 864px GRAM are hypotheses.",flush=True)
@@ -129,6 +161,15 @@ def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin):
         (dest/"lcd-metadata.json").write_text(json.dumps(metadata,indent=2)+"\n")
         print("LCD observed:",metadata["command_count"],"commands;",
               metadata["pixel_samples"],"pixel samples")
+    if screenshot_file.is_file() and (previous_screenshot_mtime is None or
+                                     screenshot_file.stat().st_mtime_ns != previous_screenshot_mtime):
+        from summarize_lcd_screenshot import summarize
+        statistics = summarize(screenshot_file)
+        (dest/"lcd-summary.json").write_text(json.dumps(statistics, indent=2)+"\n")
+        print("LCD raw framebuffer:", statistics["width"], "x", statistics["height"],
+              "nonwhite pixels:", statistics["nonwhite_pixels"],
+              "bbox:", statistics["nonwhite_bbox_xyxy"], flush=True)
+        print("A nonwhite framebuffer does NOT alone establish OS entry or accurate orientation.")
     print("Finished bounded run. Full QEMU output stays private.")
 
 
@@ -143,9 +184,40 @@ def main():
     ap.add_argument("--lcd-trace",action="store_true")
     ap.add_argument("--plugin",type=Path)
     ap.add_argument("--prepare-only",action="store_true")
+    ap.add_argument("--tpm0-irq", action=argparse.BooleanOptionalAction, default=True,
+                    help="Enable opt-in M4 TPM0 overflow IRQ38 for original keyboard debounce")
+    ap.add_argument("--port-irq", action=argparse.BooleanOptionalAction, default=True,
+                    help="Opt-in M4 PCTLA/B PCR-edge IRQ56/57 model")
+    ap.add_argument("--lptmr-irq", action=argparse.BooleanOptionalAction, default=True,
+                    help="Enable experimental M4 LPTMR0/1 CSR-based IRQ36/37 timer model")
+    ap.add_argument("--gpioa-input-file", type=Path,
+                    help="Research-only live M4 GPIOA pin-high mask text file; reloaded by QEMU every ~20ms guest time")
+    ap.add_argument("--gpiob-input-file", type=Path,
+                    help="Research-only live M4 GPIOB pin-high mask text file; reloaded by QEMU every ~20ms guest time")
+    ap.add_argument("--gpioa-input-mask", type=lambda value: int(value,0), default=0,
+                    help="Research-only external M4 GPIOA input pin-high mask; no authenticated board wiring")
+    ap.add_argument("--gpiob-input-mask", type=lambda value: int(value,0), default=None,
+                    help="Research-only override for external M4 GPIOB input pins (e.g. 0xc8); supersedes --gpiob3-high")
+    ap.add_argument("--gpiob3-high", action="store_true",
+                    help="Diagnostic only: drive unverified M4 GPIOB PDIR bit3 HIGH (0x88 vs default 0x80)")
+    ap.add_argument("--ipc0804-probe", action="store_true",
+                    help="Private read-only original M4 IPC 0x0804 GPIO input-ready producer trace")
+    ap.add_argument("--ipc1808-probe", action="store_true",
+                    help="Read-only A7/M4 shared-slot response provenance trace for service 0x1808")
+    ap.add_argument("--handoff-probe",action="store_true",
+                    help="Private read-only A7 callback/DMA/OS milestone GDB probe")
+    ap.add_argument("--dma1-m2m",action="store_true",
+                    help="Opt in to experimental RAM-to-RAM DMA1 transfers")
     a=ap.parse_args()
+    os.environ["EXESX_EXPERIMENTAL_LPTMR_IRQ"] = "1" if a.lptmr_irq else "0"
+    os.environ["EXESX_EXPERIMENTAL_M4_PORT_IRQ"] = "1" if a.port_irq else "0"
+    os.environ["EXESX_EXPERIMENTAL_M4_TPM0_IRQ"] = "1" if a.tpm0_irq else "0"
     if not a.osup.is_file(): ap.error("OSUP input file not found")
     if a.seconds <= 0: ap.error("--seconds must be positive")
+    if not 0 <= a.gpioa_input_mask <= 0xffffffff or (a.gpiob_input_mask is not None and not 0 <= a.gpiob_input_mask <= 0xffffffff):
+        ap.error("GPIO input masks must fit in unsigned 32-bit register")
+    if sum((a.handoff_probe, a.ipc1808_probe, a.ipc0804_probe)) > 1:
+        ap.error("Use only one GDB probe option at a time")
     elf,media,manifest=prepare(a.osup,a.output_dir)
     print(json.dumps(manifest,indent=2))
     if not a.prepare_only:
@@ -166,7 +238,8 @@ def main():
             subprocess.run(["bash", str(root/"scripts"/"build_memtrace.sh")],
                            cwd=root, check=True)
         launch(a.qemu,elf,media,a.profile,a.output_dir,a.seconds,
-               a.lcd_trace,a.plugin)
+               a.lcd_trace,a.plugin,a.dma1_m2m,a.handoff_probe,
+               a.gpiob3_high,a.ipc1808_probe,a.gpioa_input_mask,a.gpiob_input_mask,a.ipc0804_probe,a.gpioa_input_file,a.gpiob_input_file)
 
 
 if __name__=="__main__":

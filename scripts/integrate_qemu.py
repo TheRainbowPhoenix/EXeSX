@@ -16,6 +16,11 @@ lcd_target = qemu / 'hw/arm/exesx-lcd.inc'
 if lcd_target.exists() and lcd_target.read_bytes() != lcd_module.read_bytes():
     raise SystemExit('Refusing to overwrite changed upstream exesx-lcd.inc')
 lcd_target.write_bytes(lcd_module.read_bytes())
+keyboard_module = root / 'hw/arm/exesx-imx7ulp-keyboard.inc'
+keyboard_target = qemu / 'hw/arm/exesx-imx7ulp-keyboard.inc'
+if keyboard_target.exists() and keyboard_target.read_bytes() != keyboard_module.read_bytes():
+    raise SystemExit('Refusing to overwrite changed upstream exesx-imx7ulp-keyboard.inc')
+keyboard_target.write_bytes(keyboard_module.read_bytes())
 module = root / 'hw/arm/exesx-imx7ulp.inc'
 module_target = qemu / 'hw/arm/exesx-imx7ulp.inc'
 if module_target.exists() and module_target.read_bytes() != module.read_bytes():

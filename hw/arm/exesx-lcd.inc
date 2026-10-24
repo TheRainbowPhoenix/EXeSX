@@ -61,6 +61,93 @@ static void exesx_lcd_gpioa(EXeSXState *s, uint32_t off, uint32_t bits)
         s->lcd->lcd_dc = false;
     }
 }
+/*
+ * The guest provides raw DCS column/page coordinates. MADCTL changes the
+ * address-to-panel mapping as well as RAMWR's major traversal axis.
+ * Preserve full 16-bit inclusive CASET/PASET endpoints; clamp only the final
+ * physical panel address, never the guest window (which would make writes
+ * with an off-panel endpoint wrap into visible pixels).
+ *
+ * This is experimental panel orientation using standard DCS MX/MY/MV bits.
+ * Exact Casio LCD glass mounting, vendor-specific offsets and scan order
+ * remain unverified.
+ */
+static void exesx_lcd_ramwr_pixel(EXeSXProfileWindow *w, uint16_t rgb565)
+{
+    unsigned x = w->lcd_x;
+    unsigned y = w->lcd_y;
+    /*
+     * The original DY357 selects MADCTL=0x60 for its landscape
+     * 864x480 framebuffer and sends landscape CASET/PASET coordinates.
+     * These coordinates already describe the displayed orientation:
+     * swapping them a second time (and then making RAMWR page-major)
+     * clips all columns >=480 and paints only a 480px-wide stripe.
+     *
+     * Keep other MADCTL modes on the existing experimental mapping
+     * until the panel/controller identity and portrait dimensions are
+     * independently established.  This is not a global rotate hack.
+     */
+    bool landscape = (w->lcd_madctl & 0xe0) == 0x60;
+    /*
+     * Original 0x601B25E4 explicitly converts source[480][864] into a
+     * transposed 480x864 stream; 0x60015328(1) selects MADCTL=0x40 for
+     * this transfer.  The 0x40 CASET/PASET window is 480 columns by
+     * 864 rows, so (controller column, row) -> (screen Y, screen X).
+     * Unlike 0x60's direct landscape clear, these pixels have already
+     * been transposed by original ROM, NOT by the LCD controller.
+     */
+    bool transposed_frame = (w->lcd_madctl & 0xe0) == 0x40;
+    bool swap = (w->lcd_madctl & 0x20) != 0 && !landscape;
+    int px, py;
+
+    if (w->lcd_x0 > w->lcd_x1 || w->lcd_y0 > w->lcd_y1 ||
+        x > w->lcd_x1 || y > w->lcd_y1) {
+        return; /* Do not wrap RAMWR into another rectangle. */
+    }
+
+    if (landscape) {
+        px = (int)x;
+        py = (int)y;
+    } else if (transposed_frame) {
+        px = (int)y;
+        py = (int)x;
+    } else if (swap) {
+        px = (w->lcd_madctl & 0x40) ?
+            (EXESX_LCD_W - 1 - (int)y) : (int)y;
+        py = (w->lcd_madctl & 0x80) ?
+            (EXESX_LCD_H - 1 - (int)x) : (int)x;
+    } else {
+        px = (w->lcd_madctl & 0x40) ?
+            (EXESX_LCD_W - 1 - (int)x) : (int)x;
+        py = (w->lcd_madctl & 0x80) ?
+            (EXESX_LCD_H - 1 - (int)y) : (int)y;
+    }
+    if (px >= 0 && px < EXESX_LCD_W && py >= 0 && py < EXESX_LCD_H) {
+        w->lcd_fb[py * EXESX_LCD_W + px] = rgb565;
+    }
+    ++w->lcd_pixel_writes;
+
+    /*
+     * Both genuine framebuffer paths send consecutive pixels along
+     * the LCD window's column axis: 0x60 has 864 columns x 480 rows;
+     * 0x40 has 480 columns x 864 rows after firmware transposition.
+     * Keep wrapping at the *guest's* inclusive column endpoint and
+     * clip only after mapping to the panel's 864x480 presentation.
+     * Other MV modes retain the experimental page-first traversal.
+     */
+    if (swap) {
+        if (++w->lcd_y > w->lcd_y1) {
+            w->lcd_y = w->lcd_y0;
+            ++w->lcd_x;
+        }
+    } else {
+        if (++w->lcd_x > w->lcd_x1) {
+            w->lcd_x = w->lcd_x0;
+            ++w->lcd_y;
+        }
+    }
+}
+
 static void exesx_lcd_parameter(EXeSXProfileWindow *w, uint16_t v)
 {
     unsigned n = w->lcd_param_count++;
@@ -71,32 +158,29 @@ static void exesx_lcd_parameter(EXeSXProfileWindow *w, uint16_t v)
     case 0x34: /* TEOFF */
         w->lcd_te_enabled = false;
         break;
-    case 0x2a: case 0x2b: /* address byte pairs */
+    case 0x36: /* DCS MADCTL: MY/MX/MV (+ independent BGR color order) */
+        if (n == 0) {
+            w->lcd_madctl = v & 255;
+        }
+        break;
+    case 0x2a: case 0x2b: /* address byte pairs, inclusive bounds */
         if (n < 4) {
             w->lcd_params[n] = v & 255;
         }
         if (n == 3) {
-            unsigned start = (w->lcd_params[0] << 8) | w->lcd_params[1];
-            unsigned end = (w->lcd_params[2] << 8) | w->lcd_params[3];
+            unsigned first = (w->lcd_params[0] << 8) | w->lcd_params[1];
+            unsigned last = (w->lcd_params[2] << 8) | w->lcd_params[3];
             if (w->lcd_cmd == 0x2a) {
-                w->lcd_x0 = MIN(start, EXESX_LCD_W - 1);
-                w->lcd_x1 = MIN(end, EXESX_LCD_W - 1);
+                w->lcd_x0 = first;
+                w->lcd_x1 = last;
             } else {
-                w->lcd_y0 = MIN(start, EXESX_LCD_H - 1);
-                w->lcd_y1 = MIN(end, EXESX_LCD_H - 1);
+                w->lcd_y0 = first;
+                w->lcd_y1 = last;
             }
         }
         break;
-    case 0x2c: /* RAMWR: one RGB565 pixel per halfword */
-        if (w->lcd_x0 <= w->lcd_x1 && w->lcd_y0 <= w->lcd_y1 &&
-            w->lcd_y <= w->lcd_y1 && w->lcd_x <= w->lcd_x1) {
-            w->lcd_fb[w->lcd_y * EXESX_LCD_W + w->lcd_x] = v;
-            if (++w->lcd_x > w->lcd_x1) {
-                w->lcd_x = w->lcd_x0;
-                ++w->lcd_y;
-            }
-            ++w->lcd_pixel_writes;
-        }
+    case 0x2c: /* RAMWR: one RGB565 pixel per DBI halfword */
+        exesx_lcd_ramwr_pixel(w, v);
         break;
     case 0x3a: /* COLMOD; only RGB565 data storage supported */
         w->lcd_rgb565 = (v & 255) == 0x55;
@@ -105,6 +189,7 @@ static void exesx_lcd_parameter(EXeSXProfileWindow *w, uint16_t v)
         break; /* Preserve unknown vendor initialization as inert. */
     }
 }
+
 static MemTxResult exesx_lcd_write(EXeSXProfileWindow *w, hwaddr offset,
                                   uint64_t data, unsigned size)
 {
