@@ -221,6 +221,7 @@ def run(args):
     result={"source":"owner-private original DY357","overlay":str(overlay),
             "snapshot_tag":args.tag,"resume":args.resume,
             "candidate_codes":[hex(k) for k in args.keys],
+            "original_startup_chord":args.startup_chord,
             "events":events,"factory_menu_observed":False}
     started=time.monotonic()
     gdb=None
@@ -416,10 +417,18 @@ def run(args):
                         result["cold_start_cpu_state"][name]=str(output)[:2000]
                     result["cold_start_ipc_request"]=qmp.hmp(
                         "xp /6wx 0x2f028000")[:600]
+                    result["cold_start_original_mode_selector"]=qmp.hmp(
+                        "xp /1wx 0x6232e33c")[:250]
                     result["cold_start_mua_status"]=qmp.hmp(
                         "xp /2wx 0x41022060")[:300]
                     result["cold_start_mub_status"]=qmp.hmp(
                         "xp /2wx 0x40220060")[:300]
+                result["startup_chord_main_observed"]=any(
+                    e.get("pc")==hex(0x60011ca4) for e in events)
+                result["startup_chord_primary_check_observed"]=any(
+                    e.get("pc")==hex(0x6001d93c) for e in events)
+                result["startup_chord_secondary_check_observed"]=any(
+                    e.get("pc")==hex(0x6001d94c) for e in events)
                 result["saved_checkpoint"]=saved
                 result["event_reader_seen"]=any(
                     e.get("pc")==hex(0x600108b4) for e in events)
