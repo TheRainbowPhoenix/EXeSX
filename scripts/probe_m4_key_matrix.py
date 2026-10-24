@@ -79,7 +79,7 @@ def make_elf(output_override=False):
 def read(qemu, profile, key, enable=True, output_override=False):
     with tempfile.TemporaryDirectory() as root:
         d=Path(root)
-        file=d/'key-contact.txt';file.write_text(hex(key)+'\n')
+        file=d/'key-contact.txt';file.write_text((key if isinstance(key,str) else hex(key))+'\n')
         elf=d/'synthetic-m4-matrix.elf';elf.write_bytes(make_elf(output_override))
         env=os.environ.copy()
         env['EXESX_MEMORY_PROFILE']=str(profile.resolve())
@@ -107,10 +107,19 @@ def main():
         ('key released',0,True,False),
         ('0x93 row8 col7',0x93,True,False),
         ('0x94 row6 col6',0x94,True,False),
+        ('simultaneous 0x93+0x94','0x93,0x94',True,False),
+        ('reject malformed multi-contact','0x93,0xbeef',True,False),
         ('0x93 output direction',0x93,True,True),
     ):
         first,second,third=read(args.qemu,args.profile,key,enabled,over)
-        if key==0x93 and enabled and not over:
+        if key=='0x93,0x94':
+            assert first & COL93==0 and first & COL94, (
+                name,hex(first),hex(second),hex(third))
+            assert second & COL93 and second & COL94==0, (
+                name,hex(first),hex(second),hex(third))
+            assert third & COL93==0 and third & COL94, (
+                name,hex(first),hex(second),hex(third))
+        elif key==0x93 and enabled and not over:
             assert first & COL93==0 and second & COL93 and third & COL93==0, (
                 name, hex(first),hex(second),hex(third))
         elif key==0x94 and enabled:
