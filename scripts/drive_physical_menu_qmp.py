@@ -109,6 +109,9 @@ def run(a):
                EXESX_LCD_SCREENSHOT=str(dest/"physical-keys-lcd.ppm"))
     if a.mailbox_trace:
         env["EXESX_TRACE_MU_MAILBOX"]="1"
+    if a.audio_trace:
+        env["EXESX_TRACE_M4_DMAMUX0"]="1"
+        env["EXESX_TRACE_M4_DMA0"]="1"
     if a.a7_tpm6_khz:
         env["EXESX_DIAGNOSTIC_A7_TPM6_KHZ"]=str(a.a7_tpm6_khz)
     if a.lptmr_pcs_clocks:
@@ -125,8 +128,8 @@ def run(a):
          "-device",f"loader,file={elf},cpu-num=0",
          "-S","-qmp",f"tcp:127.0.0.1:{port},server=on,wait=off"]
     trace=dest/"physical-keys-original-trace-private.log"
-    if a.trace or a.mailbox_trace:
-        cmd+=["-d","exec,guest_errors" if a.trace else "guest_errors",
+    if a.trace or a.mailbox_trace or a.audio_trace:
+        cmd+=["-d","exec,guest_errors" if a.trace else "guest_errors,unimp",
               "-D",str(trace)]
     report={"mode":"physical GPIO contacts, no debugger/no event injection",
             "key_sequence":[hex(x) for x in a.keys],
@@ -166,6 +169,12 @@ def run(a):
                     # All commands below READ original SRAM and MMIO only.
                     queue=ram(qmp,0x1ffea34c,5)
                     state=ram(qmp,0x1ffea320,6)
+                    if a.audio_trace:
+                        dmamux0=ram(qmp,0x41020000,2)
+                        dma0_erq=ram(qmp,0x4100800c,1)
+                    else:
+                        dmamux0=[]
+                        dma0_erq=[]
                     mua=ram(qmp,0x41022060,2)
                     mub=ram(qmp,0x40220060,2)
                     regs=qmp.hmp("info registers")
@@ -178,6 +187,8 @@ def run(a):
                         "m4_queue_type":queue[0]&0xffff if queue else None,
                         "m4_queue_subtype":queue[0]>>16 if queue else None,
                         "m4_queue_key":queue[2]&0xffff if len(queue)>2 else None,
+                        "m4_dmamux0_chcfg0_1":dmamux0,
+                        "m4_dma0_erq":dma0_erq[0] if dma0_erq else None,
                         "mua_sr_cr":mua,"mub_sr_cr":mub,
                         "a7_pc_sample":pc.group(1) if pc else None}
                     report["observations"].append(observation)
@@ -324,6 +335,8 @@ if __name__=="__main__":
                     help="Bounded host seconds to observe original M4 state0 after each release")
     ap.add_argument("--no-wait-idle",action="store_true",
                     help="Skip QMP-confirmed release gate (may turn a second press into subtype2 repeat)")
+    ap.add_argument("--audio-trace",action="store_true",
+                    help="Read-only M4 DMAMUX0/DMA0 configuration and register-write trace")
     ap.add_argument("--mailbox-trace",action="store_true",
                     help="Passive MU TX/RX consumption trace, without costly guest exec trace")
     ap.add_argument("--trace",action="store_true",
