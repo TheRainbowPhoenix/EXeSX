@@ -25,7 +25,7 @@ PTA_READY = 0x808c6008
 PTB_READY = 0xc8
 PINS = {0x93: ("a", 0x80000000), 0x94: ("a", 0x00800000),
         0x95: ("a", 0x00800000), 0x80: ("b", 0x40)}
-A7 = {0x60010898:"m4_service_0804_result",0x600108a8:"event_wait",
+A7 = {0x60008cbc:"power_a002_read",0x601782c8:"ipc_sync_dispatch",0x60010898:"m4_service_0804_result",0x600108a8:"event_wait",
       0x600108b4:"event_reader_return",0x600108cc:"event_type_check",
       0x60010928:"diagnostic_key_accept",
       0x60010910:"diagnostic_sequence",0x60010974:"dialog_exit",
@@ -273,6 +273,9 @@ def run(args):
                     hit={"event":"guest_breakpoint","pc":hex(pc),
                          "name":marks.get(pc,"unknown"),"thread":tid,
                          "r0":hex(registers["r0"]),
+                         "r1":hex(registers["r1"]),
+                         "r2":hex(registers["r2"]),
+                         "r3":hex(registers["r3"]),
                          "seconds":round(time.monotonic()-started,2)}
                     if tid==2 and pc==0x1ffd7b28:
                         bits=rsp.memory(registers["r13"]+4,4)
@@ -357,7 +360,7 @@ def run(args):
                             raise RuntimeError("M4 scanner single-step failed")
                         if rsp.command(f"Z0,{pc:x},2")!="OK":
                             raise RuntimeError("Could not re-arm M4 task breakpoint")
-                    if tid==1 and pc in (0x600108b4,0x600108cc,
+                    if tid==1 and pc in (0x601782c8,0x60008cbc,0x600108b4,0x600108cc,
                                           0x60010910,0x60010928) and counts[pc]<100:
                         gdb.sendall(encode_packet("s"))
                         if stopped_thread(rsp.receive(4))!=1:
