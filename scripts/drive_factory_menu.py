@@ -184,6 +184,7 @@ def run(args):
                EXESX_EXPERIMENTAL_M4_BOOT="1",EXESX_EXPERIMENTAL_MU_IRQ="1",
                EXESX_EXPERIMENTAL_LPIT1_IRQ="1",
                EXESX_EXPERIMENTAL_LPTMR_IRQ="1" if args.lptmr_irq else "0",
+               EXESX_EXPERIMENTAL_LPTMR_PCS_CLOCKS="1",
                EXESX_EXPERIMENTAL_M4_PORT_IRQ="1" if args.port_irq else "0",
                EXESX_EXPERIMENTAL_M4_TPM0_IRQ="1" if args.tpm0_irq else "0",
                EXESX_I2C4B_REGISTER_MIRROR="1",EXESX_I2C40_REGISTER_MIRROR="1",
