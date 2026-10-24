@@ -26,7 +26,8 @@ static bool exesx_dma0_early_reg(hwaddr off)
 static bool exesx_dma1_tcd_access(EXeSXProfileWindow *w, hwaddr off,
                                   unsigned size)
 {
-    return w->base == UINT64_C(0x40080000) &&
+    return (w->base == UINT64_C(0x40080000) ||
+            w->base == UINT64_C(0x41008000)) &&
            off >= 0x1000 && off < 0x1400 &&
            (size == 1 || size == 2 || size == 4) &&
            (off & (size - 1)) == 0 &&
@@ -123,7 +124,8 @@ static MemTxResult exesx_dma0_read(EXeSXProfileWindow *w, hwaddr off,
                  ((UINT64_C(1) << (size * 8)) - 1);
         return MEMTX_OK;
     }
-    if (w->base == UINT64_C(0x40080000) && size == 1 &&
+    if ((w->base == UINT64_C(0x40080000) ||
+         w->base == UINT64_C(0x41008000)) && size == 1 &&
         (off == 0x1a || off == 0x1b)) {
         /* Command registers are write-only and read as zero here. */
         *value = 0;
@@ -153,7 +155,9 @@ static MemTxResult exesx_dma0_write(EXeSXProfileWindow *w, hwaddr off,
         uint32_t mask = ((UINT64_C(1) << (size * 8)) - 1) << shift;
         w->regfile[off / 4] = (w->regfile[off / 4] & ~mask) |
                               (((uint32_t)value << shift) & mask);
-        if (!g_strcmp0(g_getenv("EXESX_TRACE_DMA1_TCD"), "1")) {
+        if (!g_strcmp0(g_getenv("EXESX_TRACE_DMA1_TCD"), "1") ||
+            (w->base == UINT64_C(0x41008000) &&
+             !g_strcmp0(g_getenv("EXESX_TRACE_M4_DMA0"), "1"))) {
             qemu_log_mask(LOG_UNIMP,
                           "EXeSX DMA1 TCD WRITE ch=%u field=0x%02" HWADDR_PRIx
                           " width=%u data=0x%08x (NO DMA execution)\n",
@@ -162,7 +166,8 @@ static MemTxResult exesx_dma0_write(EXeSXProfileWindow *w, hwaddr off,
         }
         return MEMTX_OK;
     }
-    if (w->base == UINT64_C(0x40080000) && size == 1 &&
+    if ((w->base == UINT64_C(0x40080000) ||
+         w->base == UINT64_C(0x41008000)) && size == 1 &&
         (off == 0x1a || off == 0x1b)) {
         /* PERI_DMA.h: CERQ +0x1a and SERQ +0x1b are eight-bit
          * command registers; ERQ +0x0c has one bit per DMA channel.
@@ -176,12 +181,16 @@ static MemTxResult exesx_dma0_write(EXeSXProfileWindow *w, hwaddr off,
             if (off == 0x1b) {
                 w->regfile[0x0c / 4] |= channel_mask;
                 if (!(bits & 0x40)) {
-                    exesx_dma1_request(w, bits & 0x1f);
+                    if (w->base == UINT64_C(0x40080000)) {
+                        exesx_dma1_request(w, bits & 0x1f);
+                    }
                 }
             } else {
                 w->regfile[0x0c / 4] &= ~channel_mask;
             }
-            if (!g_strcmp0(g_getenv("EXESX_TRACE_DMA1_TCD"), "1")) {
+            if (!g_strcmp0(g_getenv("EXESX_TRACE_DMA1_TCD"), "1") ||
+                (w->base == UINT64_C(0x41008000) &&
+                 !g_strcmp0(g_getenv("EXESX_TRACE_M4_DMA0"), "1"))) {
                 qemu_log_mask(LOG_UNIMP,
                               "EXeSX DMA1 %s ch=%u ERQ=0x%08x "
                               "(NO DMA execution)\n",
