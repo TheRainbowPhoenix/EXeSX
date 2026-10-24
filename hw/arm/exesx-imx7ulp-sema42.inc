@@ -45,6 +45,7 @@ static MemTxResult exesx_sema42_write(EXeSXProfileWindow *w,
     }
     if (size == 1 && off < 16) {
         gate = &w->regfile[off];
+        uint32_t old_gate = *gate & 0xf;
         if (data > 15) {
             return MEMTX_ERROR;
         }
@@ -57,16 +58,27 @@ static MemTxResult exesx_sema42_write(EXeSXProfileWindow *w,
              * For now, the A7 domain is the one that acquired the gate. */
             *gate = 0;
         }
-        static unsigned int trace_sample_count;
-        if (!g_strcmp0(g_getenv("EXESX_TRACE_SEMA42_CPU"), "1") &&
-            trace_sample_count++ < 128) {
-            qemu_log_mask(LOG_UNIMP,
-                          "EXeSX SEMA42 CPU=%d guest-pc=%08x gate=%u write=%u state=%u @0x%"
-                          HWADDR_PRIx "\n",
-                          requester_index,
-                          requester ? (uint32_t)ARM_CPU(requester)->env.regs[15] : 0,
-                          (unsigned)((off & ~3U) + (3U - (off & 3U))),
-                          data, *gate, w->base + off);
+        /*
+         * Opt-in, unlimited gate-2 trace. Record every acquisition and
+         * attempted release, including unsuccessful writes. Use the real
+         * vCPU PC (M-profile does not use the A-profile regs[15] field).
+         * Both mapping addresses are logged to detect alias divergence.
+         * Run with -D private.log and EXESX_TRACE_SEMA42_GATE2=1.
+         */
+        if (off == 1 &&
+            !g_strcmp0(g_getenv("EXESX_TRACE_SEMA42_GATE2"), "1")) {
+            uint32_t before = old_gate;
+            const char *action = data == 0 ?
+                (before ? "release" : "release-empty") :
+                (!before ? "acquire" :
+                 (before == data ? "reacquire-own" : "blocked"));
+            qemu_log("EXeSX SEMA42_GATE2 t_ns=%" PRIu64
+                     " cpu=%d pc=0x%" PRIx64 " map=0x%" HWADDR_PRIx
+                     " action=%s write=%u before=%u after=%u\n",
+                     (uint64_t)qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL),
+                     requester_index,
+                     requester ? (uint64_t)cpu_get_pc(requester) : 0,
+                     w->base, action, data, before, *gate);
         }
         qemu_log_mask(LOG_GUEST_ERROR,
                       "EXeSX SEMA42 gate=%u domain=%u state=%u @0x%"
