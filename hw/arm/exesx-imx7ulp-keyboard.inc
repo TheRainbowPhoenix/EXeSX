@@ -2,7 +2,7 @@
  *
  * The unchanged original M4 firmware drives one GPIO row low, samples
  * eight input columns, debounces and sends its own IPC keyboard events.
- * A user-owned file encodes ONE virtual closed contact (logical key ID);
+ * A user-owned file encodes comma-separated simultaneous closed contacts (logical key IDs);
  * this file never supplies an A7 key event or pre-decoded IPC message.
  *
  * Verified original M4 row table @0x1FFD0DA8 (9 x 12 bytes), column
@@ -21,6 +21,9 @@ static const EXeSXM4KeyContact exesx_m4_key_contacts[] = {
     { 0x94, 6, 6 }, /* original ROM: A17 row / A23 column */
     { 0x95, 5, 6 }, /* original ROM: A16 row / A23 column */
     { 0x80, 0, 0 }, /* original ROM: B2 row  / B6 column  */
+    { 0x90, 7, 6 }, /* original ROM: A20 row / A23 column */
+    { 0x92, 7, 7 }, /* original ROM: A20 row / A31 column */
+    { 0x96, 8, 4 }, /* original ROM: A21 row / A18 column */
 };
 
 static const uint8_t exesx_m4_row_bank[] = {
@@ -62,12 +65,17 @@ static void exesx_m4_keyboard_row_drive(EXeSXState *board,
  * malformed file releases the key. Poll by guest virtual time so the
  * GPIO contact is deterministic relative to M4 timer scheduling.
  */
+/* Each bit is one simultaneous physical contact in exesx_m4_key_contacts.
+ * A single code file remains backwards-compatible. Unknown or malformed
+ * codes release ALL keys rather than synthesizing an input.
+ */
 static uint16_t exesx_m4_keyboard_code(EXeSXState *board)
 {
     const char *path = g_getenv("EXESX_M4_KEY_MATRIX_FILE");
     gchar *contents = NULL;
-    char *end;
-    uint64_t code;
+    gchar **tokens;
+    uint16_t contacts = 0;
+    unsigned n;
     int64_t now;
     if (!board || !path || !*path) {
         return 0;
@@ -76,19 +84,38 @@ static uint16_t exesx_m4_keyboard_code(EXeSXState *board)
     if (now >= board->m4_keyboard_next_poll_ns) {
         board->m4_keyboard_code = 0;
         if (g_file_get_contents(path, &contents, NULL, NULL)) {
-            g_strstrip(contents);
-            if (*contents) {
-                code = g_ascii_strtoull(contents, &end, 0);
-                if (end != contents && *end == '\0' && code <= 0xffff) {
-                    board->m4_keyboard_code = code;
+            tokens = g_strsplit(g_strstrip(contents), ",", -1);
+            for (n = 0; tokens[n]; n++) {
+                char *token = g_strstrip(tokens[n]);
+                char *end;
+                uint64_t code;
+                unsigned i;
+                if (!*token || n >= G_N_ELEMENTS(exesx_m4_key_contacts)) {
+                    contacts = 0;
+                    break;
+                }
+                code = g_ascii_strtoull(token, &end, 0);
+                if (end == token || *end != '\0' || code > 0xffff) {
+                    contacts = 0;
+                    break;
+                }
+                for (i = 0; i < G_N_ELEMENTS(exesx_m4_key_contacts); i++) {
+                    if (exesx_m4_key_contacts[i].keycode == code) {
+                        contacts |= (uint16_t)(1U << i);
+                        break;
+                    }
+                }
+                if (i == G_N_ELEMENTS(exesx_m4_key_contacts)) {
+                    contacts = 0;
+                    break;
                 }
             }
+            g_strfreev(tokens);
             g_free(contents);
         }
-        /* A contact can change between successive hardware scan rows.
-         * The earlier 20 ms virtual-time file poll missed short presses
-         * and gave unrealistic start-of-window latency. The emulated
-         * electrical contact is refreshed every 1 ms of guest time. */
+        board->m4_keyboard_code = contacts;
+        /* Real electrical contacts, refreshed once per millisecond of
+         * guest virtual time; no original firmware event is injected. */
         board->m4_keyboard_next_poll_ns = now + INT64_C(1000000);
     }
     return board->m4_keyboard_code;
@@ -103,9 +130,9 @@ static uint32_t exesx_m4_keyboard_column_levels(EXeSXProfileWindow *w,
                                                   uint32_t external_inputs)
 {
     EXeSXState *b = w->board;
-    uint16_t key;
+    uint16_t contacts;
     unsigned i;
-    if (!b || !(key = exesx_m4_keyboard_code(b))) {
+    if (!b || !(contacts = exesx_m4_keyboard_code(b))) {
         return external_inputs;
     }
     for (i = 0; i < G_N_ELEMENTS(exesx_m4_key_contacts); i++) {
@@ -123,7 +150,7 @@ static uint32_t exesx_m4_keyboard_column_levels(EXeSXProfileWindow *w,
          * (column 7, wrong row) in the original-ROM QEMU trace.
          * Consult the serialized MMIO register, not last-PCOR state.
          */
-        if (k->keycode != key) {
+        if (!(contacts & (1U << i))) {
             continue;
         }
         row_gpio = exesx_m4_row_bank[k->row] ? b->m4_gpio_b : b->m4_gpio_a;
