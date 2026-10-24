@@ -417,6 +417,18 @@ static MemTxResult exesx_imx7ulp_read(EXeSXProfileWindow *w,
         } else {
             *value = (off == 0) ? (uint32_t)ticks : (uint32_t)(ticks >> 32);
         }
+        if (w->base == UINT64_C(0x410a3c00) &&
+            !g_strcmp0(g_getenv("EXESX_DIAGNOSTIC_M4_TSTMR_TRACE"), "1")) {
+            static unsigned trace_count;
+            if (trace_count++ < 80) {
+                qemu_log("EXeSX M4 TSTMR off=%u value=0x%08x ticks=0x%08x "
+                         "phase=%u coherent=%d\n",
+                         (unsigned)off, (uint32_t)*value, (uint32_t)ticks,
+                         w->regfile[0x108 / 4],
+                         !g_strcmp0(g_getenv(
+                             "EXESX_DIAGNOSTIC_M4_TSTMR_COHERENT_READS"), "1"));
+            }
+        }
         return MEMTX_OK;
     }
     if (!strcmp(w->kind, "imx7ulp-gpio")) {
