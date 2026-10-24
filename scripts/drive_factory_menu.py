@@ -44,7 +44,12 @@ M4 = {0x1ffd7d2e:"m4_pctla_irq56_wake",
       0x1ffd7fb0:"scan_task_entry",0x1ffd7fca:"scan_full_matrix_call",
       0x1ffd8634:"scan_full_matrix",0x1ffed3b0:"lptmr0_isr",
       0x1ffd8412:"row_drive",0x1ffd8564:"column_scan",
-      0x1ffd85c6:"gpio_column_read",0x1ffd8610:"key_debounce"}
+      0x1ffd85c6:"gpio_column_read",0x1ffd8610:"key_debounce",
+      0x1ffd838a:"m4_key_queue_consume",
+      0x1ffd874a:"m4_keyboard_ipc_router",
+      0x1ffde672:"m4_ipc_envelope_build",
+      0x1ffde74a:"m4_ipc_envelope_queue",
+      0x1ffe0cce:"m4_ipc_notify"}
 
 
 def backed_qcow2(path, raw):
@@ -238,6 +243,19 @@ def run(args):
                 saved=args.resume
                 ready=args.resume
                 sender=None
+                if args.contact_delay is not None and args.keys:
+                    # Diagnostic: close actual virtual matrix contacts even
+                    # if cold boot never reaches the A7 version dialog.
+                    # This does NOT inject a firmware or mailbox event.
+                    def cold_contact_sender():
+                        time.sleep(args.contact_delay)
+                        pulse(args.keys,pa,pb,args.hold,args.gap,events,
+                              matrix_file)
+                    sender=threading.Thread(target=cold_contact_sender,
+                                            daemon=True)
+                    sender.start()
+                    events.append({"event":"independent_physical_key_probe_scheduled",
+                                   "delay_seconds":args.contact_delay})
                 counts={}
                 deadline=time.monotonic()+args.seconds
                 while time.monotonic()<deadline and proc.poll() is None:
@@ -324,6 +342,8 @@ def run(args):
                     # status-5 timer event is NOT a keyboard press;
                     # the initial one-shot debugger missed later input.
                     if tid==2 and args.trace_m4 and pc in (
+                        0x1ffd838a,0x1ffd874a,0x1ffde672,
+                        0x1ffde74a,0x1ffe0cce,
                         0x1ffd7d2e,0x1ffd53ba,0x1ffd7d5a,
                         0x1ffd8088,0x1ffd809e,0x1ffd7fa0,0x1ffd7b42,
                         0x1ffd7b0c,0x1ffd7b28,0x1ffd7b2e,
@@ -403,6 +423,8 @@ def main():
     parser.add_argument("--gap",type=float,default=.6)
     parser.add_argument("--tag",default="version-event-wait")
     parser.add_argument("--resume",action="store_true")
+    parser.add_argument("--contact-delay",type=float,default=None,
+                        help="Diagnostic physical-key probe after N host seconds, even if A7 event-wait never occurs; no mailbox injection")
     parser.add_argument("--trace-m4",action="store_true")
     parser.add_argument("--matrix-keys",action="store_true",
                         help="Drive opt-in real M4 row-gated keyboard matrix contacts, not bare GPIO columns")
