@@ -317,7 +317,7 @@ static void exesx_load_profile(MemoryRegion *sysmem, EXeSXState *board)
         exit(1);
     }
     groups = g_key_file_get_groups(cfg, &ngroups);
-    if (ngroups > 64) {
+    if (ngroups > 128) {
         error_report("EXeSX: too many profile windows");
         exit(1);
     }
