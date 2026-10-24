@@ -344,8 +344,8 @@ if __name__=="__main__":
     ap.add_argument("--overwrite",action="store_true")
     args=ap.parse_args()
     args.keys=tuple(int(x,0) for x in args.keys.split(","))
-    if not args.keys or any(x not in (0x93,0x94,0x95,0x80) for x in args.keys):
-        ap.error("Only owner-ROM decoded matrix keys 0x93/0x94/0x95/0x80 are supported")
+    if not args.keys or any(x not in (0x80,0x90,0x92,0x93,0x94,0x95,0x96) for x in args.keys):
+        ap.error("Only owner-ROM mapped keys 0x80/0x90/0x92/0x93/0x94/0x95/0x96 are supported; 0x91 has no verified matrix coordinate")
     if args.a7_tpm6_khz and not 1 <= args.a7_tpm6_khz <= 1000:
         ap.error("--a7-tpm6-khz must be 1..1000 or zero for legacy")
     if args.m4_tstmr_khz and not 1 <= args.m4_tstmr_khz <= 1000:
