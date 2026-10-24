@@ -386,7 +386,37 @@ static MemTxResult exesx_imx7ulp_read(EXeSXProfileWindow *w,
         if (off != 0 && off != 4) {
             return MEMTX_ERROR;
         }
-        *value = (off == 0) ? (uint32_t)ticks : (uint32_t)(ticks >> 32);
+        /*
+         * Diagnostic clock-coherence mode for genuine M4 firmware at
+         * 0x1FFD4D04: it reads LOW,HIGH,LOW,HIGH and retries if
+         * LOW[31:5] changes. QEMU MMIO retranslation can otherwise
+         * advance virtual time by >32 timer ticks between these reads.
+         * Snapshot ONE timestamp for exactly that read quartet.
+         * This is an opt-in emulator differential, NOT a claim that
+         * silicon implements a hardware latch or a frozen clock.
+         * Store phase/timestamp in VMState-backed regfile for loadvm.
+         */
+        if (w->base == UINT64_C(0x410a3c00) &&
+            !g_strcmp0(g_getenv("EXESX_DIAGNOSTIC_M4_TSTMR_COHERENT_READS"), "1")) {
+            uint32_t phase = w->regfile[0x108 / 4];
+            unsigned expected = (phase & 1) ? 4 : 0;
+            if (phase == 0 || off != expected) {
+                if (off == 0) {
+                    w->regfile[0x100 / 4] = (uint32_t)ticks;
+                    w->regfile[0x104 / 4] = (uint32_t)(ticks >> 32);
+                    w->regfile[0x108 / 4] = 1;
+                    *value = w->regfile[0x100 / 4];
+                } else {
+                    w->regfile[0x108 / 4] = 0;
+                    *value = (uint32_t)(ticks >> 32);
+                }
+            } else {
+                *value = w->regfile[(off == 0 ? 0x100 : 0x104) / 4];
+                w->regfile[0x108 / 4] = (phase + 1) & 3;
+            }
+        } else {
+            *value = (off == 0) ? (uint32_t)ticks : (uint32_t)(ticks >> 32);
+        }
         return MEMTX_OK;
     }
     if (!strcmp(w->kind, "imx7ulp-gpio")) {
