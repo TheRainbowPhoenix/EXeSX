@@ -109,6 +109,10 @@ def run(a):
                EXESX_LCD_SCREENSHOT=str(dest/"physical-keys-lcd.ppm"))
     if a.mailbox_trace:
         env["EXESX_TRACE_MU_MAILBOX"]="1"
+    if a.a7_tpm6_khz:
+        env["EXESX_DIAGNOSTIC_A7_TPM6_KHZ"]=str(a.a7_tpm6_khz)
+    if a.lptmr_pcs_clocks:
+        env["EXESX_EXPERIMENTAL_LPTMR_PCS_CLOCKS"]="1"
     qemu=a.qemu.resolve()
     if (qemu.parent/"lib").is_dir():
         env["LD_LIBRARY_PATH"]=str(qemu.parent/"lib")+os.pathsep+env.get("LD_LIBRARY_PATH","")
@@ -126,6 +130,8 @@ def run(a):
             "key_sequence":[hex(x) for x in a.keys],
             "tpm0_input_mhz_diagnostic":a.tpm0_mhz,
             "hold_seconds":a.hold,"gap_seconds":a.gap,
+            "a7_tpm6_khz_diagnostic":a.a7_tpm6_khz,
+            "lptmr_pcs_clock_model":a.lptmr_pcs_clocks,
             "contacts":[],"observations":[],
             "m4_keydown_observed":False,
             "a7_received_keydown_proven":False,
@@ -235,6 +241,18 @@ def run(a):
                                 menu=True
                     report["factory_menu_observed"]=menu
                     report["private_trace_path"]=str(trace)
+                    if menu:
+                        # This native BIOS control-flow route requires
+                        # genuine type2/subtype1 keyboard input.
+                        report["a7_received_keydown_proven"]=True
+                        report["a7_delivery_evidence"]="authentic BIOS factory-menu control flow after physical key sequence"
+                if a.save_menu_snapshot and report["factory_menu_observed"]:
+                    # Snapshot is AFTER entry, possibly still awaiting
+                    # IPC 0x400B before painting native menu text.
+                    err=qmp.hmp("savevm factory-menu-real-post")
+                    if err.strip():
+                        raise RuntimeError("Cannot save private post-menu VM: "+err)
+                    report["post_menu_snapshot"]="factory-menu-real-post"
         finally:
             if proc.poll() is None:
                 proc.kill()
@@ -254,6 +272,12 @@ if __name__=="__main__":
     ap.add_argument("--profile",type=Path)
     ap.add_argument("--tag",default="version-event-wait")
     ap.add_argument("--keys",default="0x93,0x93,0x94")
+    ap.add_argument("--a7-tpm6-khz",type=int,default=0,
+                    help="Opt-in A7 TPM6 input kHz; 32 avoids original BIOS double-CNT-read livelock")
+    ap.add_argument("--lptmr-pcs-clocks",action="store_true",
+                    help="Use correct 1kHz LPO when original M4 selects LPTMR PCS=01")
+    ap.add_argument("--save-menu-snapshot",action="store_true",
+                    help="Save private post-entry VM only after original A7 executes factory menu")
     ap.add_argument("--tpm0-mhz",type=int,default=1,
                     help="EXPERIMENTAL M4 TPM0 source MHz; default 1 uncalibrated model, 48 is a diagnostic hypothesis")
     ap.add_argument("--hold",type=float,default=.12)
@@ -274,6 +298,10 @@ if __name__=="__main__":
     args.keys=tuple(int(x,0) for x in args.keys.split(","))
     if not args.keys or any(x not in (0x93,0x94,0x95,0x80) for x in args.keys):
         ap.error("Only owner-ROM decoded matrix keys 0x93/0x94/0x95/0x80 are supported")
+    if args.a7_tpm6_khz and not 1 <= args.a7_tpm6_khz <= 1000:
+        ap.error("--a7-tpm6-khz must be 1..1000 or zero for legacy")
+    if args.save_menu_snapshot and not args.trace:
+        ap.error("--save-menu-snapshot requires --trace to verify actual menu execution")
     if args.seconds<=0 or args.poll<=0 or args.hold<=0 or args.gap<0 or args.idle_timeout<=0 or not 1 <= args.tpm0_mhz <= 120:
         ap.error("Require positive --seconds/--poll/--hold and nonnegative --gap")
     run(args)
