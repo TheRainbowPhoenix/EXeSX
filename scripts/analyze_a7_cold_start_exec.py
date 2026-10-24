@@ -30,6 +30,10 @@ MILESTONES = {
     "m4_a004_service_dispatch": (1, 0x1FFD9D44),
     "m4_a004_argument_2_handler": (1, 0x1FFDF49E),
     "m4_ipc_request_dispatch": (1, 0x1FFD5510),
+    "m4_control_task_event_wait": (1, 0x1FFD635C),
+    "m4_control_task_command_dispatch": (1, 0x1FFD5510),
+    "m4_mu_notification_callback": (1, 0x1FFE479C),
+    "m4_rtos_event_signal": (1, 0x1FFD53BA),
     "m4_ipc_mu_notification": (1, 0x1FFE479C),
 }
 PATTERN = re.compile(r'^Trace ([01]):.*?/([0-9a-fA-F]{16})/')
