@@ -584,6 +584,55 @@ static void exesx_init(MachineState *ms)
          * eMMC model has its own implementation-specific limitations:
          * do not assume its CID/EXT_CSD matches physical Samsung hardware.
          */
+        /*
+         * Opt-in removable SDHC card on USDHC0.  Use QEMU's existing
+         * command/data/DMA SD host and SD-card state machines; unlike the
+         * diagnostic no-media register profile, this supports real media.
+         * All destructive factory tests must use a disposable card image.
+         *
+         * -drive if=none,id=exesx-sd,file=card.raw,format=raw
+         * EXESX_USDHC0_SD=1
+         */
+        if (!g_strcmp0(g_getenv("EXESX_USDHC0_SD"), "1")) {
+            BlockBackend *sd_blk = blk_by_name("exesx-sd");
+            DeviceState *sd_host, *sd_card;
+            SysBusDevice *sd_sbd;
+            int64_t sd_bytes;
+
+            if (!sd_blk || (sd_bytes = blk_getlength(sd_blk)) <
+                               INT64_C(2) * GiB ||
+                sd_bytes % 512 != 0) {
+                error_report("EXeSX USDHC0 SD: requires a >=2 GiB "
+                             "512-byte-aligned disposable backing image: "
+                             "-drive if=none,id=exesx-sd,file=card.raw,"
+                             "format=raw");
+                exit(1);
+            }
+            sd_host = qdev_new(TYPE_IMX_USDHC);
+            object_property_add_child(OBJECT(ms), "usdhc0-card-host",
+                                      OBJECT(sd_host));
+            qdev_prop_set_uint8(sd_host, "sd-spec-version", 3);
+            qdev_prop_set_bit(sd_host, "imx7ulp-input-clock", true);
+            qdev_prop_set_uint64(sd_host, "capareg",
+                                 UINT64_C(0x05e80080));
+            sd_sbd = SYS_BUS_DEVICE(sd_host);
+            sysbus_realize(sd_sbd, &error_fatal);
+            memory_region_add_subregion_overlap(
+                mem, UINT64_C(0x40370000),
+                sysbus_mmio_get_region(sd_sbd, 0), 1);
+            /* i.MX7ULP USDHC0 = GIC SPI42, USDHC1 = SPI43. */
+            sysbus_connect_irq(sd_sbd, 0, qdev_get_gpio_in(gic, 42));
+            sd_card = qdev_new(TYPE_SD_CARD);
+            qdev_prop_set_drive_err(sd_card, "drive", sd_blk,
+                                    &error_fatal);
+            qdev_realize_and_unref(sd_card,
+                                   qdev_get_child_bus(sd_host, "sd-bus"),
+                                   &error_fatal);
+            error_report("EXeSX USDHC0: real QEMU SDHC host and SD card "
+                         "enabled, %" PRId64 " bytes, destructive "
+                         "diagnostics enabled", sd_bytes);
+        }
+
         if (!g_strcmp0(g_getenv("EXESX_USDHC1_EMMC"), "1")) {
             BlockBackend *blk = blk_by_name("exesx-emmc");
             int64_t bytes;
