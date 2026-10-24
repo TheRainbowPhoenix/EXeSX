@@ -25,7 +25,10 @@ PTA_READY = 0x808c6008
 PTB_READY = 0xc8
 PINS = {0x93: ("a", 0x80000000), 0x94: ("a", 0x00800000),
         0x95: ("a", 0x00800000), 0x80: ("b", 0x40)}
-A7 = {0x60011ca4:"bios_startup_main",
+A7 = {0x60011860:"bios_startup_task",
+      0x60011a30:"bios_startup_event_initialization",
+      0x60011250:"bios_startup_selector_from_sim0",
+      0x60011ca4:"bios_startup_main",
       0x6001d93c:"startup_chord_80_95_92",
       0x6001d94c:"startup_chord_80_90_96",
       0x60010868:"bios_version_key_sequence",
@@ -323,6 +326,15 @@ def run(args):
                             hit["genuine_key_down"]=(
                                 hit["bios_event_type"]==2 and
                                 hit["bios_event_subtype"]==1)
+                    if tid==1 and pc in (0x60011860,0x60011a30,
+                                           0x60011250,0x60011ca4,
+                                           0x6001d93c,0x6001d94c):
+                        hit["original_sim0_start_selector"]=qmp.hmp(
+                            "xp /1wx 0x410a3064")[:220]
+                        hit["original_ram_start_selector"]=qmp.hmp(
+                            "xp /1wx 0x6232e33c")[:220]
+                        hit["original_ipc_slot"]=qmp.hmp(
+                            "xp /6wx 0x2f028000")[:400]
                     if tid==1 and pc==0x601782c8:
                         # Service is in R1, not R0. Preserve the authentic
                         # shared slot at submission without fabricating ACKs.
