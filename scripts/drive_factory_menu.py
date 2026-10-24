@@ -25,7 +25,11 @@ PTA_READY = 0x808c6008
 PTB_READY = 0xc8
 PINS = {0x93: ("a", 0x80000000), 0x94: ("a", 0x00800000),
         0x95: ("a", 0x00800000), 0x80: ("b", 0x40)}
-A7 = {0x60008cbc:"power_a002_read",0x601782c8:"ipc_sync_dispatch",0x60010898:"m4_service_0804_result",0x600108a8:"event_wait",
+A7 = {0x60011ca4:"bios_startup_main",
+      0x6001d93c:"startup_chord_80_95_92",
+      0x6001d94c:"startup_chord_80_90_96",
+      0x60010868:"bios_version_key_sequence",
+      0x60008cbc:"power_a002_read",0x601782c8:"ipc_sync_dispatch",0x60010898:"m4_service_0804_result",0x600108a8:"event_wait",
       0x600108b4:"event_reader_return",0x600108cc:"event_type_check",
       0x60010928:"diagnostic_key_accept",
       0x60010910:"diagnostic_sequence",0x60010974:"dialog_exit",
@@ -174,11 +178,16 @@ def run(args):
         profile_data+="\n[diagnostic-flexbus-lcd]\nkind=exesx-lcd\nbase=0xb0000000\nsize=0x1000\n"
     profile.write_text(profile_data)
     pa=dest/"gpioa-input-mask.txt";pb=dest/"gpiob-input-mask.txt"
-    voltage(pa,PTA_READY if args.resume else 0)
-    voltage(pb,PTB_READY if args.resume else 0x88)
+    voltage(pa,PTA_READY if (args.resume or args.startup_chord) else 0)
+    voltage(pb,PTB_READY if (args.resume or args.startup_chord) else 0x88)
     matrix_file = dest/"m4-key-matrix-contact.txt" if args.matrix_keys else None
     if matrix_file is not None:
-        voltage(matrix_file, 0)
+        if args.startup_chord and not args.resume:
+            # Contacts are closed BEFORE the original A7 BIOS startup
+            # performs its direct GPIO/IOMUX key-chord checks.
+            matrix_file.write_text(args.startup_chord + "\n", encoding="ascii")
+        else:
+            voltage(matrix_file, 0)
     env=os.environ.copy()
     env.update(EXESX_MEMORY_PROFILE=str(profile),
                EXESX_EXPERIMENTAL_M4_BOOT="1",EXESX_EXPERIMENTAL_MU_IRQ="1",
@@ -326,6 +335,10 @@ def run(args):
                         ready=True
                         events.append({"event":"external_input_ready"})
                     if pc==0x600108a8:
+                        if args.startup_chord and matrix_file is not None:
+                            voltage(matrix_file, 0)
+                            events.append({"event":"original_startup_chord_released",
+                                           "codes":args.startup_chord})
                         if not saved:
                             err=qmp.hmp("savevm "+args.tag)
                             if err.strip() or args.tag not in qmp.hmp("info snapshots"):
@@ -334,9 +347,13 @@ def run(args):
                             print("SAVED VM CHECKPOINT",overlay,flush=True)
                             saved=True
                         if sender is None and args.keys:
-                            sender=threading.Thread(target=pulse,
-                                    args=(args.keys,pa,pb,args.hold,args.gap,events,matrix_file),
-                                    daemon=True)
+                            def after_startup_chord():
+                                if args.startup_chord:
+                                    time.sleep(args.startup_release_delay)
+                                pulse(args.keys,pa,pb,args.hold,args.gap,
+                                      events,matrix_file)
+                            sender=threading.Thread(target=after_startup_chord,
+                                                    daemon=True)
                             sender.start()
                     if pc==0x6003a878:
                         result["factory_menu_observed"]=True
@@ -435,6 +452,11 @@ def main():
     parser.add_argument("--resume",action="store_true")
     parser.add_argument("--contact-delay",type=float,default=None,
                         help="Diagnostic physical-key probe after N host seconds, even if A7 event-wait never occurs; no mailbox injection")
+    parser.add_argument("--startup-chord",
+                        choices=["0x80,0x95,0x92","0x80,0x90,0x96"],
+                        help="Close original GPIO keyboard startup chord before cold boot; release at event wait")
+    parser.add_argument("--startup-release-delay",type=float,default=0.08,
+                        help="Time between releasing startup chord and sending version-dialog keys")
     parser.add_argument("--trace-m4",action="store_true")
     parser.add_argument("--matrix-keys",action="store_true",
                         help="Drive opt-in real M4 row-gated keyboard matrix contacts, not bare GPIO columns")
@@ -444,6 +466,10 @@ def main():
         parser.error("Only mapped candidate column codes 0x93,0x94,0x95,0x80 allowed")
     if not re.fullmatch(r"[a-zA-Z0-9_-]{1,32}",args.tag):
         parser.error("Snapshot tag must be ASCII alphanumeric/underscore/hyphen")
+    if args.startup_chord and (not args.matrix_keys or args.resume):
+        parser.error("--startup-chord requires --matrix-keys and cold boot (no --resume)")
+    if args.startup_release_delay < 0:
+        parser.error("--startup-release-delay must be nonnegative")
     if args.seconds<=0 or args.hold<=0 or args.gap<0:
         parser.error("Invalid timing")
     result=run(args)
