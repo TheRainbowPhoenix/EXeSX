@@ -79,7 +79,8 @@ static MemTxResult exesx_sema42_write(EXeSXProfileWindow *w,
             !g_strcmp0(g_getenv("EXESX_TRACE_SEMA42_GATE2"), "1")) {
             uint32_t before = old_gate;
             const char *action = data == 0 ?
-                (!before ? "release-empty" :\n                 (*gate == before ? "release-denied" : "release")) :
+                (!before ? "release-empty" :
+                 (*gate == before ? "release-denied" : "release")) :
                 (!before ? "acquire" :
                  (before == data ? "reacquire-own" : "blocked"));
             qemu_log("EXeSX SEMA42_GATE2 t_ns=%" PRIu64
