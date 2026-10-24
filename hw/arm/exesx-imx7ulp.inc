@@ -363,7 +363,26 @@ static MemTxResult exesx_imx7ulp_read(EXeSXProfileWindow *w,
         return MEMTX_OK;
     }
     if (!strcmp(w->kind, "imx7ulp-tstmr")) {
-        uint64_t ticks = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) / 1000;
+        uint64_t ns = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+        uint64_t ticks = ns / 1000;
+        /*
+         * Original M4 FUN_1FFD4D04 repeatedly reads both halves of
+         * TSTMR at 0x410A3C00 and retries if the upper bits of the
+         * low word change during the read sequence. The previous
+         * uncalibrated 1 MHz clock causes tens of thousands of retries
+         * in genuine firmware runs. Compare lower clock hypotheses
+         * without altering guest instructions, RAM or mailbox traffic.
+         * Default is unchanged. Host option is DIAGNOSTIC ONLY.
+         */
+        const char *clock = g_getenv("EXESX_DIAGNOSTIC_M4_TSTMR_KHZ");
+        if (w->base == UINT64_C(0x410a3c00) && clock && *clock) {
+            char *end;
+            uint64_t khz = g_ascii_strtoull(clock, &end, 0);
+            if (*end == '\0' && khz >= 1 && khz <= 1000) {
+                ticks = (ns / 1000000) * khz +
+                        ((ns % 1000000) * khz) / 1000000;
+            }
+        }
         if (off != 0 && off != 4) {
             return MEMTX_ERROR;
         }
