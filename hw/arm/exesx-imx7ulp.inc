@@ -105,9 +105,28 @@ static uint32_t exesx_gpiob_external_input_mask(void)
     static uint32_t cached;
     static int64_t next_read_ns;
     static bool initialized;
-    return exesx_live_external_gpio_input_mask(
+    uint32_t levels = exesx_live_external_gpio_input_mask(
         "EXESX_GPIOB_INPUT_MASK", "EXESX_GPIOB_INPUT_MASK_FILE",
         &cached, &next_read_ns, &initialized);
+
+    /*
+     * Original A7 FUN_60035250 samples M4 GPIOB PDIR bit14,
+     * inverts it, and publishes the SD card-detect byte at 0x2f029214.
+     * This is a separate physical contact from the USDHC CINST flag.
+     *
+     * Tie PTB14 to the installed SD medium ONLY when explicitly requested;
+     * preserve legacy diagnostic GPIO masks otherwise. Active-low:
+     * inserted -> PDIR14=0, no card -> PDIR14=1. Normal GPIO PDDR
+     * output priority and PORT edge/interrupt handling still apply.
+     */
+    if (!g_strcmp0(g_getenv("EXESX_USDHC0_SD_DETECT_GPIO"), "1")) {
+        if (!g_strcmp0(g_getenv("EXESX_USDHC0_SD"), "1")) {
+            levels &= ~UINT32_C(0x00004000);
+        } else {
+            levels |= UINT32_C(0x00004000);
+        }
+    }
+    return levels;
 }
 
 static uint32_t exesx_gpioa_external_input_mask(void)
