@@ -312,6 +312,12 @@ def run(args):
                             hit["genuine_key_down"]=(
                                 hit["bios_event_type"]==2 and
                                 hit["bios_event_subtype"]==1)
+                    if tid==1 and pc==0x601782c8:
+                        # Service is in R1, not R0. Preserve the authentic
+                        # shared slot at submission without fabricating ACKs.
+                        hit["original_ipc_service"]=hex(registers["r1"])
+                        hit["ipc_shared_slot_at_entry"]=qmp.hmp(
+                            "xp /6wx 0x2f028000")[:450]
                     events.append(hit)
                     print("HIT",hit,flush=True)
                     if pc==0x60010898 and not ready:
