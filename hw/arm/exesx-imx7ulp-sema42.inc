@@ -54,9 +54,20 @@ static MemTxResult exesx_sema42_write(EXeSXProfileWindow *w,
         } else if (*gate == data) {
             /* A same-domain nonzero attempt retains ownership. */
         } else if (data == 0) {
-            /* Only the currently executing domain may release.
-             * For now, the A7 domain is the one that acquired the gate. */
-            *gate = 0;
+            /*
+             * Gate 2 is shared by the original A7/M4 firmware. Domain 2
+             * belongs to A7 (CPU0), domain 1 to M4 (CPU1). A zero write
+             * is accepted only from the domain currently owning it.
+             * The old unconditional release let A7 unlock M4's gate.
+             *
+             * Leave other gates on the preexisting model until their
+             * original domain assignments are validated independently.
+             */
+            if (off != 1 ||
+                (*gate == 2 && requester_index == 0) ||
+                (*gate == 1 && requester_index == 1)) {
+                *gate = 0;
+            }
         }
         /*
          * Opt-in, unlimited gate-2 trace. Record every acquisition and
@@ -68,7 +79,7 @@ static MemTxResult exesx_sema42_write(EXeSXProfileWindow *w,
             !g_strcmp0(g_getenv("EXESX_TRACE_SEMA42_GATE2"), "1")) {
             uint32_t before = old_gate;
             const char *action = data == 0 ?
-                (before ? "release" : "release-empty") :
+                (!before ? "release-empty" :\n                 (*gate == before ? "release-denied" : "release")) :
                 (!before ? "acquire" :
                  (before == data ? "reacquire-own" : "blocked"));
             qemu_log("EXeSX SEMA42_GATE2 t_ns=%" PRIu64
