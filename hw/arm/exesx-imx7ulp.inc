@@ -386,63 +386,7 @@ static MemTxResult exesx_imx7ulp_read(EXeSXProfileWindow *w,
         if (off != 0 && off != 4) {
             return MEMTX_ERROR;
         }
-        if (w->base == UINT64_C(0x410a3c00)) {
-            const char *quantum = g_getenv("EXESX_DIAGNOSTIC_M4_TSTMR_QUANTUM_TICKS");
-            if (quantum && *quantum) {
-                char *end;
-                uint64_t q = g_ascii_strtoull(quantum, &end, 0);
-                /* Research differential: emulate slow timer visibility
-                 * under TCG when individual MMIO loads consume many guest
-                 * cycles. Never active without explicit opt-in. */
-                if (*end == '\0' && q >= 32 && q <= 8192 &&
-                    !(q & (q - 1))) {
-                    ticks &= ~(q - 1);
-                }
-            }
-        }
-        /*
-         * Diagnostic clock-coherence mode for genuine M4 firmware at
-         * 0x1FFD4D04: it reads LOW,HIGH,LOW,HIGH and retries if
-         * LOW[31:5] changes. QEMU MMIO retranslation can otherwise
-         * advance virtual time by >32 timer ticks between these reads.
-         * Snapshot ONE timestamp for exactly that read quartet.
-         * This is an opt-in emulator differential, NOT a claim that
-         * silicon implements a hardware latch or a frozen clock.
-         * Store phase/timestamp in VMState-backed regfile for loadvm.
-         */
-        if (w->base == UINT64_C(0x410a3c00) &&
-            !g_strcmp0(g_getenv("EXESX_DIAGNOSTIC_M4_TSTMR_COHERENT_READS"), "1")) {
-            uint32_t phase = w->regfile[0x108 / 4];
-            unsigned expected = (phase & 1) ? 4 : 0;
-            if (phase == 0 || off != expected) {
-                if (off == 0) {
-                    w->regfile[0x100 / 4] = (uint32_t)ticks;
-                    w->regfile[0x104 / 4] = (uint32_t)(ticks >> 32);
-                    w->regfile[0x108 / 4] = 1;
-                    *value = w->regfile[0x100 / 4];
-                } else {
-                    w->regfile[0x108 / 4] = 0;
-                    *value = (uint32_t)(ticks >> 32);
-                }
-            } else {
-                *value = w->regfile[(off == 0 ? 0x100 : 0x104) / 4];
-                w->regfile[0x108 / 4] = (phase + 1) & 3;
-            }
-        } else {
-            *value = (off == 0) ? (uint32_t)ticks : (uint32_t)(ticks >> 32);
-        }
-        if (w->base == UINT64_C(0x410a3c00) &&
-            !g_strcmp0(g_getenv("EXESX_DIAGNOSTIC_M4_TSTMR_TRACE"), "1")) {
-            static unsigned trace_count;
-            if (trace_count++ < 80) {
-                qemu_log("EXeSX M4 TSTMR off=%u value=0x%08x ticks=0x%08x "
-                         "phase=%u coherent=%d\n",
-                         (unsigned)off, (uint32_t)*value, (uint32_t)ticks,
-                         w->regfile[0x108 / 4],
-                         !g_strcmp0(g_getenv(
-                             "EXESX_DIAGNOSTIC_M4_TSTMR_COHERENT_READS"), "1"));
-            }
-        }
+        *value = (off == 0) ? (uint32_t)ticks : (uint32_t)(ticks >> 32);
         return MEMTX_OK;
     }
     if (!strcmp(w->kind, "imx7ulp-gpio")) {
