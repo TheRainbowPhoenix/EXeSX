@@ -90,3 +90,28 @@ painted. The next priority is the exact A7 boot-task/startup-selector
 state that should call `FUN_60011CA4`; recover
 `version-event-wait`, then replay the proven later keyboard path
 and diagnose service `0x400B(2)`.
+
+## Long no-debugger held-chord control
+
+With the genuine unchanged private OSUP, original source-derived eMMC,
+new QEMU native build including simultaneous physical contacts, and
+`0x80,0x95,0x92` held from power-on, a **140-second** QMP/`-d exec`
+original-firmware run sampled CPU/IPC/startup-selector 14 times at
+10-second intervals. No GDB software breakpoints or guest CPU/memory
+modifications were used. The original selector at `0x6232E33C`
+remained zero, and the shared IPC slot at `0x2F02800C` remained
+`0x0001A002` with preceding word `0x04020800`. Neither original
+`0x60011CA4` startup checker nor `0x6001D93C` / `0x6001D94C`
+chord checker nor `0x600108A8` version event wait was observed.
+The trace window was bounded/filtered, so absence of any individual TB
+should be interpreted together with the repeated original RAM samples.
+
+The independent synthetic ARM MMIO test passes exact simultaneous
+`0x80+0x95+0x92` input; this is **not** a claim the original cold-start
+firmware reached that test. Linux and Windows CI now include the
+firmware-free exact-chord regression `scripts/probe_startup_chord.py`.
+
+**Conclusion:** do not change the expected startup key combination.
+The remaining upstream problem is original A7 boot-task progression,
+startup selector initialization, or IPC service result/state, not a
+lack of simultaneous keyboard contacts or lost MUA notifications.
