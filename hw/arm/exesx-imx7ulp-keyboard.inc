@@ -22,6 +22,7 @@ static const EXeSXM4KeyContact exesx_m4_key_contacts[] = {
     { 0x95, 5, 6 }, /* original ROM: A16 row / A23 column */
     { 0x80, 0, 0 }, /* original ROM: B2 row  / B6 column  */
     { 0x90, 7, 6 }, /* original ROM: A20 row / A23 column */
+    { 0x91, 6, 7 }, /* original ROM: A17 row / A31 column; DOWN key */
     { 0x92, 7, 7 }, /* original ROM: A20 row / A31 column */
     { 0x96, 8, 4 }, /* original ROM: A21 row / A18 column */
 };
