@@ -93,3 +93,62 @@ MU TR/RR—do NOT hardcode a success response, skip the IPC wait,
 force the menu PC, or fabricate LCD glyphs.
 No proprietary ROM, memory dump, raw trace or source-derived image
 is checked into the repository.
+
+
+## Reproduction and negative timing controls (24 October follow-up)
+
+Fresh original-firmware native QEMU no-debugger run with the unchanged
+`version-event-wait` VM checkpoint and authentic host-controlled
+`0x93,0x93,0x94` physical contacts reaches the genuine
+`0x6003A878` A7 factory menu branch. The original M4 keyboard queue
+is seen constructing the keydown records. The MU transport reports
+23 accepted M4 TX words and 23 matching A7 RR consumption/ACK reads.
+These are notification words, **not a decoded key payload**.
+The authentic BIOS branch is the end-to-end key acceptance proof.
+
+At the still-unfinished `0x400B(2)` IPC request:
+
+- A7 submitted request word `0x0001400B` and argument `2` into
+  original shared RAM at `0x2F02800C/10`.
+- The M4 executed original MU callback `0x1FFE4776`, posting RTOS
+  event object 7 / mask `0x80`. The interrupt and this wakeup
+  therefore occurred; application-level service completion has
+  **not** been observed.
+- The native `-d exec` trace contains A7 `0x60006240` but
+  not `0x60006268` (service caller return),
+  `0x6003A7F0` (factory initializer post-IPC), or
+  `0x60057668` (menu paint). The 864×480 screenshot remains black.
+- After restoring the **authentic** post-menu checkpoint in a fresh
+  emulator and continuing for additional seconds, A7 still executes
+  normal service/idle functions but the menu painter is not reached.
+
+New opt-in source changes on this branch add
+`EXESX_DIAGNOSTIC_M4_TSTMR_KHZ` / `--m4-tstmr-khz` and report
+the independent IPC and paint milestones. These are **diagnostic**
+differentials; no guest ROM, mailbox, register, or event has been
+altered. Linux native GitHub Actions build
+[40044781318](https://github.com/TheRainbowPhoenix/EXeSX/actions/runs/40044781318)
+succeeded and its QEMU artifact was downloaded and used locally.
+
+Measured differential on the owner's unchanged original firmware:
+
+| M4 TSTMR model / QEMU option | Authentic menu | `0x400B` return | Menu paint |
+| --- | --- | --- | --- |
+| Historical TSTMR 1 MHz | YES | NO | NO |
+| Diagnostic 32 kHz | YES | NO | NO |
+| Diagnostic 1 kHz | NO in bounded replay | NO | NO |
+| Historical 1 MHz + QEMU `-icount shift=0`, resumed from genuine post-menu snapshot | Previously entered | NO | NO |
+
+NXP's i.MX7ULP TSTMR reference specifies **1 MHz**, so lowering
+the rate is not a hardware-verified solution. Original M4
+`0x1FFD4D04` performs a coherence-checked 64-bit timestamp read,
+and `0x1FFD4E62` uses repeated reads for a timed delay. The large
+number of those loops is **not evidence by itself** of a broken
+timestamp counter. The 32 kHz and icount controls did not unblock
+the IPC completion. Do not bake the lower rate into default board
+emulation.
+
+**Current investigation must follow the original M4 event-object-7
+consumer and the actual service-0x400B reply**, correlating its
+result with A7 `0x601782C8` waiting for completion. Confirm the
+response envelope/return path before modifying MMIO semantics.
