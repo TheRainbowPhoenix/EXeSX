@@ -113,6 +113,8 @@ def run(a):
         env["EXESX_DIAGNOSTIC_A7_TPM6_KHZ"]=str(a.a7_tpm6_khz)
     if a.lptmr_pcs_clocks:
         env["EXESX_EXPERIMENTAL_LPTMR_PCS_CLOCKS"]="1"
+    if a.m4_tstmr_khz:
+        env["EXESX_DIAGNOSTIC_M4_TSTMR_KHZ"]=str(a.m4_tstmr_khz)
     qemu=a.qemu.resolve()
     if (qemu.parent/"lib").is_dir():
         env["LD_LIBRARY_PATH"]=str(qemu.parent/"lib")+os.pathsep+env.get("LD_LIBRARY_PATH","")
@@ -132,6 +134,7 @@ def run(a):
             "hold_seconds":a.hold,"gap_seconds":a.gap,
             "a7_tpm6_khz_diagnostic":a.a7_tpm6_khz,
             "lptmr_pcs_clock_model":a.lptmr_pcs_clocks,
+            "m4_tstmr_khz_diagnostic":a.m4_tstmr_khz,
             "contacts":[],"observations":[],
             "m4_keydown_observed":False,
             "a7_received_keydown_proven":False,
@@ -302,6 +305,8 @@ if __name__=="__main__":
     ap.add_argument("--profile",type=Path)
     ap.add_argument("--tag",default="version-event-wait")
     ap.add_argument("--keys",default="0x93,0x93,0x94")
+    ap.add_argument("--m4-tstmr-khz",type=int,default=0,
+                    help="Diagnostic original M4 TSTMR source in kHz (0 retains historical 1MHz)")
     ap.add_argument("--a7-tpm6-khz",type=int,default=0,
                     help="Opt-in A7 TPM6 input kHz; 32 avoids original BIOS double-CNT-read livelock")
     ap.add_argument("--lptmr-pcs-clocks",action="store_true",
@@ -330,6 +335,8 @@ if __name__=="__main__":
         ap.error("Only owner-ROM decoded matrix keys 0x93/0x94/0x95/0x80 are supported")
     if args.a7_tpm6_khz and not 1 <= args.a7_tpm6_khz <= 1000:
         ap.error("--a7-tpm6-khz must be 1..1000 or zero for legacy")
+    if args.m4_tstmr_khz and not 1 <= args.m4_tstmr_khz <= 1000:
+        ap.error("--m4-tstmr-khz must be 1..1000 or zero for legacy")
     if args.save_menu_snapshot and not args.trace:
         ap.error("--save-menu-snapshot requires --trace to verify actual menu execution")
     if args.seconds<=0 or args.poll<=0 or args.hold<=0 or args.gap<0 or args.idle_timeout<=0 or not 1 <= args.tpm0_mhz <= 120:
