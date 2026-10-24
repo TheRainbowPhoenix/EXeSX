@@ -72,3 +72,7 @@ The test menu is **not yet visibly rendered** by cold boot.
 The existing authentic `version-event-wait` replay previously
 reached `0x6003A878` using actual key events; the new held power-on
 chord implementation is independently ARM GPIO tested.
+
+## Strict same-run IPC trace correlation
+
+A fresh inspection of the same six-second private no-GDB `-d exec` trace (263 MB) correlated the A7 and M4 TB PCs **within one execution**, avoiding cross-run timing assumptions. Results: A7 `0x60009284` A004 sender = 1 TB entry; synchronous `0x601782C8` = 3 (includes other services); A7 `0x60177CF8` reply-wait helper = **218** entries; A7 `0x60049C50` return boundary = **0**. M4 dispatcher `0x1FFD5510`, A004 service `0x1FFD9D44`, and argument-two branch `0x1FFDF49E` all had **0** entries in this specific six-second trace. TB-entry counts are lower bounds on function execution and absence is bounded to this run; in another later/longer run original M4 power-service handlers were observed. This evidence isolates an **M4 dispatch latency/stalled service path during the first A7 wait**, not an A7 UC3 main-task scheduling failure or DMAMUX0 audio request. Do not fabricate an A004 success response. Next check original M4 IPC queue worker scheduling/IRQ triggers and log shared slot before/after request.
