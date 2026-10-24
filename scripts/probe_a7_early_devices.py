@@ -52,6 +52,18 @@ def make_elf():
     lit(1, 0x8000001f)
     strw(1, 0, 0x20)                 # CHCFG8: enable source 31
     ldr(2, 0, 0x20); strw(2, 7, 116)
+    # M4 DMAMUX0 is independently decoded at 0x41020000.
+    # 32-bit CHCFG[0] is not a byte array; preserve ENBL/A_ON/SOURCE.
+    lit(0, 0x41020000)
+    lit(1, 0xa0000035)
+    strw(1, 0, 0)
+    ldr(2, 0, 0); strw(2, 7, 128)
+    lit(1, 0xffffffff)
+    strw(1, 0, 0x7c)                  # Last of 32 4-byte CHCFG registers
+    ldr(2, 0, 0x7c); strw(2, 7, 132)
+    lit(1, 0)
+    strw(1, 0, 0)
+    ldr(2, 0, 0); strw(2, 7, 136)    # Disable restores zero
     lit(0, 0x40080000)
     lit(1, 15)
     emit(0xe5c0101b)                 # STRB r1,[r0,#0x1b] DMA1.SERQ ch15
@@ -142,16 +154,16 @@ def main():
                             stderr=subprocess.STDOUT,text=True)
     try:
         time.sleep(0.5)
-        script="".join(f"xp /1wx 0x{OUT+4*i:08x}\n" for i in range(32))+"quit\n"
+        script="".join(f"xp /1wx 0x{OUT+4*i:08x}\n" for i in range(35))+"quit\n"
         output,_=guest.communicate(script,timeout=15)
     finally:
         if guest.poll() is None: guest.kill();guest.wait()
     actual=[]
-    for i in range(32):
+    for i in range(35):
         m=re.search(r"(?im)^0*"+f"{OUT+i*4:08x}"+r":\s+0x([0-9a-f]+)",output)
         if not m: raise AssertionError("Missing guest ARM output: "+output[-1600:])
         actual.append(int(m.group(1),16))
-    expected=[8,0x90,0,0xaabbccdd,0x1234,0x15,0x302,0xa0000054,0,0,0x100,0,0,8,0x00800000,0,0x08200820,0,0x157f51ff,0x157f51ff,0,1,0,0,0,0x1aa,0x08020000,0,0x20,0x8000001f,0x8000,0]
+    expected=[8,0x90,0,0xaabbccdd,0x1234,0x15,0x302,0xa0000054,0,0,0x100,0,0,8,0x00800000,0,0x08200820,0,0x157f51ff,0x157f51ff,0,1,0,0,0,0x1aa,0x08020000,0,0x20,0x8000001f,0x8000,0,0xa0000035,0xe000007f,0]
     if actual != expected:
         raise AssertionError(f"Mixed-width A7 startup MMIO mismatch: {list(map(hex,actual))}")
     print("PASS A7 ARM USDHC0/1 host clocks with no card, DMA1/TCD, DMAMUX1 and LPSPI2 controls; DMAMUX1 32-bit CHCFG8 and byte SERQ/CERQ")
