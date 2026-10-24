@@ -356,6 +356,23 @@ def run(args):
                     # QMP savevm/loadvm may preserve QEMU debug runstate.
                     if not qmp.execute("query-status")["running"]:
                         qmp.execute("cont")
+                if not saved:
+                    # An absent snapshot is not a missing key event. Preserve
+                    # independent CPU state to distinguish pre-dialog boot
+                    # divergence from a genuine factory-menu IPC stall.
+                    qmp.execute("stop")
+                    result["cold_start_cpu_state"]={}
+                    for cpu,name in ((0,"a7"),(1,"m4")):
+                        output=qmp.execute("human-monitor-command",{
+                            "command-line":"info registers",
+                            "cpu-index":cpu})
+                        result["cold_start_cpu_state"][name]=str(output)[:2000]
+                    result["cold_start_ipc_request"]=qmp.hmp(
+                        "xp /6wx 0x2f028000")[:600]
+                    result["cold_start_mua_status"]=qmp.hmp(
+                        "xp /2wx 0x41022060")[:300]
+                    result["cold_start_mub_status"]=qmp.hmp(
+                        "xp /2wx 0x40220060")[:300]
                 result["saved_checkpoint"]=saved
                 result["event_reader_seen"]=any(
                     e.get("pc")==hex(0x600108b4) for e in events)
