@@ -184,11 +184,11 @@ def main():
     ap.add_argument("--lcd-trace",action="store_true")
     ap.add_argument("--plugin",type=Path)
     ap.add_argument("--prepare-only",action="store_true")
-    ap.add_argument("--tpm0-irq", action="store_true",
+    ap.add_argument("--tpm0-irq", action=argparse.BooleanOptionalAction, default=True,
                     help="Enable opt-in M4 TPM0 overflow IRQ38 for original keyboard debounce")
-    ap.add_argument("--port-irq", action="store_true",
+    ap.add_argument("--port-irq", action=argparse.BooleanOptionalAction, default=True,
                     help="Opt-in M4 PCTLA/B PCR-edge IRQ56/57 model")
-    ap.add_argument("--lptmr-irq", action="store_true",
+    ap.add_argument("--lptmr-irq", action=argparse.BooleanOptionalAction, default=True,
                     help="Enable experimental M4 LPTMR0/1 CSR-based IRQ36/37 timer model")
     ap.add_argument("--gpioa-input-file", type=Path,
                     help="Research-only live M4 GPIOA pin-high mask text file; reloaded by QEMU every ~20ms guest time")
@@ -209,12 +209,9 @@ def main():
     ap.add_argument("--dma1-m2m",action="store_true",
                     help="Opt in to experimental RAM-to-RAM DMA1 transfers")
     a=ap.parse_args()
-    if a.lptmr_irq:
-        os.environ["EXESX_EXPERIMENTAL_LPTMR_IRQ"] = "1"
-    if a.port_irq:
-        os.environ["EXESX_EXPERIMENTAL_M4_PORT_IRQ"] = "1"
-    if a.tpm0_irq:
-        os.environ["EXESX_EXPERIMENTAL_M4_TPM0_IRQ"] = "1"
+    os.environ["EXESX_EXPERIMENTAL_LPTMR_IRQ"] = "1" if a.lptmr_irq else "0"
+    os.environ["EXESX_EXPERIMENTAL_M4_PORT_IRQ"] = "1" if a.port_irq else "0"
+    os.environ["EXESX_EXPERIMENTAL_M4_TPM0_IRQ"] = "1" if a.tpm0_irq else "0"
     if not a.osup.is_file(): ap.error("OSUP input file not found")
     if a.seconds <= 0: ap.error("--seconds must be positive")
     if not 0 <= a.gpioa_input_mask <= 0xffffffff or (a.gpiob_input_mask is not None and not 0 <= a.gpiob_input_mask <= 0xffffffff):
