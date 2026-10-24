@@ -68,7 +68,7 @@ def prepare(osup, dest):
     return elf, media, manifest
 
 
-def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin, dma1_m2m=False, handoff_probe=False, gpiob3_high=False, ipc1808_probe=False, gpioa_input_mask=0, gpiob_input_mask=None, ipc0804_probe=False, gpioa_input_file=None, gpiob_input_file=None):
+def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin, dma1_m2m=False, handoff_probe=False, gpiob3_high=False, ipc1808_probe=False, gpioa_input_mask=0, gpiob_input_mask=None, ipc0804_probe=False, gpioa_input_file=None, gpiob_input_file=None, tcg_thread="multi"):
     env = os.environ.copy()
     # Explicitly labeled temporary LCD-bus address sink for runs without
     # an implemented display model. It does NOT acknowledge any LCD
@@ -108,7 +108,7 @@ def launch(qemu, elf, media, profile, dest, seconds, lcd_trace, plugin, dma1_m2m
     log = dest/"qemu-trace-private.log"
     stdout_log = dest/"qemu-console-private.log"
     cmd = [str(qemu.resolve()), "-machine","exesx","-m","64M",
-           "-accel","tcg","-display","none","-serial","none",
+           "-accel",f"tcg,thread={tcg_thread}","-display","none","-serial","none",
            "-monitor","none","-no-reboot",
            "-drive",f"if=none,id=exesx-emmc,file={media},format=raw,snapshot=on",
            "-device",f"loader,file={elf},cpu-num=0",
@@ -181,6 +181,8 @@ def main():
                     default=Path("profiles/imx7ulp-early-boot.ini"))
     ap.add_argument("--output-dir",type=Path,default=Path("private/osup-run"))
     ap.add_argument("--seconds",type=float,default=15)
+    ap.add_argument("--tcg-thread",choices=("single","multi"),default="multi",
+                    help="Control QEMU vCPU threading for reproducible A7/M4 scheduling comparisons")
     ap.add_argument("--lcd-trace",action="store_true")
     ap.add_argument("--plugin",type=Path)
     ap.add_argument("--prepare-only",action="store_true")
@@ -239,7 +241,7 @@ def main():
                            cwd=root, check=True)
         launch(a.qemu,elf,media,a.profile,a.output_dir,a.seconds,
                a.lcd_trace,a.plugin,a.dma1_m2m,a.handoff_probe,
-               a.gpiob3_high,a.ipc1808_probe,a.gpioa_input_mask,a.gpiob_input_mask,a.ipc0804_probe,a.gpioa_input_file,a.gpiob_input_file)
+               a.gpiob3_high,a.ipc1808_probe,a.gpioa_input_mask,a.gpiob_input_mask,a.ipc0804_probe,a.gpioa_input_file,a.gpiob_input_file,a.tcg_thread)
 
 
 if __name__=="__main__":
