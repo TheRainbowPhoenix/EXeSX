@@ -1,7 +1,7 @@
 name: Build and smoke-test EXeSX QEMU
 on:
   push:
-    branches: [main, test/dy357-dma1-boot-20261022, fix/lcd-madctl-window-20261023, experiment/dy357-m4-inputs-0804-20261023]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
