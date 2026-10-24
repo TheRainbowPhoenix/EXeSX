@@ -36,9 +36,13 @@
  * to set A7 boot-gate word 0x2f029284 (0xffffffff or 0). The real Casio
  * board's attached signal and active polarity are still unverified.
  */
-static uint32_t exesx_gpiob_external_input_mask(void)
+/* The firmware-free diagnostic permits board input levels only on
+ * pins configured as GPIO inputs. PDOR/PDDR output state always wins.
+ * This does not infer actual DY357 pull-ups or keyboard matrix wiring.
+ */
+static uint32_t exesx_external_gpio_input_mask(const char *name)
 {
-    const char *source = g_getenv("EXESX_GPIOB_INPUT_MASK");
+    const char *source = g_getenv(name);
     char *end;
     uint64_t value;
     if (!source || !*source) {
@@ -46,10 +50,102 @@ static uint32_t exesx_gpiob_external_input_mask(void)
     }
     value = g_ascii_strtoull(source, &end, 0);
     if (*end != '\0' || value > UINT32_MAX) {
-        error_report("EXeSX EXESX_GPIOB_INPUT_MASK invalid (expect 0..0xffffffff)");
+        error_report("EXeSX %s invalid (expect 0..0xffffffff)", name);
         exit(1);
     }
     return (uint32_t)value;
+}
+
+/*
+ * Optional host-controlled board voltage input. Poll a user-owned plain-text
+ * hex/decimal file at most every 20ms of guest virtual time, allowing a
+ * private researcher to change external pin levels after initial boot.
+ * Missing/temporarily invalid files leave the last accepted mask unchanged.
+ * No guest RAM, device response, IRQ, or output GPIO direction is changed.
+ */
+static uint32_t exesx_live_external_gpio_input_mask(const char *mask_env,
+                                                     const char *file_env,
+                                                     uint32_t *cached,
+                                                     int64_t *next_read_ns,
+                                                     bool *initialized)
+{
+    const char *path = g_getenv(file_env);
+    int64_t now;
+    gchar *content = NULL;
+    char *end;
+    uint64_t parsed;
+
+    if (!path || !*path) {
+        return exesx_external_gpio_input_mask(mask_env);
+    }
+    if (!*initialized) {
+        *cached = exesx_external_gpio_input_mask(mask_env);
+        *initialized = true;
+    }
+    now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+    if (now < *next_read_ns) {
+        return *cached;
+    }
+    *next_read_ns = now + INT64_C(20000000);
+    if (g_file_get_contents(path, &content, NULL, NULL)) {
+        g_strstrip(content);
+        if (*content) {
+            parsed = g_ascii_strtoull(content, &end, 0);
+            if (*end == '\0' && parsed <= UINT32_MAX) {
+                *cached = (uint32_t)parsed;
+            }
+        }
+        g_free(content);
+    }
+    return *cached;
+}
+
+static uint32_t exesx_gpiob_external_input_mask(void)
+{
+    static uint32_t cached;
+    static int64_t next_read_ns;
+    static bool initialized;
+    return exesx_live_external_gpio_input_mask(
+        "EXESX_GPIOB_INPUT_MASK", "EXESX_GPIOB_INPUT_MASK_FILE",
+        &cached, &next_read_ns, &initialized);
+}
+
+static uint32_t exesx_gpioa_external_input_mask(void)
+{
+    static uint32_t cached;
+    static int64_t next_read_ns;
+    static bool initialized;
+    return exesx_live_external_gpio_input_mask(
+        "EXESX_GPIOA_INPUT_MASK", "EXESX_GPIOA_INPUT_MASK_FILE",
+        &cached, &next_read_ns, &initialized);
+}
+
+/*
+ * Model the *external* PORT pin input edges while the original M4 sleeps
+ * in RTOS flag wait. PDIR read interception alone is insufficient: the
+ * CPU cannot notice a newly closed contact without a hardware IRQ.
+ * PORT PCR.IRQC and ISFR remain the authoritative interrupt source.
+ */
+static void exesx_m4_port_tick(void *opaque)
+{
+    EXeSXProfileWindow *port = opaque;
+    EXeSXState *b = port->board;
+    EXeSXProfileWindow *gpio = port->base == 0x4103f000 ?
+                               b->m4_gpio_a : b->m4_gpio_b;
+    uint32_t external, levels, pddr;
+    if (gpio) {
+        external = port->base == 0x4103f000 ?
+                   exesx_gpioa_external_input_mask() :
+                   exesx_gpiob_external_input_mask();
+        external = exesx_m4_keyboard_column_levels(gpio, external);
+        pddr = gpio->regfile[0x14 / 4];
+        levels = (gpio->regfile[0] & pddr) | (external & ~pddr);
+        exesx_m4_port_observe_inputs(port, levels);
+    }
+    timer_mod(port->m4_port_poll_timer,
+              qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
+              (g_getenv("EXESX_M4_KEY_MATRIX_FILE") ?
+               INT64_C(1000000) : INT64_C(20000000)));
 }
 
 static bool exesx_imx7ulp_kind(const char *kind)
@@ -267,7 +363,26 @@ static MemTxResult exesx_imx7ulp_read(EXeSXProfileWindow *w,
         return MEMTX_OK;
     }
     if (!strcmp(w->kind, "imx7ulp-tstmr")) {
-        uint64_t ticks = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) / 1000;
+        uint64_t ns = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+        uint64_t ticks = ns / 1000;
+        /*
+         * Original M4 FUN_1FFD4D04 repeatedly reads both halves of
+         * TSTMR at 0x410A3C00 and retries if the upper bits of the
+         * low word change during the read sequence. The previous
+         * uncalibrated 1 MHz clock causes tens of thousands of retries
+         * in genuine firmware runs. Compare lower clock hypotheses
+         * without altering guest instructions, RAM or mailbox traffic.
+         * Default is unchanged. Host option is DIAGNOSTIC ONLY.
+         */
+        const char *clock = g_getenv("EXESX_DIAGNOSTIC_M4_TSTMR_KHZ");
+        if (w->base == UINT64_C(0x410a3c00) && clock && *clock) {
+            char *end;
+            uint64_t khz = g_ascii_strtoull(clock, &end, 0);
+            if (*end == '\0' && khz >= 1 && khz <= 1000) {
+                ticks = (ns / 1000000) * khz +
+                        ((ns % 1000000) * khz) / 1000000;
+            }
+        }
         if (off != 0 && off != 4) {
             return MEMTX_ERROR;
         }
@@ -288,8 +403,15 @@ static MemTxResult exesx_imx7ulp_read(EXeSXProfileWindow *w,
             uint32_t output_direction = w->regfile[0x14 / 4];
             uint32_t output_levels = w->regfile[0] & output_direction;
             uint32_t external_inputs =
+                w->base == UINT64_C(0x4100f000) ?
+                exesx_gpioa_external_input_mask() :
                 w->base == UINT64_C(0x4100f040) ?
                 exesx_gpiob_external_input_mask() : 0;
+            if (w->base == UINT64_C(0x4100f000) ||
+                w->base == UINT64_C(0x4100f040)) {
+                external_inputs = exesx_m4_keyboard_column_levels(
+                    w, external_inputs);
+            }
             if (w->base == UINT64_C(0x400f00c0) &&
                 exesx_lcd_te_high(w->board)) {
                 external_inputs |= 1U << 13;
@@ -498,7 +620,10 @@ static MemTxResult exesx_imx7ulp_write(EXeSXProfileWindow *w,
         switch (off) {
         case 0x00: w->regfile[0] = bits; break;
         case 0x04: w->regfile[0] |= bits; break; /* PSOR */
-        case 0x08: w->regfile[0] &= ~bits; break; /* PCOR */
+        case 0x08:
+            w->regfile[0] &= ~bits; /* PCOR */
+            exesx_m4_keyboard_row_drive(w->board, w->base, bits);
+            break;
         case 0x0c: w->regfile[0] ^= bits; break; /* PTOR */
         case 0x14: w->regfile[index] = bits; break; /* PDDR */
         default: return MEMTX_ERROR;

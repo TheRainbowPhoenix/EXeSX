@@ -34,12 +34,16 @@ typedef struct EXeSXState {
     ARMv7MState m4;
     Clock *m4cpuclk, *m4refclk;
     ARMCPU *a7cpu;
-    EXeSXProfileWindow *mu_a, *mu_b, *lcd, *dmamux1;
+    EXeSXProfileWindow *mu_a, *mu_b, *lcd, *dmamux1, *m4_gpio_a, *m4_gpio_b;
+    EXeSXProfileWindow *m4_port_a, *m4_port_b, *m4_iomuxc0;
+    uint16_t m4_keyboard_code;
+    int m4_keyboard_row;
+    int64_t m4_keyboard_next_poll_ns;
     uint64_t cp15_dacr_s_saved;
     uint64_t cp15_ttbr1_s_saved;
     bool m4_released;
     /* MU_A input is M4 NVIC IRQ22; MU_B is GIC SPI19 on A7. */
-    qemu_irq mu_a_irq, mu_b_irq, lpit1_irq;
+    qemu_irq mu_a_irq, mu_b_irq, lpit1_irq, lptmr0_irq, lptmr1_irq, tpm0_irq, m4_porta_irq, m4_portb_irq;
     MemoryRegion firmware, vectors, sram, ipc, provisional_writable;
 } EXeSXState;
 
@@ -71,7 +75,9 @@ struct EXeSXProfileWindow {
     GHashTable *registers;
     char *kind;
     EXeSXState *board;
-    QEMUTimer *lpit_timer, *lcd_screenshot_timer;
+    QEMUTimer *lpit_timer, *lptmr_timer, *tpm0_timer, *lcd_screenshot_timer, *m4_port_poll_timer;
+    uint32_t m4_port_previous;
+    bool m4_port_sampled;
     uint16_t *lcd_fb;
     unsigned lcd_x0, lcd_x1, lcd_y0, lcd_y1, lcd_x, lcd_y;
     unsigned lcd_param_count;
@@ -127,10 +133,34 @@ static void exesx_m4_rom_handoff(EXeSXState *s, uint32_t entry)
 }
 
 #include "exesx-lcd.inc"
+#include "exesx-imx7ulp-keyboard.inc"
 #include "exesx-imx7ulp.inc"
 
+static int exesx_registers_post_load(void *opaque, int version_id)
+{
+    EXeSXProfileWindow *w = opaque;
+    if (w->lptmr_timer) {
+        /* Device flags/epoch are saved in regfile; rearm this
+         * host QEMU timer after loading a private VM checkpoint. */
+        exesx_lptmr_schedule(w);
+    }
+    if (w->tpm0_timer) {
+        /* TPM0 phase/overflow flag live in saved regfile. Recompute the
+         * upcoming original M4 IRQ38 delivery after loadvm. */
+        exesx_tpm0_schedule(w);
+    }
+    if (w->m4_port_poll_timer) {
+        /* The saved PORT regfile is authoritative, external host inputs are
+         * reread. Avoid manufacturing an edge across process restarts. */
+        w->m4_port_sampled = false;
+        timer_mod(w->m4_port_poll_timer,
+                  qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 20000000);
+    }
+    return 0;
+}
 static const VMStateDescription exesx_registers_vmstate = {
     .name = "exesx-experimental-registers",
+    .post_load = exesx_registers_post_load,
     .version_id = 1,
     .minimum_version_id = 1,
     .fields = (const VMStateField[]) {
@@ -287,7 +317,7 @@ static void exesx_load_profile(MemoryRegion *sysmem, EXeSXState *board)
         exit(1);
     }
     groups = g_key_file_get_groups(cfg, &ngroups);
-    if (ngroups > 64) {
+    if (ngroups > 128) {
         error_report("EXeSX: too many profile windows");
         exit(1);
     }
@@ -341,6 +371,32 @@ static void exesx_load_profile(MemoryRegion *sysmem, EXeSXState *board)
             if (g_strcmp0(kind, "imx7ulp-dmamux") == 0 && w->base == 0x40210000) {
                 board->dmamux1 = w;
             }
+            if (!strcmp(kind, "imx7ulp-pctl") && w->base == 0x4103d000) {
+                /* Original M4 FUN_1FFD8412 selects the active keyboard
+                 * matrix row through IOMUXC0 before driving GPIO low. */
+                board->m4_iomuxc0 = w;
+            }
+            if (!strcmp(kind, "imx7ulp-port") &&
+                (w->base == 0x4103f000 || w->base == 0x41040000)) {
+                if (w->base == 0x4103f000) {
+                    board->m4_port_a = w;
+                } else {
+                    board->m4_port_b = w;
+                }
+                if (!g_strcmp0(g_getenv("EXESX_EXPERIMENTAL_M4_PORT_IRQ"), "1")) {
+                    w->m4_port_poll_timer = timer_new_ns(
+                        QEMU_CLOCK_VIRTUAL, exesx_m4_port_tick, w);
+                    timer_mod(w->m4_port_poll_timer,
+                              qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 20000000);
+                }
+            }
+            if (!strcmp(kind, "imx7ulp-gpio")) {
+                if (w->base == 0x4100f000) {
+                    board->m4_gpio_a = w;
+                } else if (w->base == 0x4100f040) {
+                    board->m4_gpio_b = w;
+                }
+            }
             if (g_strcmp0(kind, "imx7ulp-mu") == 0) {
                 if (w->base == 0x41022000) {
                     board->mu_a = w;
@@ -378,6 +434,17 @@ static void exesx_load_profile(MemoryRegion *sysmem, EXeSXState *board)
                 !g_strcmp0(g_getenv("EXESX_EXPERIMENTAL_LPIT1_IRQ"), "1")) {
                 w->lpit_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
                                              exesx_lpit_timer_tick, w);
+            }
+            if (g_strcmp0(kind, "imx7ulp-lptmr") == 0 &&
+                (w->base == 0x4102e000 || w->base == 0x4102f000) &&
+                !g_strcmp0(g_getenv("EXESX_EXPERIMENTAL_LPTMR_IRQ"), "1")) {
+                w->lptmr_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
+                                                 exesx_lptmr_timer_tick, w);
+            }
+            if (!strcmp(kind, "imx7ulp-tpm") && w->base == 0x41030000 &&
+                !g_strcmp0(g_getenv("EXESX_EXPERIMENTAL_M4_TPM0_IRQ"), "1")) {
+                w->tpm0_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
+                                              exesx_tpm0_timer_tick, w);
             }
             memory_region_init_io(&w->mr, NULL, &exesx_reg_ops, w,
                                   w->name, w->size);
@@ -606,6 +673,15 @@ static void exesx_init(MachineState *ms)
     sysbus_realize(SYS_BUS_DEVICE(&s->m4), &error_fatal);
     /* MCIMX7U5_cm4_COMMON.h: MU_A_IRQn = 22 (external NVIC line). */
     s->mu_a_irq = qdev_get_gpio_in(DEVICE(&s->m4), 22);
+    /* NXP i.MX7ULP NVIC: LPTMR0_IRQn=36, LPTMR1_IRQn=37. */
+    s->lptmr0_irq = qdev_get_gpio_in(DEVICE(&s->m4), 36);
+    s->lptmr1_irq = qdev_get_gpio_in(DEVICE(&s->m4), 37);
+    /* Original M4 binary: vector 0x36 (54) -> external IRQ38 TPM0,
+     * whose handler @0x1FFDB68C invokes keyboard debounce callback. */
+    s->tpm0_irq = qdev_get_gpio_in(DEVICE(&s->m4), 38);
+    /* Reference manual: vectors 72/73 = M4 external IRQ56/57, PORT A/B. */
+    s->m4_porta_irq = qdev_get_gpio_in(DEVICE(&s->m4), 56);
+    s->m4_portb_irq = qdev_get_gpio_in(DEVICE(&s->m4), 57);
 
     armv7m_load_kernel(s->m4.cpu, NULL, 0x1ffd0000, 0x40000);
 }

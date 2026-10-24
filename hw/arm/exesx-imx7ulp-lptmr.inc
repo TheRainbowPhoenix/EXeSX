@@ -5,9 +5,10 @@
  *
  * A monotonic QEMU-virtual 1 MHz source represents one selected internal
  * timer clock until the M4 clock-tree inputs are modeled. Counter/compare
- * status and prescale follow register configuration. No external pulses,
- * NVIC assertion or DMA yet. Epoch stored in VMState-backed regfile so
- * savevm/loadvm replays the same timer state.
+ * status and prescale follow register configuration. The opt-in
+ * EXESX_EXPERIMENTAL_LPTMR_IRQ=1 drives the real M4 NVIC IRQ36/37 ONLY
+ * when CSR.TIE and CSR.TCF are both set. No external pulses or DMA.
+ * Epoch stored in VMState-backed regfile; post-load rearms the host timer.
  */
 static bool exesx_lptmr_addr(EXeSXProfileWindow *w, hwaddr off)
 {
@@ -25,6 +26,21 @@ static void exesx_lptmr_restart(EXeSXProfileWindow *w)
     w->regfile[0x100 / 4] = (uint32_t)now;
     w->regfile[0x104 / 4] = (uint32_t)(now >> 32);
 }
+/*
+ * Optional genuine PCS=01 clock for original M4 LPTMR1. MCIMX7U5
+ * kCLOCK_LptmrSrcLPO1K selects the 1kHz LPO oscillator; the old
+ * diagnostic model always supplied 1MHz. With PSR=0x05 and CMR=4 the
+ * original ROM requests one compare every 5 LPO ticks, NOT every 5us.
+ * Keep other PCS inputs and the default emulator unchanged until validated.
+ */
+static uint64_t exesx_lptmr_tick_ns(EXeSXProfileWindow *w, uint32_t psr)
+{
+    if (!g_strcmp0(g_getenv("EXESX_EXPERIMENTAL_LPTMR_PCS_CLOCKS"), "1") &&
+        (psr & 3) == 1) {
+        return UINT64_C(1000000); /* LPO clock = 1kHz */
+    }
+    return UINT64_C(1000); /* legacy uncalibrated 1MHz */
+}
 static uint64_t exesx_lptmr_ticks(EXeSXProfileWindow *w)
 {
     uint32_t csr = w->regfile[0];
@@ -34,12 +50,69 @@ static uint64_t exesx_lptmr_ticks(EXeSXProfileWindow *w)
         return 0; /* Off, or pulse mode without an external pulse source. */
     }
     ticks = (qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) -
-             exesx_lptmr_start_ns(w)) / 1000;
+             exesx_lptmr_start_ns(w)) / exesx_lptmr_tick_ns(w, psr);
     if (!(psr & 4)) {
         unsigned shift = ((psr >> 3) & 15) + 1;
         ticks >>= shift; /* divide by 2,4,...,65536 */
     }
     return ticks;
+}
+static qemu_irq exesx_lptmr_irq_line(EXeSXProfileWindow *w)
+{
+    if (!w->board) {
+        return NULL;
+    }
+    return w->base == 0x4102e000 ? w->board->lptmr0_irq :
+           w->base == 0x4102f000 ? w->board->lptmr1_irq : NULL;
+}
+static void exesx_lptmr_update_irq(EXeSXProfileWindow *w)
+{
+    qemu_irq line;
+    if (!w->lptmr_timer || !(line = exesx_lptmr_irq_line(w))) {
+        return;
+    }
+    /* CSR bit6 TIE enables an IRQ only when bit7 TCF is asserted.
+     * Clearing TCF (W1C) must also deassert the level. */
+    qemu_set_irq(line, (w->regfile[0] & UINT32_C(0xc0)) == UINT32_C(0xc0));
+}
+static void exesx_lptmr_schedule(EXeSXProfileWindow *w)
+{
+    uint32_t csr = w->regfile[0];
+    uint32_t psr = w->regfile[1];
+    uint64_t compare = w->regfile[2] & 0xffff;
+    uint64_t tick_ns, elapsed, period, until;
+    int64_t now;
+
+    if (!w->lptmr_timer) {
+        return;
+    }
+    exesx_lptmr_update_irq(w);
+    if (!(csr & 1) || (csr & 2)) {
+        timer_del(w->lptmr_timer);
+        return;
+    }
+    now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+    tick_ns = exesx_lptmr_tick_ns(w, psr);
+    if (!(psr & 4)) {
+        tick_ns <<= ((psr >> 3) & 15) + 1;
+    }
+    compare = compare ? compare : 0xffff;
+    period = compare + 1;
+    elapsed = (now - exesx_lptmr_start_ns(w)) / tick_ns;
+    until = period - (elapsed % period);
+    /* Schedule an interrupt on the next hardware compare rollover.
+     * The model never invents a pending flag before timer expiration. */
+    timer_mod(w->lptmr_timer, now + until * tick_ns);
+}
+static void exesx_lptmr_timer_tick(void *opaque)
+{
+    EXeSXProfileWindow *w = opaque;
+    if (!(w->regfile[0] & 1) || (w->regfile[0] & 2)) {
+        return;
+    }
+    w->regfile[0] |= 0x80; /* authentic TCF sticky compare flag */
+    exesx_lptmr_update_irq(w);
+    exesx_lptmr_schedule(w);
 }
 static uint32_t exesx_lptmr_counter(EXeSXProfileWindow *w)
 {
@@ -49,8 +122,9 @@ static uint32_t exesx_lptmr_counter(EXeSXProfileWindow *w)
     if (!compare) {
         compare = 0xffff;
     }
-    if (ticks >= compare) {
-        w->regfile[0] |= 0x80; /* hardware compare flag TCF */
+    if (!w->lptmr_timer && ticks >= compare) {
+        /* Legacy read-driven flag without IRQ, retained for default tests. */
+        w->regfile[0] |= 0x80;
     }
     if (csr & 4) {
         return (uint32_t)(ticks & 0xffff); /* free-running */
@@ -97,6 +171,7 @@ static MemTxResult exesx_lptmr_write(EXeSXProfileWindow *w, hwaddr off,
         exesx_lptmr_restart(w);
         break;
     }
+    exesx_lptmr_schedule(w);
     qemu_log_mask(LOG_GUEST_ERROR,
                   "EXeSX LPTMR WRITE @0x%" HWADDR_PRIx
                   " data=0x%08x\n", w->base + off, bits);

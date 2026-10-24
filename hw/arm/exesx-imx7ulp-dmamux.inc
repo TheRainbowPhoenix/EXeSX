@@ -1,5 +1,5 @@
 /*
- * NXP MCIMX7U5 i.MX7ULP DMAMUX1: 32 CHCFG registers, uint32_t stride 4.
+ * NXP MCIMX7U5 i.MX7ULP M4 DMAMUX0 (0x41020000) and A7 DMAMUX1 (0x40210000): 32 CHCFG registers, uint32_t stride 4.
  * PERI_DMAMUX.h: CHCFG[n] offset n*4, SOURCE[6:0], A_ON[29],
  * TRIG[30], ENBL[31]. Undocumented/reserved bits are RAZ/WI.
  *
@@ -13,7 +13,8 @@
 static bool exesx_dmamux1_access(EXeSXProfileWindow *w,
                                 hwaddr off, unsigned size)
 {
-    return w->base == UINT64_C(0x40210000) &&
+    return (w->base == UINT64_C(0x41020000) ||
+            w->base == UINT64_C(0x40210000)) &&
            (size == 1 || size == 2 || size == 4) &&
            !(off & (size - 1)) &&
            off + size <= 4 * EXESX_DMAMUX1_CHCFG_COUNT &&

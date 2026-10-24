@@ -1,7 +1,7 @@
 name: Build and smoke-test EXeSX QEMU for Windows
 on:
   push:
-    branches: [main, test/dy357-dma1-boot-20261022, fix/lcd-madctl-window-20261023]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -93,7 +93,9 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           & $pythonExe scripts/test_qemu.py
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          foreach ($probe in @('probe_imx7ulp.py', 'probe_dma1_memcpy.py', 'probe_lpit1_irq.py', 'probe_lcd_screenshot.py', 'probe_lcd_landscape.py')) {
+          & $pythonExe -m py_compile scripts/drive_physical_menu_qmp.py
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          foreach ($probe in @('probe_imx7ulp.py', 'probe_dma1_memcpy.py', 'probe_lpit1_irq.py', 'probe_lcd_screenshot.py', 'probe_lcd_landscape.py', 'probe_gpioa_input.py', 'probe_gpioa_live_input.py', 'probe_factory_snapshot.py', 'probe_lptmr_m4_irq.py', 'probe_m4_key_matrix.py', 'probe_m4_port_irq.py', 'probe_m4_tpm0_irq.py')) {
             & $pythonExe "scripts/$probe" --qemu $qemu --profile profiles/imx7ulp-early-boot.ini
             if ($LASTEXITCODE) { exit $LASTEXITCODE }
           }
