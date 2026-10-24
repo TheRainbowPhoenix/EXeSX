@@ -14,6 +14,11 @@ MILESTONES = {
     "a7_initial_subsystem_init": (0, 0x60049C18),
     "a7_power_a004_callsite": (0, 0x60049C4C),
     "a7_power_a004_return_boundary": (0, 0x60049C50),
+    "a7_power_init_helper": (0, 0x6000F688),
+    "a7_power_a004_sender": (0, 0x60009284),
+    "a7_ipc_sync_call": (0, 0x601782C8),
+    "a7_ipc_wait_reply": (0, 0x60177CF8),
+    "a7_ipc_wait_reply_alt": (0, 0x60177DFC),
     "a7_first_8800_service": (0, 0x60049C9C),
     "a7_first_9000_service": (0, 0x60049CC4),
     "a7_boot_activates_tasks": (0, 0x6004A124),
@@ -24,6 +29,8 @@ MILESTONES = {
     "a7_factory_menu_entry": (0, 0x6003A878),
     "m4_a004_service_dispatch": (1, 0x1FFD9D44),
     "m4_a004_argument_2_handler": (1, 0x1FFDF49E),
+    "m4_ipc_request_dispatch": (1, 0x1FFD5510),
+    "m4_ipc_mu_notification": (1, 0x1FFE479C),
 }
 PATTERN = re.compile(r'^Trace ([01]):.*?/([0-9a-fA-F]{16})/')
 
