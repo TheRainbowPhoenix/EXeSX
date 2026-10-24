@@ -326,8 +326,8 @@ if __name__=="__main__":
                     help="Save private post-entry VM only after original A7 executes factory menu")
     ap.add_argument("--tpm0-mhz",type=int,default=1,
                     help="EXPERIMENTAL M4 TPM0 source MHz; default 1 uncalibrated model, 48 is a diagnostic hypothesis")
-    ap.add_argument("--hold",type=float,default=.12)
-    ap.add_argument("--gap",type=float,default=.06)
+    ap.add_argument("--hold",type=float,default=.45)
+    ap.add_argument("--gap",type=float,default=.25)
     ap.add_argument("--delay",type=float,default=0.0)
     ap.add_argument("--seconds",type=float,default=1.8)
     ap.add_argument("--poll",type=float,default=.035)
