@@ -115,3 +115,34 @@ firmware-free exact-chord regression `scripts/probe_startup_chord.py`.
 The remaining upstream problem is original A7 boot-task progression,
 startup selector initialization, or IPC service result/state, not a
 lack of simultaneous keyboard contacts or lost MUA notifications.
+
+## Follow-up: original A7 startup-call-chain breakpoints (15:32 local)
+
+A fresh, local, owner-private original OSUP and source-derived eMMC cold boot
+ran under the Linux native QEMU artifact built from source SHA
+`d4e852a207a526e2f5bb87b7ecec1ed46f46a0e7`. QEMU GDB stopped
+on authentic A7 `0x601782C8` IPC dispatch at host times ~1.27s and
+~1.53s for original service IDs `0xB000` and `0xA004`, respectively.
+
+During a further 21-second physical-chord-held run, the additional
+A7 ROM breakpoints at `0x60011860` (startup task), `0x60011A30`
+(startup event preparation), `0x60011250` (SIM0 startup selector),
+`0x60011CA4` (startup branch), and `0x600108A8` (version-event
+wait) had **zero hits**. At the final stop, A7 PC was `0x60179A7C`,
+while the original shared IPC slot still recorded `0x0001B000` with
+status `0x05020800`; the M4's original firmware continued executing.
+This debugger-based observation is timing-sensitive and is not by
+itself proof the original `0xB000` service never completed.
+
+Original source `FUN_60011CA4` also shows that `0x6232E33C=0x80`
+may be *set inside* the startup initializer in response to an input
+notification; selector zero **before** entering that task is not an
+independent explanation of why the task never starts. The first
+missing boundary in this run is **scheduling/dispatch of the A7
+startup task**, ahead of the keyboard chord check.
+
+No factory-menu entry, checkpoint, or rendered menu was obtained from
+this cold-boot configuration. Next inspect the original A7 UC3 RTOS
+startup-task creation, enable and event flag that should invoke
+`FUN_60011860`, and compare the successful older owner-private
+version-event checkpoint provenance before changing device responses.
