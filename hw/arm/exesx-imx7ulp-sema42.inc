@@ -60,8 +60,7 @@ static MemTxResult exesx_sema42_write(EXeSXProfileWindow *w,
         }
         /*
          * Opt-in, unlimited gate-2 trace. Record every acquisition and
-         * attempted release, including unsuccessful writes. Use the real
-         * vCPU PC (M-profile does not use the A-profile regs[15] field).
+         * attempted release, including unsuccessful writes. Use the ARM guest execution PC from the running vCPU state.
          * Both mapping addresses are logged to detect alias divergence.
          * Run with -D private.log and EXESX_TRACE_SEMA42_GATE2=1.
          */
@@ -77,7 +76,7 @@ static MemTxResult exesx_sema42_write(EXeSXProfileWindow *w,
                      " action=%s write=%u before=%u after=%u\n",
                      (uint64_t)qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL),
                      requester_index,
-                     requester ? (uint64_t)cpu_get_pc(requester) : 0,
+                     requester ? (uint64_t)ARM_CPU(requester)->env.regs[15] : 0,
                      w->base, action, data, before, *gate);
         }
         qemu_log_mask(LOG_GUEST_ERROR,
