@@ -268,6 +268,9 @@ class EmulatorWorker(threading.Thread):
             self.seq_stage = "press"
             self.seq_deadline = time.monotonic()
             self.post("status", "Sending 0x93 0x93 0x94 at the original event wait")
+        elif what == "read_ipc" and self.proc and self.qmp:
+            # Read original shared control request on the sole QMP owner thread.
+            self.post("ipc", self.qmp.hmp("xp /12wx 0x2f028000"))
         elif what == "safe_check" and self.proc:
             if 0x60057668 not in self.hit:
                 self.post("status", "SAFE CHECK BLOCKED: TEST MENU painter has not executed; IPC 0x400B still pending")
