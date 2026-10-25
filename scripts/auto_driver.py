@@ -225,7 +225,11 @@ def run_phase(args, phase, qemu, elf, emmc, profile, output):
                                 print(phase, label, round(elapsed, 2), flush=True)
                                 if label == "factory_menu":
                                     menu_at = time.monotonic()
-                    if phase == "popup" and "version_dialog" in first_seen and not capture_issued:
+                    if (phase == "popup" and "event_wait" in first_seen and
+                            elapsed - report["checkpoints_seconds"]["event_wait"] >= args.popup_settle_seconds and
+                            not capture_issued):
+                        # The original dialog PC precedes its actual glyph painting.
+                        # Capture after this verified settle window or the PPM is blank.
                         request_capture(capture_request, screenshot)
                         capture_issued = True
                     if capture_issued and not image_ready:
@@ -291,6 +295,8 @@ def main(argv=None):
     p.add_argument("--hold", type=float, default=.060)
     p.add_argument("--gap", type=float, default=.025)
     p.add_argument("--post-menu-seconds", type=float, default=4)
+    p.add_argument("--popup-settle-seconds", type=float, default=.6,
+                   help="Host seconds after original A7 event wait to allow real dialog glyphs to paint")
     p.add_argument("--tpm0-mhz", type=int, default=48)
     p.add_argument("--a7-tpm6-khz", type=int, default=32)
     p.add_argument("--guest-errors", action="store_true",
@@ -301,7 +307,7 @@ def main(argv=None):
     args = p.parse_args(argv)
     if args.attempts <= 0:
         p.error("--attempts must be positive")
-    if args.seconds <= 0 or args.hold <= 0 or args.gap < 0 or args.release_at < 0 or args.post_menu_seconds < 0:
+    if args.seconds <= 0 or args.hold <= 0 or args.gap < 0 or args.release_at < 0 or args.post_menu_seconds < 0 or args.popup_settle_seconds < 0:
         p.error("invalid timing")
     out = args.output_dir.resolve()
     out.mkdir(parents=True, exist_ok=True)
