@@ -155,9 +155,16 @@ static MemTxResult exesx_lptmr_write(EXeSXProfileWindow *w, hwaddr off,
         if ((bits & 1) != (w->regfile[0] & 1)) {
             exesx_lptmr_restart(w);
         }
-        /* TCF bit7: write 1 to clear; other CSR bits are writable. */
-        w->regfile[0] = (bits & ~UINT32_C(0x80)) |
-            ((w->regfile[0] & UINT32_C(0x80)) & ~bits);
+        /*
+         * NXP LPTMR CSR.TCF is W1C, but disabling TEN also clears it.
+         * Do not retain a stale TCF after a disable: with TIE set that
+         * would keep NVIC IRQ36/37 asserted and starve lower-priority
+         * firmware control tasks across a disable/re-enable sequence.
+         * CSR bits 31:8 are reserved and read as zero.
+         */
+        w->regfile[0] = (bits & UINT32_C(0x7f)) |
+            (((bits & 1) && !(bits & UINT32_C(0x80)))
+                 ? (w->regfile[0] & UINT32_C(0x80)) : 0);
         break;
     case 4:
         w->regfile[1] = bits & 0x7f;
