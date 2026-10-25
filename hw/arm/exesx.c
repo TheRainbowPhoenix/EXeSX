@@ -351,7 +351,8 @@ static void exesx_load_profile(MemoryRegion *sysmem, EXeSXState *board)
             w->lcd_x1 = EXESX_LCD_W - 1;
             w->lcd_y1 = EXESX_LCD_H - 1;
             w->lcd_rgb565 = true;
-            if (g_getenv("EXESX_LCD_SCREENSHOT")) {
+            if (g_getenv("EXESX_LCD_SCREENSHOT") ||
+                g_getenv("EXESX_LCD_CAPTURE_REQUEST_FILE")) {
                 w->lcd_screenshot_timer = timer_new_ns(
                     QEMU_CLOCK_VIRTUAL, exesx_lcd_snapshot_tick, w);
                 timer_mod(w->lcd_screenshot_timer,
