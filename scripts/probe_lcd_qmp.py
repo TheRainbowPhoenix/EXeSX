@@ -35,8 +35,11 @@ def run(qemu, profile):
                "-monitor", "none", "-no-reboot",
                "-device", "loader,file={},cpu-num=0".format(elf.resolve()),
                "-S", "-qmp", "tcp:127.0.0.1:{},server=on,wait=off".format(port)]
-        with subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL,
-                              stderr=subprocess.PIPE) as proc:
+        # Windows anonymous stderr pipes are small; QEMU machine-init
+        # diagnostics can fill an unread pipe and deadlock QMP after greeting.
+        # Use a host-private file so the QMP thread can always make progress.
+        with (root / "qemu-console-private.log").open("wb") as diag, subprocess.Popen(
+                cmd, env=env, stdout=diag, stderr=subprocess.STDOUT) as proc:
             try:
                 with connect(port, proc) as sock:
                     qmp = QMP(sock)
