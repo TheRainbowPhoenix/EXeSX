@@ -28,7 +28,9 @@ def make_elf():
         lit(0,addr)
         lit(1,1)
         store(1,0,0x10)      # CTRL.ADCEN
-        store(1,0,0xc0)      # TCTRL0.TCMD=1
+        lit(1,0x01000000)
+        store(1,0,0xc0)      # real original TCTRL0.TCMD1, bits24..27
+        lit(1,1)
         store(1,0,0x100)     # CMD1L initialized (reference channel value)
         lit(1,0x00020000)
         store(1,0,0x30)      # FIFO watermark 2, hardware count=0
