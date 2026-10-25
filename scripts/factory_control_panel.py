@@ -154,13 +154,16 @@ class EmulatorWorker(threading.Thread):
         port = choose_port()
         command = [
             str(args.qemu.resolve()), "-machine", "exesx", "-m", "64M",
-            "-accel", "tcg", "-display", "none", "-serial", "none",
+            "-accel", "tcg,thread={}".format(getattr(args, "tcg_thread", "multi")), "-display", "none", "-serial", "none",
             "-monitor", "none", "-no-reboot",
             "-S", "-qmp", "tcp:127.0.0.1:{},server=on,wait=off".format(port),
             "-drive", "if=none,id=exesx-emmc,file={},format=raw,snapshot=on".format(emmc),
             "-device", "loader,file={},cpu-num=0".format(elf),
             "-d", "exec", "-dfilter",
-            "0x60010868+0x140,0x6003a878+0x500,0x60006240+0x60,0x60057668+0x30",
+            ("0x60010868+0x140,0x6003a878+0x500,0x60006240+0x60,0x60057668+0x30,"
+             "0x1ffe470c+0x90,0x1ffd537e+0x100,0x1ffd8e76+0x200,0x1ffd6320+0x90"
+             if getattr(args, "trace_m4_400b", False) else
+             "0x60010868+0x140,0x6003a878+0x500,0x60006240+0x60,0x60057668+0x30"),
             "-D", str(trace),
         ]
         if args.sd:
@@ -227,6 +230,8 @@ class EmulatorWorker(threading.Thread):
                 self.last_menu_keys_at = time.monotonic()
 
     def frame_step(self):
+        if getattr(self.args, "no_screenshots", False):
+            return
         if time.monotonic() < self.next_capture or self.sequence:
             return
         # Don't disturb the sensitive original CA05 boot/key event timing
@@ -470,7 +475,13 @@ def main():
     p.add_argument("--sd", type=Path, help="Disposable image; all writes snapshot-on")
     p.add_argument("--profile", type=Path)
     p.add_argument("--output-dir", type=Path, default=Path("private/floating-keyboard"))
-    p.add_argument("--fps", type=float, default=2., help="Host LCD refresh limit, 1-4 advised")
+    p.add_argument("--fps", type=float, default=2., help="Host LCD refresh limit, 0.1-4 advised")
+    p.add_argument("--no-screenshots", action="store_true",
+                   help="Disable all QMP framebuffer reads and image generation during boot")
+    p.add_argument("--tcg-thread", choices=("single", "multi"), default="multi",
+                   help="Compare A7/M4 interprocessor scheduling without guest patching")
+    p.add_argument("--trace-m4-400b", action="store_true",
+                   help="Trace original M4 event7 semaphore wait and MU callback")
     p.add_argument("--hold", type=float, default=.060)
     p.add_argument("--gap", type=float, default=.025)
     p.add_argument("--release-at", type=float, default=1.2)
