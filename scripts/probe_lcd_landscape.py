@@ -178,23 +178,38 @@ def run(qemu, profile):
         env = os.environ.copy()
         env["EXESX_MEMORY_PROFILE"] = str(ini.resolve())
         env["EXESX_EXPERIMENTAL_LCD"] = "1"
-        env["EXESX_LCD_SCREENSHOT"] = str(ppm.resolve())
+        env["EXESX_LCD_FRAMEBUFFER_EXPORT"] = "1"
         library = qemu.resolve().parent / "lib"
         if library.is_dir():
             env["LD_LIBRARY_PATH"] = str(library) + os.pathsep + env.get("LD_LIBRARY_PATH", "")
+        # QMP pmemsave reads the genuine RGB565 frame synchronously,
+        # independent of Windows guest-virtual-time screenshot timers.
+        from drive_factory_menu import QMP, choose_port, connect
+        from lcd_qmp import capture_frame
+        import time
+        port = choose_port()
         cmd = [str(qemu.resolve()), "-machine", "exesx", "-m", "64M",
                "-accel", "tcg", "-display", "none", "-serial", "none",
                "-monitor", "none", "-no-reboot",
+               "-S", "-qmp", f"tcp:127.0.0.1:{port},server=on,wait=off",
                "-device", f"loader,file={elf.resolve()},cpu-num=0"]
-        try:
-            subprocess.run(cmd, env=env, stdin=subprocess.DEVNULL,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                           timeout=2.2, check=False)
-        except subprocess.TimeoutExpired:
-            pass
-        if not ppm.is_file():
-            raise AssertionError("No experimental LCD screenshot created")
-        verify(ppm)
+        with (folder / "console-private.log").open("wb") as console:
+            proc = subprocess.Popen(cmd, env=env, stdin=subprocess.DEVNULL,
+                                    stdout=console, stderr=subprocess.STDOUT)
+            try:
+                with connect(port, proc) as sock:
+                    qmp = QMP(sock)
+                    qmp.execute("cont")
+                    time.sleep(.5)
+                    capture_frame(qmp, folder / "lcd-rgb565.raw", ppm)
+                verify(ppm)
+            finally:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=4)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
 
 
 if __name__ == "__main__":
