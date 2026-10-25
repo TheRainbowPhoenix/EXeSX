@@ -85,7 +85,7 @@ def request_capture(request, destination):
     """Atomic request: the emulator never reads a half-written pathname."""
     destination.unlink(missing_ok=True)
     staging = request.with_name(request.name + ".tmp")
-    staging.write_text(str(destination.resolve()) + "\n", encoding="utf-8")
+    staging.write_text(destination.resolve().as_posix() + "\n", encoding="utf-8")
     os.replace(staging, request)
 
 
@@ -152,7 +152,7 @@ def run_phase(args, phase, qemu, elf, emmc, profile, output):
         "EXESX_EXPERIMENTAL_M4_TPM0_INPUT_MHZ": str(args.tpm0_mhz),
         "EXESX_DIAGNOSTIC_A7_TPM6_KHZ": str(args.a7_tpm6_khz),
         "EXESX_EXPERIMENTAL_LCD": "1",
-        "EXESX_LCD_CAPTURE_REQUEST_FILE": str(capture_request.resolve()),
+        "EXESX_LCD_CAPTURE_REQUEST_FILE": capture_request.resolve().as_posix(),
         "EXESX_EXPERIMENTAL_DMA1_M2M": "1",
         "EXESX_USDHC1_EMMC": "1",
         "EXESX_USDHC0_SD": "1" if args.sd else "0",
