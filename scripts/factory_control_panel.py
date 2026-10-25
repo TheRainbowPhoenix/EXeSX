@@ -332,6 +332,44 @@ class EmulatorWorker(threading.Thread):
         self.stop_vm()
 
 
+def headless_check(args):
+    """Run the same worker as Tk, without a display server or UI."""
+    actions, updates = queue.Queue(), queue.Queue()
+    worker = EmulatorWorker(args, actions, updates)
+    worker.start()
+    actions.put(("start", args.check_mode))
+    deadline = time.monotonic() + args.check_seconds
+    saw_process = False
+    saw_monitor = False
+    try:
+        while time.monotonic() < deadline:
+            if worker.proc and worker.proc.poll() is None:
+                saw_process = True
+            try:
+                event = updates.get(timeout=.4)
+            except queue.Empty:
+                continue
+            if event[0] in ("status", "milestone"):
+                print("[{}] {}".format(event[0], event[1]), flush=True)
+                if event[0] == "status" and ("original A7/M4 firmware started" in event[1] or
+                                            "Booting " in event[1] and "QEMU PID" in event[1]):
+                    saw_monitor = True
+                if event[0] == "status" and ("Worker error:" in event[1] or
+                                             "QEMU exited unexpectedly" in event[1]):
+                    break
+        print("HEADLESS RESULT: QEMU spawned={}, QMP ready={}, "
+              "A7 dialog wait={}, factory menu={}, frames={}".format(
+                  saw_process, saw_monitor, worker.wait_seen,
+                  worker.menu_seen, worker.frame_count), flush=True)
+        if worker.output:
+            print("Private console:", worker.output / "gui-console-private.log", flush=True)
+            print("Private trace:", worker.output / "gui-execution-private.log", flush=True)
+        return 0 if saw_process and saw_monitor else 2
+    finally:
+        actions.put(("quit", None))
+        worker.join(timeout=10)
+
+
 def show_window(args):
     import tkinter as tk
     from tkinter import ttk
@@ -435,6 +473,11 @@ def main():
     p.add_argument("--release-at", type=float, default=1.2)
     p.add_argument("--retries", type=int, default=3, help="Fresh boot retries on missed original firmware checkpoints")
     p.add_argument("--retry-after", type=float, default=24, help="Host seconds allowed for the A7 version-event wait")
+    p.add_argument("--headless-check", action="store_true",
+                   help="Test the exact floating keyboard/QEMU worker without Tk")
+    p.add_argument("--check-mode", choices=("normal", "popup", "menu"), default="menu")
+    p.add_argument("--check-seconds", type=float, default=25,
+                   help="Wall-time duration for headless worker verification")
     a = p.parse_args()
     a.qemu = optional_qemu_path(a.qemu)
     if a.profile is None:
@@ -446,10 +489,14 @@ def main():
         p.error("OSUP or --elf and --emmc required")
     if a.sd and (not a.sd.is_file() or a.sd.stat().st_size < 2 * 1024**3):
         p.error("SD must be disposable raw image >=2GiB")
-    if a.fps <= 0 or a.hold <= 0 or a.release_at < 0 or a.gap < 0 or a.retries < 1 or a.retry_after <= 0:
+    if (a.fps <= 0 or a.hold <= 0 or a.release_at < 0 or a.gap < 0 or
+            a.retries < 1 or a.retry_after <= 0 or a.check_seconds <= 0):
         p.error("Invalid timing")
+    if a.headless_check:
+        return headless_check(a)
     show_window(a)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
