@@ -66,3 +66,20 @@ The first diagnostic attempted a bulk `xp /16wx` from each base and returned **"
 Re-tested with a synthetic real-ARM guest and the same native Linux QEMU: **individual `xp /1wx` reads succeeded** for both ADC0 `0x41041000` and ADC1 `0x410AD000` at valid offsets `+0x00`, `+0x04`, `+0x10`, `+0x14`, `+0x18`, and `+0x30`. `info mtree` independently confirmed both are mounted profile MMIO regions. Both initially returned zeroes in this synthetic control; those are valid initial register values, not original-firmware conversion results.
 
 The optional `--sample-adc` headless monitor now uses **four separate valid reads per bank** and records `ctrl`, `stat`, `ie`, `fctrl`, plus per-register `accessible` and errors. It can provide a genuine, noninvasive original-firmware ADC/0x400B correlation when the factory-menu service is pending. It does **not** synthesize an analog voltage or ADC IRQ. We have **not yet observed original ADC activity during the 0x400B wait**; the link remains a hypothesis.
+
+## Reproduced original-ROM 159-second pending ADC comparison (direct confirmation)
+
+A subsequent 175-second **no-debugger, no-LCD-export** original-owner-OSUP replay, same QEMU/SD/eMMC baseline as above, reached genuine original menu entry `0x6003A878` at host time **15.78s** and invoked 0x400B immediately. The original `0x400B(2)` request remained pending at every sparse sample from host 20.19 through 160.50 seconds. Only *valid individual* ADC MMIO offsets were read via the QMP monitor; no CPU registers/guest memory/RTOS state were modified.
+
+At host times 20.19, 40.20, 60.23, 80.26, and subsequently through 160.50 seconds, both hardware model windows continuously read:
+
+| Original guest-visible ADC register | ADC0 @0x41041000 | ADC1 @0x410AD000 |
+| --- | --- | --- |
+| CTRL +0x10 | 0x00000001 | 0x00000001 |
+| STAT +0x14 | **0x00000000** | **0x00000000** |
+| IE +0x18 | 0x00000001 | 0x00000001 |
+| FCTRL +0x30 | 0x00020000 | 0x00020000 |
+
+There were **zero framebuffer reads/frames**. QEMU remained alive. The original A7 neither resumed from synchronous service at `0x60006268` nor executed menu painter `0x60057668`. The ADCs are *enabled* and interrupt-enable registers nonzero, but never report ADC status in this tested configuration. The emulator itself explicitly lacks conversion samples. This is strong evidence of **missing ADC completion modeling**, *not* direct evidence that the factory `0x400B` handler is waiting specifically on ADC0/ADC1. Other M4 event-object-7 uses must still be separated.
+
+Suggested next discriminating experiment: opt-in **read-only MMIO transaction logging** for `0x41041034` and `0x410AD034` software triggers, `TCTRL +0xC0`, `CMDL +0x100`, `CMDH +0x104`, original ADC FIFO and IRQ-enable configuration, plus original M4 event7 consumer PC, **after** native menu entry. A hardware-accurate ADC conversion/IRQ model would need a real or explicitly supplied analog source; unconditional success/IRQ or manual 0x400B reply is not a valid result. The no-LCD 159-second negative result is already decisive against a screenshot-rate-only fix.
