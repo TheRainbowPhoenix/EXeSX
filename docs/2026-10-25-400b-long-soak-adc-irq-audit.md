@@ -58,3 +58,9 @@ With a current build, add `--sample-adc` to the headless command above. Every ap
 The runner records their real guest-visible words in `passive_adc_samples` in a **private** JSON result. A zero or unresolved read **does not alone establish** an ADC trigger or a missing hardware interrupt. Correlate any new ADC activity after service `0x400B(2)` with native M4 execution of its ADC caller/RTOS wait before changing emulation.
 
 No analog sample is synthesized by this probe. QMP framebuffer reads are still disabled by `--no-screenshots`; sampling is limited to the explicitly requested handful of MMIO registers. These experiments do **not** claim the visible factory menu is restored.
+
+### Limitation validated on native QEMU
+
+A direct QMP/HMP `xp` and CPU-1-selected `x` register read of `0x41041000` and `0x410AD000` on the Linux build returned **"Cannot access memory"** rather than ADC register values. Thus passive monitor MMIO sampling **cannot be treated as a successful ADC observation** on that configuration. The optional `--sample-adc` checker now explicitly outputs `accessible:false`, zero decoded registers, and the original monitor error, rather than inventing all-zero ADC status. CPU1 selection did not make these M4 peripheral addresses accessible through HMP.
+
+**Next instrumentation must inspect the original M4 CPU-side bus transactions**, e.g. with the existing guest `-d guest_errors` ADC-write logs, opt-in MMIO plugin or an M4-specific bus hook, rather than concluding anything from the unavailable monitor read. The original 0x400B-to-ADC causality is not yet established; no ADC IRQ model has been changed.
