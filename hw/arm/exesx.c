@@ -43,7 +43,7 @@ typedef struct EXeSXState {
     uint64_t cp15_ttbr1_s_saved;
     bool m4_released;
     /* MU_A input is M4 NVIC IRQ22; MU_B is GIC SPI19 on A7. */
-    qemu_irq mu_a_irq, mu_b_irq, lpit1_irq, lptmr0_irq, lptmr1_irq, tpm0_irq, m4_porta_irq, m4_portb_irq;
+    qemu_irq mu_a_irq, mu_b_irq, lpit1_irq, lptmr0_irq, lptmr1_irq, tpm0_irq, m4_porta_irq, m4_portb_irq, adc0_irq, adc1_irq;
     MemoryRegion firmware, vectors, sram, ipc, provisional_writable, lcd_export;
 } EXeSXState;
 
@@ -749,6 +749,9 @@ static void exesx_init(MachineState *ms)
     /* Reference manual: vectors 72/73 = M4 external IRQ56/57, PORT A/B. */
     s->m4_porta_irq = qdev_get_gpio_in(DEVICE(&s->m4), 56);
     s->m4_portb_irq = qdev_get_gpio_in(DEVICE(&s->m4), 57);
+    /* Original i.MX7ULP M4 NVIC: ADC0 IRQ58, ADC1 IRQ59 (vectors 74/75). */
+    s->adc0_irq = qdev_get_gpio_in(DEVICE(&s->m4), 58);
+    s->adc1_irq = qdev_get_gpio_in(DEVICE(&s->m4), 59);
 
     armv7m_load_kernel(s->m4.cpu, NULL, 0x1ffd0000, 0x40000);
 }
