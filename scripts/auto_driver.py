@@ -18,6 +18,9 @@ import subprocess
 import sys
 import time
 import zlib
+
+# Also support importlib-based unit tests from the repository root.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from drive_factory_menu import QMP, connect, choose_port
 from lcd_qmp import capture_frame
 
