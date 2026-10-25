@@ -117,6 +117,8 @@ def run(args):
                         m4_queue=read_words(qmp, 0x1ffea34c, 5),
                         m4_debounce=read_words(qmp, 0x1ffea320, 1),
                         a7_startup_selector=read_words(qmp, 0x6232e33c, 1),
+                        a7_boot_mode=read_words(qmp, 0x20007810, 1),
+                        m4_power_state=read_words(qmp, 0x1ffe9b0c, 2),
                         shared_ipc=read_words(qmp, 0x2f028000, 6))
                     queue = sample['m4_queue']
                     if len(queue) >= 3 and queue[0] == 0x00010002 and queue[2] in (0x93, 0x94):
