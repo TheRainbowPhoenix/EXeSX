@@ -37,3 +37,32 @@ A second cold-boot timing variant was bounded before the event wait and cannot c
 **Working entry sequence from reset:** hold **`0x9c+0x90`** as real simultaneous physical contacts → observe original M4 `EEEEEEEE` and original A7 `CA05` → allow A7 to reach `0x600108A8`, releasing the chord → send **`0x93,0x93,0x94`** as separate key-downs. Use `scripts/drive_factory_menu.py --startup-chord 0x9c,0x90 --matrix-keys` to trigger the correct early physical chord and preserve a private version-dialog QCOW2 checkpoint; it must have authentic original eMMC backing at its original absolute path. Do not put checkpoint, trace or original ROM on GitHub.
 
 **Remaining proof:** correlate original 20-byte M4 queue `0x1FFEA34C` and A7 copied 20-byte keyboard records at the `0x600108B4..60010928` checkpoints, tune physical press/release durations and/or wait for genuine M4 idle between presses, then show original `0x6003A878` in execution trace before asserting the factory menu entered or rendered. No ROM patch, fabricated event, forced PC, or manually posted mailbox.
+
+## Complete authentic cold-boot TEST MENU executed (new positive result)
+
+A further successful **no-debugger / unchanged-original-ROM / physical-contact-only** replay on the Linux CI artifact for commit `4f7471ea` reached actual **`0x6003A878`**, starting from a fresh boot with no saved VM checkpoint and with original source-derived eMMC plus a disposable SD. Procedure:
+
+1. Hold simultaneous row-gated **0x9C+0x90** before boot.
+2. At ~1.22 host seconds, release the chord after original M4 boot word `0xEEEEEEEE` caused A7 mode `0xCA05`.
+3. Native A7 reaches original version dialog at ~12.51 seconds and its original event wait `0x600108A8` at ~12.57 seconds.
+4. Physically close/release **0x93, 0x93, 0x94** with *0.060-second holds and 0.025-second gaps*, triggered only after the real event wait executed.
+5. The native `-d exec` TB trace reports `0x60010910`, `0x60010928`, specifically **`0x60010930`** (successful final 0x94 check), then **`0x6003A878`** (actual factory TEST MENU entry) at ~12.84 seconds.
+
+The trace contained one original TB at the authentic `0x6003A878` entry and a genuine branch from the A7 dialog; no guest ROM/CPU/register/IPC/RAM event was injected, no breakpoint attached, no forced PC jump, and no synthetic event publication. The host only controlled electrical matrix contact closure and read original executed TB logs. Unlike prior saved-checkpoint results, **this is a direct cold-boot entry**.
+
+One previous 75ms-hold/30ms-gap pulse run executed 93/94 check paths but exited normally, so exact host timing is an experimental, *non-calibrated* tuning parameter. This success does **not** assert that the subsequent menu text is rendered; original service `0x400B(2)` and LCD painter remain independent checkpoints.
+
+Public reproducible harness: [`scripts/drive_ca05_factory_menu_nogdb.py`](../scripts/drive_ca05_factory_menu_nogdb.py), which needs **owner-private** ELF/media and writes original guest TB trace only to a private output folder. Example:
+
+```bash
+python3 scripts/drive_ca05_factory_menu_nogdb.py \
+  --qemu /private/qemu-system-arm \
+  --elf /private/a7-bios-os.elf \
+  --emmc /private/source-derived-synthetic-emmc.raw \
+  --profile profiles/imx7ulp-early-boot.ini \
+  --sd /private/disposable-sd-2g.raw \
+  --output-dir /private/ca05-cold-menu \
+  --release-at 1.2 --hold 0.060 --gap 0.025 --seconds 35
+```
+
+The old GDB driver also now supports `--startup-chord 0x9c,0x90 --matrix-keys` for privately saving a version-dialog checkpoint; for timing-proof prefer the no-debugger harness.
