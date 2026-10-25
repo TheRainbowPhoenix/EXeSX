@@ -276,6 +276,13 @@ class EmulatorWorker(threading.Thread):
         elif what == "read_ipc" and self.proc and self.qmp:
             # Read original shared control request on the sole QMP owner thread.
             self.post("ipc", self.qmp.hmp("xp /12wx 0x2f028000"))
+        elif what == "read_adc" and self.proc and self.qmp:
+            # Optional passive original M4 ADC0/ADC1 MMIO readback.
+            # Does not write trigger, fake an analog input, or post IRQ/events.
+            self.post("adc", {
+                "adc0": self.qmp.hmp("xp /16wx 0x41041000"),
+                "adc1": self.qmp.hmp("xp /16wx 0x410ad000"),
+            })
         elif what == "safe_check" and self.proc:
             if 0x60057668 not in self.hit:
                 self.post("status", "SAFE CHECK BLOCKED: TEST MENU painter has not executed; IPC 0x400B still pending")
