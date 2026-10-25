@@ -140,7 +140,8 @@ static MemTxResult exesx_lptmr_read(EXeSXProfileWindow *w, hwaddr off,
     if (off == 0x0) {
         exesx_lptmr_counter(w);
     }
-    *value = off == 0xc ? exesx_lptmr_counter(w) : w->regfile[off / 4];
+    /* CNR reads return the last value synchronized by a CNR write. */
+    *value = off == 0xc ? w->regfile[0x108 / 4] : w->regfile[off / 4];
     return MEMTX_OK;
 }
 static MemTxResult exesx_lptmr_write(EXeSXProfileWindow *w, hwaddr off,
@@ -174,8 +175,10 @@ static MemTxResult exesx_lptmr_write(EXeSXProfileWindow *w, hwaddr off,
         w->regfile[2] = bits & 0xffff;
         break;
     case 0xc:
-        /* NXP: CNR write latches/reset synchronizes the counter. */
-        exesx_lptmr_restart(w);
+        /* NXP CNR is read-only; writing any value synchronizes/latches
+         * the current counter for the next read. It does NOT reset time.
+         * 0x108 is private VMState-backed state, not guest MMIO. */
+        w->regfile[0x108 / 4] = exesx_lptmr_counter(w);
         break;
     }
     exesx_lptmr_schedule(w);
