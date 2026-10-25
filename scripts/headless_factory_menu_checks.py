@@ -129,9 +129,11 @@ def run(a):
             check("original TEST MENU painter", painter,
                   "0x400B did not return" if menu else None),
             check("safe DOWN navigation", did_down,
-                  "no menu painter; unsafe to navigate blindly" if not painter else None),
+                  "no menu painter; unsafe to navigate blindly" if not painter else
+                  ("LCD intentionally disabled; no verified selection" if a.no_screenshots else None)),
             check("selection changes real LCD", bool(before_down and final_sha != before_down),
-                  "no painted menu to compare" if not did_down else None),
+                  "LCD intentionally disabled for IPC soak" if a.no_screenshots else
+                  ("no painted menu to compare" if not did_down else None)),
         ]
         a.output_dir.mkdir(parents=True, exist_ok=True)
         report = {
