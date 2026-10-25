@@ -352,6 +352,13 @@ def main(argv=None):
     images = [data.get("screenshot") for data in summary["phases"].values()]
     summary["screenshots_validated"] = (len(images) == 2 and
                                         all(x is not None for x in images))
+    summary["screen_changed_after_menu"] = (
+        summary["screenshots_validated"] and
+        images[0]["sha256"] != images[1]["sha256"])
+    summary["visible_menu_proven"] = (
+        summary["menu_entry_confirmed"] and
+        summary["menu_paint_confirmed"] and
+        summary["screen_changed_after_menu"])
     summary["assessment"] = (
         "menu paint executed" if summary["menu_paint_confirmed"] else
         "menu entered but painter not observed; check 0x400B(2) completion" if summary["menu_entry_confirmed"] else
@@ -359,11 +366,16 @@ def main(argv=None):
     (out / "summary-private.json").write_text(json.dumps(summary, indent=2) + "\n")
     print("MENU ENTRY:", summary["menu_entry_confirmed"],
           "MENU PAINT:", summary["menu_paint_confirmed"],
+          "VISIBLE MENU:", summary["visible_menu_proven"],
           "TWO SCREENSHOTS:", summary["screenshots_validated"], flush=True)
     print("Private results:", out, flush=True)
     required_captures = (summary["phases"]["menu"].get("screenshot") is not None
                          if args.menu_only else summary["screenshots_validated"])
-    return 0 if summary["menu_entry_confirmed"] and required_captures else 2
+    if not summary["menu_entry_confirmed"] or not required_captures:
+        return 2
+    # Successful original menu-PC execution is NOT successful visible rendering.
+    # Use a distinct exit status for an uncompleted IPC/paint/screen transition.
+    return 0 if summary["visible_menu_proven"] else 3
 
 
 if __name__ == "__main__":
