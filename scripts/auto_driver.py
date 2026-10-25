@@ -344,7 +344,8 @@ def main(argv=None):
     summary["menu_paint_confirmed"] = "menu_painter" in checkpoints
     summary["service_400b_return_confirmed"] = "service_return" in checkpoints
     images = [data.get("screenshot") for data in summary["phases"].values()]
-    summary["screenshots_validated"] = all(x is not None for x in images)
+    summary["screenshots_validated"] = (len(images) == 2 and
+                                        all(x is not None for x in images))
     summary["assessment"] = (
         "menu paint executed" if summary["menu_paint_confirmed"] else
         "menu entered but painter not observed; check 0x400B(2) completion" if summary["menu_entry_confirmed"] else
@@ -354,7 +355,9 @@ def main(argv=None):
           "MENU PAINT:", summary["menu_paint_confirmed"],
           "TWO SCREENSHOTS:", summary["screenshots_validated"], flush=True)
     print("Private results:", out, flush=True)
-    return 0 if summary["menu_entry_confirmed"] and summary["screenshots_validated"] else 2
+    required_captures = (summary["phases"]["menu"].get("screenshot") is not None
+                         if args.menu_only else summary["screenshots_validated"])
+    return 0 if summary["menu_entry_confirmed"] and required_captures else 2
 
 
 if __name__ == "__main__":
