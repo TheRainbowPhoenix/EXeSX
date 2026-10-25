@@ -45,6 +45,8 @@ def run(a):
     ipc = None
     menu_at = painter_at = None
     requested_ipc = did_down = False
+    adc_samples = []
+    last_adc_at = 0
     before_down = None
     t0 = time.monotonic()
     try:
@@ -65,6 +67,22 @@ def run(a):
                 elif kind == "ipc":
                     ipc = parse_ipc_dump(value)
                     print("ORIGINAL IPC:", ipc, flush=True)
+                elif kind == "adc":
+                    sample = {"host_elapsed": round(time.monotonic()-t0, 2)}
+                    for bank, text in value.items():
+                        words = []
+                        for line in text.splitlines():
+                            if ":" in line:
+                                words += [int(n,16) for n in re.findall(
+                                    r"0x[0-9a-fA-F]+", line.split(":",1)[1])]
+                        sample[bank] = {
+                            "ctrl": "0x{:08x}".format(words[4]) if len(words)>4 else None,
+                            "stat": "0x{:08x}".format(words[5]) if len(words)>5 else None,
+                            "ie": "0x{:08x}".format(words[6]) if len(words)>6 else None,
+                            "fctrl": "0x{:08x}".format(words[12]) if len(words)>12 else None,
+                            "raw_reg_count": len(words)}
+                    adc_samples.append(sample)
+                    print("PASSIVE ADC:", sample, flush=True)
                 elif kind == "status" and (
                         "Worker error:" in value or
                         "QEMU exited unexpectedly:" in value):
@@ -74,6 +92,10 @@ def run(a):
                     time.monotonic() - menu_at >= 1):
                 actions.put(("read_ipc", None))
                 requested_ipc = True
+            if (getattr(a, "sample_adc", False) and menu_at is not None and
+                    time.monotonic() - last_adc_at >= 20):
+                last_adc_at = time.monotonic()
+                actions.put(("read_adc", None))
             if painter_at is not None and not did_down and worker.frame_count:
                 frame = a.output_dir / "gui-screen.ppm"
                 before_down = (hashlib.sha256(frame.read_bytes()).hexdigest()
@@ -117,6 +139,7 @@ def run(a):
             "method": "unchanged OSUP guest, original physical GPIO keys, executed ARM TBs and read-only QMP",
             "original_checkpoints": observed,
             "shared_ipc": ipc,
+            "passive_adc_samples": adc_samples,
             "frames": worker.frame_count,
             "lcd_sha256": final_sha,
             "qemu_running_during_check": bool(worker.proc and worker.proc.poll() is None),
@@ -155,6 +178,8 @@ def main():
     p.add_argument("--hold", type=float, default=.060)
     p.add_argument("--gap", type=float, default=.025)
     p.add_argument("--fps", type=float, default=2)
+    p.add_argument("--sample-adc", action="store_true",
+                   help="Sample genuine ADC0/ADC1 CTRL/STAT/IE/FCTRL via read-only QMP")
     p.add_argument("--no-screenshots", action="store_true",
                    help="No LCD QMP reads, mmap or PPM; investigate IPC independent of capture")
     p.add_argument("--tcg-thread", choices=("single","multi"), default="multi",
