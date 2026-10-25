@@ -44,7 +44,7 @@ typedef struct EXeSXState {
     bool m4_released;
     /* MU_A input is M4 NVIC IRQ22; MU_B is GIC SPI19 on A7. */
     qemu_irq mu_a_irq, mu_b_irq, lpit1_irq, lptmr0_irq, lptmr1_irq, tpm0_irq, m4_porta_irq, m4_portb_irq;
-    MemoryRegion firmware, vectors, sram, ipc, provisional_writable;
+    MemoryRegion firmware, vectors, sram, ipc, provisional_writable, lcd_export;
 } EXeSXState;
 
 
@@ -351,6 +351,13 @@ static void exesx_load_profile(MemoryRegion *sysmem, EXeSXState *board)
             w->lcd_x1 = EXESX_LCD_W - 1;
             w->lcd_y1 = EXESX_LCD_H - 1;
             w->lcd_rgb565 = true;
+            if (!g_strcmp0(g_getenv("EXESX_LCD_FRAMEBUFFER_EXPORT"), "1")) {
+                memory_region_init_io(&board->lcd_export, OBJECT(board),
+                    &exesx_lcd_export_ops, board, "exesx.debug.lcd.rgb565",
+                    EXESX_LCD_EXPORT_SIZE);
+                memory_region_add_subregion(sysmem, EXESX_LCD_EXPORT_BASE,
+                                            &board->lcd_export);
+            }
             if (g_getenv("EXESX_LCD_SCREENSHOT") ||
                 g_getenv("EXESX_LCD_CAPTURE_REQUEST_FILE")) {
                 /*
