@@ -96,6 +96,9 @@ class EmulatorWorker(threading.Thread):
                 self.proc.wait()
             self.proc = None
         self.qmp = None
+        if hasattr(self, "console") and self.console:
+            self.console.close()
+            self.console = None
         self.mode = "off"
 
     def start_vm(self, mode):
@@ -181,15 +184,6 @@ class EmulatorWorker(threading.Thread):
                     self.wait_seen = True
                 if pc == 0x6003a878:
                     self.menu_seen = True
-        elapsed = time.monotonic() - self.start_time
-        if (self.mode in ("popup", "menu") and
-                elapsed >= self.args.release_at and
-                self.pressed is None and not self.sequence and
-                self.seq_stage is None):
-            # Release the BOOT chord just once, without waiting for a GUI event.
-            if not hasattr(self, "chord_released") or not self.chord_released:
-                self.physical(None)
-                self.chord_released = True
         if self.mode == "menu" and self.wait_seen and not self.sequence and not self.menu_seen and not getattr(self, "menu_macro_fired", False):
             self.menu_macro_fired = True
             self.sequence = list(KEYS)
@@ -213,6 +207,10 @@ class EmulatorWorker(threading.Thread):
 
     def frame_step(self):
         if time.monotonic() < self.next_capture or self.sequence:
+            return
+        # Don't disturb the sensitive original CA05 boot/key event timing
+        # with a megabyte QMP dump before the dialog is ready.
+        if self.mode in ("popup","menu") and not self.wait_seen:
             return
         self.next_capture = time.monotonic() + max(.20, 1 / self.args.fps)
         raw = capture_frame(self.qmp, self.framefile)
@@ -267,6 +265,10 @@ class EmulatorWorker(threading.Thread):
                     self.post("status", "QEMU exited unexpectedly: code {}".format(self.proc.returncode))
                     self.stop_vm()
                 if self.proc:
+                    if (self.mode in ("popup","menu") and not self.chord_released
+                            and time.monotonic() - self.start_time >= self.args.release_at):
+                        self.physical(None)
+                        self.chord_released = True
                     self.trace_step()
                     self.sequence_step()
                     self.frame_step()
