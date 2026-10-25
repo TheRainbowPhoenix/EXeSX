@@ -154,7 +154,7 @@ def main():
     p.add_argument('--poll', type=float, default=.06)
     p.add_argument('--hold', type=float, default=.15)
     p.add_argument('--gap', type=float, default=.08)
-    p.add_argument('--startup-chord', choices=('0x80,0x95,0x92', '0x80,0x90,0x96'),
+    # 0x9c+0x90 is checked by the original M4 *before* A7 startup,\n    # unlike the two original A7 three-key chords.\n    p.add_argument('--startup-chord', choices=('0x80,0x95,0x92', '0x80,0x90,0x96', '0x9c,0x90'),
                    default='0x80,0x95,0x92')
     p.add_argument('--no-startup-chord', action='store_true')
     p.add_argument('--lptmr-irq', action='store_true')
