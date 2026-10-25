@@ -60,3 +60,23 @@ The original A7 startup selector at `0x6232E33C` stayed `0` in the tested cold-b
 ## Branch cleanup
 
 On 2026-10-25 the existing safe-prune workflow removed four old merged-PR branches (#37–#40). The post-merge `experiment/dy357-m4-inputs-0804-20261023` head `a8c9852` was first archived as immutable tag `archive/2026-10-25/experiment/dy357-m4-inputs-0804-20261023`. `main` is the sole new development baseline. `test/dy357-dma1-boot-20261022` is preserved because open PR #36 still refers to it; it is not silently deleted or force-merged.
+
+
+## Newly bounded power-service return and held-chord control
+
+A separate **11-second** main/SD/LPTMR-enabled, no-debugger original-firmware QEMU `-d exec` trace (kept private) recorded actual TB entries at:
+
+| Original PC | Same-run TB entries | Interpretation |
+| --- | ---: | --- |
+| A7 `0x6004A0B4` | 1 | First-boot task path |
+| A7 `0x60049C18`, `0x6000F688`, `0x60009284` | 1, 1, 2 | Startup power command chain |
+| A7 `0x60049C50` | **1** | Caller resumed after the synchronous power operation |
+| A7 `0x6004A108` | **1** | Returned to first-boot activation path |
+| M4 `0x1FFD5510`, `0x1FFD9D44`, `0x1FFDF49E` | 10, 5, 129 | Real shared-IPC dispatch and power setting path |
+| A7 `0x60011CA4`, `0x600108A8`, `0x6003A878` | 0, 0, 0 | No native version dialog or menu execution within bounded trace |
+
+This demonstrates the old **A004 non-return hypothesis is not universal**: the exact current main firmware/emulator/SD run progressed past the caller return and first-boot continuation. These are actual executed TB addresses, not debugger-synthesized returns. The `-d exec` logger can substantially slow guest/host time, so this is instruction execution evidence, **not timing calibration**.
+
+A second **24-second** low-overhead QMP-only control held `0x80,0x95,0x92` continuously from startup (no later key contacts scheduled before test end). The startup selector at `0x6232E33C` remained `0` throughout its 79 samples; the latest sampled original shared slot had request `0x0001A002`, status `0x040208FF`. Those bytes are original RAM observations but **do not by themselves prove A002 failed**, since an occupied/stale slot can persist after a service completes. This run did not establish `0x600108A8` or enter the factory menu.
+
+**Next precise boundary:** read-only instruction/return tracing from `0x6004A108` through initial task activations and the later original `0xA002` power-service caller; prove whether A7 actually receives the A002 completion and when it invokes `0x60011CA4`. Once the original BIOS is waiting for version-dialog keyboard events, replay the three already-validated physical contacts. Do not force an A002 response or assume the startup selector must be nonzero before its initializer runs.
