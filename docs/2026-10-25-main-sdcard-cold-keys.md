@@ -80,3 +80,30 @@ This demonstrates the old **A004 non-return hypothesis is not universal**: the e
 A second **24-second** low-overhead QMP-only control held `0x80,0x95,0x92` continuously from startup (no later key contacts scheduled before test end). The startup selector at `0x6232E33C` remained `0` throughout its 79 samples; the latest sampled original shared slot had request `0x0001A002`, status `0x040208FF`. Those bytes are original RAM observations but **do not by themselves prove A002 failed**, since an occupied/stale slot can persist after a service completes. This run did not establish `0x600108A8` or enter the factory menu.
 
 **Next precise boundary:** read-only instruction/return tracing from `0x6004A108` through initial task activations and the later original `0xA002` power-service caller; prove whether A7 actually receives the A002 completion and when it invokes `0x60011CA4`. Once the original BIOS is waiting for version-dialog keyboard events, replay the three already-validated physical contacts. Do not force an A002 response or assume the startup selector must be nonzero before its initializer runs.
+
+## Latest completed Linux CI artifact: A7 acceptance recheck (2026-10-25)
+
+The user-requested recheck used successful [native CI run 40201109455](https://github.com/TheRainbowPhoenix/EXeSX/actions/runs/40201109455), artifact `exesx-qemu-native-cc2a7bd419175a22292f8aeab60d433b587c6036`. Windows [CI run 40201109379](https://github.com/TheRainbowPhoenix/EXeSX/actions/runs/40201109379) also passed. Source commit `cc2a7bd419175a22292f8aeab60d433b587c6036` includes instrumentation/documentation, not an emulator key-delivery fix.
+
+A fresh private execution used the unchanged original owner OSUP-derived A7/M4 firmware, source-derived sparse eMMC, disposable SD, actual simultaneous physical startup chord `0x80,0x95,0x92` until host 7s, then original 0x93, 0x93, 0x94 physical contacts (about 0.42s hold, 0.23s release gap), opt-in LPTMR selected-clock model, 48MHz diagnostic M4 TPM0 and 32kHz diagnostic A7 TPM6. The native QEMU and `-d exec` guest trace were run without GDB, CPU/ROM edits, or synthetic A7 event injections. QMP-only private SRAM observation confirmed type2/subtype1 M4 queue record for 0x93 and 0x94. The 0x93 double-closure was driven as two distinct host contacts; this sampled trace only guarantees both *codes*, not independent proof that A7 saw each closure.
+
+In a bounded 14-second host run, **executed translated-block starts** included:
+
+| Original PC | TB executions |
+| --- | ---: |
+| M4 `0x1FFD838A` keyboard queue consumer | 495 |
+| M4 `0x1FFD874A` event IPC router | 69 |
+| M4 `0x1FFDE672` envelope construction | 3 |
+| M4 `0x1FFDE74A` envelope enqueue | 1 |
+| A7 `0x60049C50` return from earlier power-service chain | 1 |
+| A7 `0x6004A108` first-boot continuation | 1 |
+| A7 `0x60010868` version-dialog entry | 0 |
+| A7 `0x600108A8` event wait | 0 |
+| A7 `0x60010910` first 0x93 checker | 0 |
+| A7 `0x60010928` 0x94 checker | 0 |
+| A7 `0x6003A878` native factory menu | 0 |
+| A7 `0x60057668` native menu paint | 0 |
+
+No translated-block start occurred anywhere in the `0x60010860..0x600109A0` version-dialog area. The original A7 startup selector sampled at `0x6232E33C` remained 0 and the IPC slot at `0x2F02800C` last recorded `0x0001A002` with raw status `0x040208FF`. That shared record **is not independently proof of a current outstanding A002 wait**.
+
+**Result:** CI success does *not* imply firmware acceptance of the factory-menu keyboard sequence. For this new exact-build cold-boot run, A7 never executed the original version-dialog key handler, so genuine A7 acceptance of all three key-downs was **not observed**. The no-menu result is upstream of the key checker, **not a demonstrated keyboard-code rejection**. Previous private post-version-wait snapshot replay already proved A7 can take genuine menu branch `0x6003A878` under different startup state, but the user-provided SD kit does not include that checkpoint. Next trace original A7 control flow after `0x6004A108` through auxiliary task activation/start-mode selection and service completions; do not fake reply words or force PC.
