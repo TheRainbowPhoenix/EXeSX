@@ -18,6 +18,8 @@ import subprocess
 import sys
 import time
 import zlib
+from drive_factory_menu import QMP, connect, choose_port
+from lcd_qmp import capture_frame
 
 BOOT = "0x9c,0x90"
 KEYS = ("0x93", "0x93", "0x94")
@@ -135,6 +137,7 @@ def run_phase(args, phase, qemu, elf, emmc, profile, output):
     stage.mkdir(parents=True, exist_ok=True)
     contacts = stage / "contacts-private.txt"
     capture_request = stage / "capture-request-private.txt"
+    raw_frame = stage / "lcd-rgb565-private.raw"
     contacts.write_text(BOOT + "\n", encoding="ascii")
     capture_request.unlink(missing_ok=True)
     screenshot = output / ("version-dialog.ppm" if phase == "popup"
@@ -152,7 +155,7 @@ def run_phase(args, phase, qemu, elf, emmc, profile, output):
         "EXESX_EXPERIMENTAL_M4_TPM0_INPUT_MHZ": str(args.tpm0_mhz),
         "EXESX_DIAGNOSTIC_A7_TPM6_KHZ": str(args.a7_tpm6_khz),
         "EXESX_EXPERIMENTAL_LCD": "1",
-        "EXESX_LCD_CAPTURE_REQUEST_FILE": capture_request.resolve().as_posix(),
+        "EXESX_LCD_FRAMEBUFFER_EXPORT": "1",
         "EXESX_EXPERIMENTAL_DMA1_M2M": "1",
         "EXESX_USDHC1_EMMC": "1",
         "EXESX_USDHC0_SD": "1" if args.sd else "0",
@@ -169,10 +172,12 @@ def run_phase(args, phase, qemu, elf, emmc, profile, output):
         env["LD_LIBRARY_PATH"] = str(lib) + os.pathsep + env.get("LD_LIBRARY_PATH", "")
     trace = stage / "execution-private.log"
     console = stage / "qemu-console-private.log"
+    qmp_port = choose_port()
     command = [
         str(qemu), "-machine", "exesx", "-m", "64M",
         "-accel", "tcg", "-display", "none", "-serial", "none",
         "-monitor", "none", "-no-reboot",
+        "-S", "-qmp", "tcp:127.0.0.1:{},server=on,wait=off".format(qmp_port),
         "-drive", "if=none,id=exesx-emmc,file={},format=raw,snapshot=on".format(emmc),
         "-device", "loader,file={},cpu-num=0".format(elf),
         "-d", "exec" + (",guest_errors" if args.guest_errors else ""),
@@ -186,6 +191,8 @@ def run_phase(args, phase, qemu, elf, emmc, profile, output):
               "physical_contacts": [], "screenshot": None,
               "reason": None, "qemu_exit_code": None}
     first_seen = set()
+    qmp_sock = None
+    qmp = None
     sent = False
     capture_issued = False
     image_ready = False
@@ -197,6 +204,9 @@ def run_phase(args, phase, qemu, elf, emmc, profile, output):
         process = subprocess.Popen(command, env=env, stdout=log,
                                    stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
         try:
+            qmp_sock = connect(qmp_port, process)
+            qmp = QMP(qmp_sock)
+            qmp.execute("cont")
             deadline = t0 + args.seconds
             while not trace.exists() and time.monotonic() < t0 + 8 and process.poll() is None:
                 time.sleep(.02)
@@ -230,7 +240,7 @@ def run_phase(args, phase, qemu, elf, emmc, profile, output):
                             not capture_issued):
                         # The original dialog PC precedes its actual glyph painting.
                         # Capture after this verified settle window or the PPM is blank.
-                        request_capture(capture_request, screenshot)
+                        capture_frame(qmp, raw_frame, screenshot)
                         capture_issued = True
                     if capture_issued and not image_ready:
                         image = wait_for_image(screenshot)
@@ -253,7 +263,7 @@ def run_phase(args, phase, qemu, elf, emmc, profile, output):
                             time.sleep(args.gap)
                     if phase == "menu" and menu_at is not None:
                         if time.monotonic() - menu_at >= args.post_menu_seconds and not capture_issued:
-                            request_capture(capture_request, screenshot)
+                            capture_frame(qmp, raw_frame, screenshot)
                             capture_issued = True
                         if image_ready:
                             report["reason"] = "factory-menu framebuffer captured"
@@ -262,6 +272,8 @@ def run_phase(args, phase, qemu, elf, emmc, profile, output):
                 else:
                     report["reason"] = "bounded timeout"
         finally:
+            if qmp_sock is not None:
+                qmp_sock.close()
             contacts.write_text("0\n", encoding="ascii")
             process.terminate()
             try:
