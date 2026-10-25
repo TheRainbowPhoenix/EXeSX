@@ -114,7 +114,24 @@ def prepare_media(args, output):
         raise ValueError("Provide your private OSUP.BIN or both --elf and --emmc")
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from run_osup import prepare
-    elf, emmc, _ = prepare(args.osup.resolve(), output / "private-firmware")
+    private = output / "private-firmware"
+    elf = private / "a7-bios-os.elf"
+    emmc = private / "source-derived-synthetic-emmc.raw"
+    manifest = private / "manifest.json"
+    # Windows extraction of a synthetic 15.64GB eMMC image is expensive.
+    # Do it once; the manifest is written only after the whole image is ready.
+    # Validate that the supplied owner OSUP is IDENTICAL before reusing.
+    if elf.is_file() and emmc.is_file() and manifest.is_file():
+        try:
+            expected = json.loads(manifest.read_text(encoding="utf-8"))["input_sha256"]
+            with args.osup.open("rb") as firmware:
+                observed = hashlib.sha256(firmware.read()).hexdigest()
+            if (observed == expected and
+                    emmc.stat().st_size == 15642656768 and elf.stat().st_size > 1000000):
+                return elf.resolve(), emmc.resolve()
+        except (ValueError, OSError, KeyError):
+            pass
+    elf, emmc, _ = prepare(args.osup.resolve(), private)
     return elf.resolve(), emmc.resolve()
 
 
