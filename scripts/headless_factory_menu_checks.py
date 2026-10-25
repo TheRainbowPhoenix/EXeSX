@@ -69,20 +69,20 @@ def run(a):
                     print("ORIGINAL IPC:", ipc, flush=True)
                 elif kind == "adc":
                     sample = {"host_elapsed": round(time.monotonic()-t0, 2)}
-                    for bank, text in value.items():
-                        words = []
-                        for line in text.splitlines():
-                            if ":" in line:
-                                words += [int(n,16) for n in re.findall(
-                                    r"0x[0-9a-fA-F]+", line.split(":",1)[1])]
+                    for bank, registers in value.items():
+                        decoded = {}
+                        errors = {}
+                        for reg, text in registers.items():
+                            line = text.split(":", 1)[-1]
+                            match = re.search(r"0x[0-9a-fA-F]+", line)
+                            decoded[reg] = match.group(0) if match else None
+                            if not match:
+                                errors[reg] = text.strip()
                         sample[bank] = {
-                            "ctrl": "0x{:08x}".format(words[4]) if len(words)>4 else None,
-                            "stat": "0x{:08x}".format(words[5]) if len(words)>5 else None,
-                            "ie": "0x{:08x}".format(words[6]) if len(words)>6 else None,
-                            "fctrl": "0x{:08x}".format(words[12]) if len(words)>12 else None,
-                            "raw_reg_count": len(words),
-                            "accessible": len(words) >= 16,
-                            "read_error": text.strip() if len(words) < 16 else None}
+                            **decoded, "accessible": all(
+                                decoded[name] is not None
+                                for name in ("ctrl", "stat", "ie", "fctrl")),
+                            "read_errors": errors or None}
                     adc_samples.append(sample)
                     print("PASSIVE ADC:", sample, flush=True)
                 elif kind == "status" and (
