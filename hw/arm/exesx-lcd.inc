@@ -59,8 +59,18 @@ static void exesx_lcd_snapshot_tick(void *opaque)
     } else {
         exesx_lcd_screenshot_file(w, g_getenv("EXESX_LCD_SCREENSHOT"));
     }
+    /*
+     * Host-driven capture requests are independent of guest virtual time.
+     * On an idling guest (especially Windows TCG/WFI), the virtual clock
+     * can stop advancing after a screenshot request was created. Poll the
+     * request with QEMU's host realtime clock instead. No pixel I/O occurs
+     * unless the host actually requests a screenshot.
+     */
+    QEMUClockType clock = request && *request ?
+        QEMU_CLOCK_REALTIME : QEMU_CLOCK_VIRTUAL;
     timer_mod(w->lcd_screenshot_timer,
-              qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 500000000);
+              qemu_clock_get_ns(clock) +
+              (clock == QEMU_CLOCK_REALTIME ? 200000000 : 500000000));
 }
 static bool exesx_lcd_te_high(EXeSXState *s)
 {
