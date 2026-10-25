@@ -36,7 +36,7 @@ typedef struct EXeSXState {
     ARMCPU *a7cpu;
     EXeSXProfileWindow *mu_a, *mu_b, *lcd, *dmamux1, *m4_gpio_a, *m4_gpio_b;
     EXeSXProfileWindow *m4_port_a, *m4_port_b, *m4_iomuxc0;
-    uint16_t m4_keyboard_code;
+    uint64_t m4_keyboard_code;
     int m4_keyboard_row;
     int64_t m4_keyboard_next_poll_ns;
     uint64_t cp15_dacr_s_saved;
