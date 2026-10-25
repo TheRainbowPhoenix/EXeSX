@@ -474,8 +474,8 @@ def main():
     parser.add_argument("--contact-delay",type=float,default=None,
                         help="Diagnostic physical-key probe after N host seconds, even if A7 event-wait never occurs; no mailbox injection")
     parser.add_argument("--startup-chord",
-                        choices=["0x80,0x95,0x92","0x80,0x90,0x96"],
-                        help="Close original GPIO keyboard startup chord before cold boot; release at event wait")
+                        choices=["0x9c,0x90","0x80,0x95,0x92","0x80,0x90,0x96"],
+                        help="Close genuine M4 0x9c+0x90 CA05 chord (or later A7 triple-key chord) before cold boot; release at event wait")
     parser.add_argument("--startup-release-delay",type=float,default=0.08,
                         help="Time between releasing startup chord and sending version-dialog keys")
     parser.add_argument("--trace-m4",action="store_true")
