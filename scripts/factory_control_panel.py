@@ -148,6 +148,15 @@ class EmulatorWorker(threading.Thread):
             EXESX_GPIOA_INPUT_MASK="0x808c6008",
             EXESX_GPIOB_INPUT_MASK="0xc8",
             EXESX_M4_KEY_MATRIX_FILE=str(self.contact_file.resolve()))
+        # Optional source-driven ADC completion investigation. The M4 CPU
+        # still issues each original SW trigger; no guest event is injected.
+        for index in (0, 1):
+            sample = getattr(args, "adc{}_sample".format(index), None)
+            envvar = "EXESX_ADC{}_SAMPLE_RAW".format(index)
+            if sample is None:
+                env.pop(envvar, None)
+            else:
+                env[envvar] = hex(sample)
         lib = args.qemu.resolve().parent / "lib"
         if lib.is_dir():
             env["LD_LIBRARY_PATH"] = str(lib) + os.pathsep + env.get("LD_LIBRARY_PATH", "")
@@ -494,6 +503,10 @@ def main():
                    help="Disable all QMP framebuffer reads and image generation during boot")
     p.add_argument("--tcg-thread", choices=("single", "multi"), default="multi",
                    help="Compare A7/M4 interprocessor scheduling without guest patching")
+    p.add_argument("--adc0-sample", type=lambda s:int(s,0), default=None,
+                   help="Explicit 16-bit ADC0 result for opt-in original M4 IRQ experiment")
+    p.add_argument("--adc1-sample", type=lambda s:int(s,0), default=None,
+                   help="Explicit 16-bit ADC1 result for opt-in original M4 IRQ experiment")
     p.add_argument("--trace-m4-400b", action="store_true",
                    help="Trace original M4 event7 semaphore wait and MU callback")
     p.add_argument("--hold", type=float, default=.060)
@@ -517,6 +530,9 @@ def main():
         p.error("OSUP or --elf and --emmc required")
     if a.sd and (not a.sd.is_file() or a.sd.stat().st_size < 2 * 1024**3):
         p.error("SD must be disposable raw image >=2GiB")
+    if any(sample is not None and not (0 <= sample <= 0xffff)
+           for sample in (a.adc0_sample, a.adc1_sample)):
+        p.error("ADC raw sample must be 0..0xffff")
     if (a.fps <= 0 or a.hold <= 0 or a.release_at < 0 or a.gap < 0 or
             a.retries < 1 or a.retry_after <= 0 or a.check_seconds <= 0):
         p.error("Invalid timing")
