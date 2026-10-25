@@ -1,4 +1,5 @@
 name: Safely prune historical EXeSX branches
+# Manual cleanup request, 2026-10-25: preserve main and all open PR branches.
 on:
   push:
     branches: [test/dy357-dma1-boot-20261022]
