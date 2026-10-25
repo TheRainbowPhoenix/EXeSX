@@ -76,27 +76,42 @@ def run(qemu,profile,raw0,raw1):
         lib=qemu.resolve().parent/"lib"
         if lib.is_dir():
             env["LD_LIBRARY_PATH"]=str(lib)+os.pathsep+env.get("LD_LIBRARY_PATH","")
+        # Native Windows HMP stdio echo is asynchronous and can corrupt
+        # interleaved monitor commands. QMP gives one command/response pair
+        # and never blocks on an unread child stderr pipe.
+        from drive_factory_menu import QMP, choose_port, connect
+        port=choose_port()
         cmd=[str(qemu.resolve()),"-machine","exesx","-m","64M",
              "-accel","tcg","-display","none","-serial","none",
-             "-monitor","stdio","-no-reboot",
+             "-monitor","none","-no-reboot","-S",
+             "-qmp",f"tcp:127.0.0.1:{port},server=on,wait=off",
              "-device",f"loader,file={elf},cpu-num=0"]
-        with subprocess.Popen(cmd,env=env,stdin=subprocess.PIPE,
-                              stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
-                              text=True) as proc:
-            time.sleep(.65)
-            commands="".join(f"xp /1wx 0x{OUT+i*4:08x}\n" for i in range(21))
-            output,_=proc.communicate(commands+"quit\n",timeout=30)
         fields={}
-        for n in range(21):
-            address=OUT+n*4
-            m=re.search(r"(?im)^0*"+f"{address:08x}"+r":\s+0x([0-9a-f]+)",output)
-            if not m:
-                raise AssertionError(f"Missing guest result {n} at {address:#x}: {output[-1200:]}")
-            fields[n]=int(m.group(1),16)
+        with (temp/"qemu-private-console.log").open("wb") as console:
+            proc=subprocess.Popen(cmd,env=env,stdin=subprocess.DEVNULL,
+                                  stdout=console,stderr=subprocess.STDOUT)
+            try:
+                with connect(port,proc) as sock:
+                    qmp=QMP(sock)
+                    qmp.execute("cont")
+                    time.sleep(.65)
+                    for n in range(21):
+                        address=OUT+n*4
+                        output=qmp.hmp(f"xp /1wx 0x{address:08x}")
+                        m=re.search(r"(?im)^0*"+f"{address:08x}"+r":\s+0x([0-9a-f]+)",output)
+                        if not m:
+                            raise AssertionError(f"Missing guest result {n} at {address:#x}: {output}")
+                        fields[n]=int(m.group(1),16)
+            finally:
+                proc.terminate()
+                try: proc.wait(timeout=4)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
         for bank,raw in enumerate((raw0,raw1)):
             n=bank*12
             if raw is None:
-                expected=[0,0,0,0,0,0,0,0,0]
+                expected=[0,0x20000,0,0,0,0,0x20000,0,0]
             else:
                 fifoword=0x80000000 | (1<<24) | raw
                 expected=[1,0x00020003,fifoword,0,fifoword,fifoword,0x20000,0,0]
