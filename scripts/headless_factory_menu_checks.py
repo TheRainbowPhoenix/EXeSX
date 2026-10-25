@@ -80,7 +80,9 @@ def run(a):
                             "stat": "0x{:08x}".format(words[5]) if len(words)>5 else None,
                             "ie": "0x{:08x}".format(words[6]) if len(words)>6 else None,
                             "fctrl": "0x{:08x}".format(words[12]) if len(words)>12 else None,
-                            "raw_reg_count": len(words)}
+                            "raw_reg_count": len(words),
+                            "accessible": len(words) >= 16,
+                            "read_error": text.strip() if len(words) < 16 else None}
                     adc_samples.append(sample)
                     print("PASSIVE ADC:", sample, flush=True)
                 elif kind == "status" and (
