@@ -39,7 +39,7 @@ static bool exesx_adc_valid(EXeSXProfileWindow *w,
  * presumed voltage or calibration value. This models digital ADC result/FIFO
  * and IRQ plumbing to test the ORIGINAL M4 ADC ISR and factory IPC.
  *
- * i.MX7ULP: NVIC ADC0=58 / ADC1=59; RESFIFO0 VALID bit31;
+ * i.MX7ULP: TCTRLn.TCMD at bits24..27 (original guest=0x01000000),\n * NVIC ADC0=58 / ADC1=59; RESFIFO0 VALID bit31;
  * FCTRL.FCOUNT0 bits0..4, FWMARK0 bits16..20; IE.FWMIE0 bit0;
  * STAT.RDY0 bit0 becomes set when FCOUNT0 > FWMARK0.
  * This single-FIFO proof is not a complete analog peripheral emulator.
@@ -101,7 +101,7 @@ static void exesx_adc_fifo_push(EXeSXProfileWindow *w, uint16_t sample,
         return;
     }
     /* Original ADC reports source command and trigger IDs in RESFIFO. */
-    unsigned cmd = w->regfile[(0xc0 + trig * 4) / 4] & 0xf;
+    unsigned cmd = (w->regfile[(0xc0 + trig * 4) / 4] >> 24) & 0xf;
     w->regfile[(EXESX_ADC_FIFO_DATA / 4) + count] =
         UINT32_C(0x80000000) | ((cmd & 0xf) << 24) |
         ((trig & 0x7) << 16) | sample;
@@ -171,7 +171,7 @@ static MemTxResult exesx_adc_write(EXeSXProfileWindow *w, hwaddr off,
                           w->base, word, connected);
             if (connected && (w->regfile[0x10 / 4] & 1)) {
                 for (unsigned trig = 0; trig < 4; ++trig) {
-                    unsigned cmd = w->regfile[(0xc0 + trig * 4) / 4] & 0xf;
+                    unsigned cmd = (w->regfile[(0xc0 + trig * 4) / 4] >> 24) & 0xf;
                     if ((word & (1U << trig)) && cmd) {
                         exesx_adc_fifo_push(w, sample, trig);
                     }
