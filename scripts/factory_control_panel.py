@@ -243,6 +243,21 @@ class EmulatorWorker(threading.Thread):
             self.sequence = [hex(value)]
             self.seq_stage = "press"
             self.seq_deadline = time.monotonic()
+        elif what == "menu_keys" and self.proc and self.wait_seen and not self.sequence:
+            self.sequence = list(KEYS)
+            self.seq_stage = "press"
+            self.seq_deadline = time.monotonic()
+            self.post("status", "Sending 0x93 0x93 0x94 at the original event wait")
+        elif what == "safe_check" and self.proc:
+            if 0x60057668 not in self.hit:
+                self.post("status", "SAFE CHECK BLOCKED: TEST MENU painter has not executed; IPC 0x400B still pending")
+            elif not self.sequence:
+                # Navigation only: original M4 code 0x91 is DOWN.
+                # No SD read/write/FORMAT option is activated automatically.
+                self.sequence = ["0x91"]
+                self.seq_stage = "press"
+                self.seq_deadline = time.monotonic()
+                self.post("status", "Safe navigation: DOWN key only")
         elif what == "screenshot" and self.proc:
             frame = self.output / "gui-screen.ppm"
             if frame.exists():
@@ -297,6 +312,8 @@ def show_window(args):
     ttk.Button(controls, text="POWER / NORMAL", command=lambda:cmd("normal")).pack(side="left")
     ttk.Button(controls, text="Version popup [9C+90]", command=lambda:cmd("popup")).pack(side="left")
     ttk.Button(controls, text="AUTO TEST MENU [93 93 94]", command=lambda:cmd("menu")).pack(side="left")
+    ttk.Button(controls, text="Manual 93→93→94", command=lambda:actions.put(("menu_keys",None))).pack(side="left")
+    ttk.Button(controls, text="Safe DOWN check", command=lambda:actions.put(("safe_check",None))).pack(side="left")
     ttk.Button(controls, text="Save screenshot", command=lambda:actions.put(("screenshot", None))).pack(side="left")
     ttk.Button(controls, text="Stop", command=lambda:actions.put(("shutdown", None))).pack(side="left")
     status = tk.StringVar(value="Choose a boot macro. All key contacts are original ROM codes.")
