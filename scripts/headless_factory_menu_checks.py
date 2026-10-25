@@ -140,6 +140,8 @@ def run(a):
             "no_screenshots": a.no_screenshots,
             "tcg_thread": a.tcg_thread,
             "m4_400b_trace_enabled": a.trace_m4_400b,
+            "diagnostic_raw_adc0": a.adc0_sample,
+            "diagnostic_raw_adc1": a.adc1_sample,
             "method": "unchanged OSUP guest, original physical GPIO keys, executed ARM TBs and read-only QMP",
             "original_checkpoints": observed,
             "shared_ipc": ipc,
@@ -182,6 +184,10 @@ def main():
     p.add_argument("--hold", type=float, default=.060)
     p.add_argument("--gap", type=float, default=.025)
     p.add_argument("--fps", type=float, default=2)
+    p.add_argument("--adc0-sample", type=lambda s:int(s,0), default=None,
+                   help="Explicit raw 16-bit ADC0 analog source; diagnostic, default disconnected")
+    p.add_argument("--adc1-sample", type=lambda s:int(s,0), default=None,
+                   help="Explicit raw 16-bit ADC1 analog source; diagnostic, default disconnected")
     p.add_argument("--sample-adc", action="store_true",
                    help="Sample genuine ADC0/ADC1 CTRL/STAT/IE/FCTRL via read-only QMP")
     p.add_argument("--no-screenshots", action="store_true",
@@ -204,6 +210,9 @@ def main():
             not (a.osup or a.elf and a.emmc) or
             a.seconds <= 0 or a.post_menu_seconds < 0 or a.retries < 1):
         p.error("Missing original private OSUP/ELF/eMMC/profile or invalid duration")
+    if any(x is not None and not (0 <= x <= 0xffff)
+           for x in (a.adc0_sample, a.adc1_sample)):
+        p.error("Explicit raw ADC sample must be 0..0xffff")
     if a.sd and (not a.sd.is_file() or a.sd.stat().st_size < 2 * 1024**3):
         p.error("SD must be disposable raw image >=2GiB")
     return run(a)
