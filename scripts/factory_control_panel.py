@@ -68,6 +68,8 @@ class EmulatorWorker(threading.Thread):
         self.stopping = False
         self.boot_attempt = 0
         self.last_menu_keys_at = None
+        self.prepared_inputs = None
+        self.last_heartbeat = 0
 
     def post(self, *items):
         self.updates.put(items)
@@ -112,8 +114,12 @@ class EmulatorWorker(threading.Thread):
         args = self.args
         self.output = args.output_dir.resolve()
         self.output.mkdir(parents=True, exist_ok=True)
-        elf, emmc = prepare_media(args, self.output)
+        if self.prepared_inputs is None:
+            self.post("status", "Preparing private OSUP / synthetic eMMC (first run may take time on Windows)")
+            self.prepared_inputs = prepare_media(args, self.output)
+        elf, emmc = self.prepared_inputs
         profile = profile_with_lcd(args.profile, self.output)
+        self.post("status", "Starting QEMU: {} (no separate display window)".format(args.qemu.name))
         self.contact_file = self.output / "gui-contact.txt"
         self.framefile = self.output / "gui-lcd-rgb565.raw"
         trace = self.output / "gui-execution-private.log"
@@ -160,11 +166,16 @@ class EmulatorWorker(threading.Thread):
         if args.sd:
             command += ["-drive", "if=none,id=exesx-sd,file={},format=raw,snapshot=on".format(args.sd)]
         self.console = (self.output / "gui-console-private.log").open("wb")
-        self.proc = subprocess.Popen(command, env=env, stdout=self.console,
-                                     stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+        try:
+            self.proc = subprocess.Popen(command, env=env, stdout=self.console,
+                                         stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+        except OSError as error:
+            raise RuntimeError("Cannot launch {}: {}. Check extracted DLLs / antivirus quarantine.".format(args.qemu, error)) from error
+        self.post("status", "QEMU PID {} running; connecting QMP monitor".format(self.proc.pid))
         self.sock = connect(port, self.proc)
         self.qmp = QMP(self.sock)
         self.qmp.execute("cont")
+        self.post("status", "QEMU PID {} running; original A7/M4 firmware started".format(self.proc.pid))
         self.trace_stream = trace.open("r", encoding="utf-8", errors="replace")
         self.start_time = time.monotonic()
         self.mode = mode
@@ -174,8 +185,9 @@ class EmulatorWorker(threading.Thread):
         self.seq_stage = None
         self.pressed = None
         self.next_capture = time.monotonic() + .5
-        self.post("status", "Booting {} (attempt {}/{})".format(
-            mode, self.boot_attempt, self.args.retries))
+        self.post("status", "Booting {} attempt {}/{} — QEMU PID {} (headless, LCD shown here)".format(
+            mode, self.boot_attempt, self.args.retries, self.proc.pid))
+        self.last_heartbeat = time.monotonic()
         self.frame_count = 0
 
     def trace_step(self):
@@ -288,6 +300,13 @@ class EmulatorWorker(threading.Thread):
                     self.post("status", "QEMU exited unexpectedly: code {}".format(self.proc.returncode))
                     self.stop_vm()
                 if self.proc:
+                    if time.monotonic() - self.last_heartbeat >= 3.0:
+                        self.last_heartbeat = time.monotonic()
+                        age = int(self.last_heartbeat - self.start_time)
+                        step = ("original A7 event-wait seen" if self.wait_seen else
+                                "waiting for original A7 dialog")
+                        self.post("status", "QEMU PID {} alive ({} s); {}. {} frames.".format(
+                            self.proc.pid, age, step, self.frame_count))
                     if (self.mode in ("popup","menu") and not self.chord_released
                             and time.monotonic() - self.start_time >= self.args.release_at):
                         self.physical(None)
