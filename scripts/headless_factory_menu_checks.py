@@ -111,6 +111,9 @@ def run(a):
         ]
         a.output_dir.mkdir(parents=True, exist_ok=True)
         report = {
+            "no_screenshots": a.no_screenshots,
+            "tcg_thread": a.tcg_thread,
+            "m4_400b_trace_enabled": a.trace_m4_400b,
             "method": "unchanged OSUP guest, original physical GPIO keys, executed ARM TBs and read-only QMP",
             "original_checkpoints": observed,
             "shared_ipc": ipc,
@@ -152,6 +155,12 @@ def main():
     p.add_argument("--hold", type=float, default=.060)
     p.add_argument("--gap", type=float, default=.025)
     p.add_argument("--fps", type=float, default=2)
+    p.add_argument("--no-screenshots", action="store_true",
+                   help="No LCD QMP reads, mmap or PPM; investigate IPC independent of capture")
+    p.add_argument("--tcg-thread", choices=("single","multi"), default="multi",
+                   help="A7/M4 scheduling A/B test")
+    p.add_argument("--trace-m4-400b", action="store_true",
+                   help="Include native M4 event7 wait/producer PCs in private execution trace")
     a = p.parse_args()
     a.qemu = optional_qemu_path(a.qemu)
     if a.profile is None:
