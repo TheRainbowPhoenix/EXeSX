@@ -22,7 +22,7 @@ def run(qemu, profile):
         env = os.environ.copy()
         env.update(EXESX_MEMORY_PROFILE=str(ini),
                    EXESX_EXPERIMENTAL_LCD="1",
-                   EXESX_LCD_CAPTURE_REQUEST_FILE=str(request))
+                   EXESX_LCD_CAPTURE_REQUEST_FILE=str(request.resolve().as_posix()))
         if (qemu.resolve().parent / "lib").is_dir():
             env["LD_LIBRARY_PATH"] = (
                 str(qemu.resolve().parent / "lib") + os.pathsep +
@@ -37,9 +37,9 @@ def run(qemu, profile):
                 for index in (1, 2):
                     image = base / f"requested-{index}.ppm"
                     staging = base / "staging.txt"
-                    staging.write_text(str(image.resolve()) + "\n", encoding="utf-8")
+                    staging.write_text(image.resolve().as_posix() + "\n", encoding="utf-8")
                     os.replace(staging, request)
-                    deadline = time.monotonic() + 5
+                    deadline = time.monotonic() + (18 if os.name == "nt" else 5)
                     while time.monotonic() < deadline:
                         if image.exists():
                             data = image.read_bytes()
@@ -49,7 +49,7 @@ def run(qemu, profile):
                             raise AssertionError("QEMU exited before requested LCD capture")
                         time.sleep(.05)
                     else:
-                        raise AssertionError("QEMU did not complete on-demand screenshot")
+                        raise AssertionError("QEMU did not complete on-demand screenshot; request_exists={} image_exists={} size={} qemu_exit={}".format(request.exists(), image.exists(), image.stat().st_size if image.exists() else None, qemu_proc.poll()))
                     if not data.startswith(b"P6\n864 480\n255\n"):
                         raise AssertionError("Invalid P6 screenshot format")
                     if data[15:27] != bytes([255,0,0,0,255,0,0,0,255,255,0,0]):
