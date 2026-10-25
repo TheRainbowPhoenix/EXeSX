@@ -56,7 +56,7 @@ class AutoDriverTests(unittest.TestCase):
             request = root/"capture-request.txt"
             output = root/"menu.ppm"
             driver.request_capture(request, output)
-            self.assertEqual(request.read_text().strip(), str(output.resolve()))
+            self.assertEqual(request.read_text().strip(), output.resolve().as_posix())
             self.assertFalse((root/"capture-request.txt.tmp").exists())
 
 
