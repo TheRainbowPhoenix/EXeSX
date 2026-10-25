@@ -42,6 +42,18 @@ class FloatingKeyboardTests(unittest.TestCase):
         self.assertEqual(pixels[:6], b"\xff\x00\x00"*2)
         self.assertEqual(len(pixels),864*480*3)
 
+    def test_headless_factory_ipc_parser_and_blocked_semantics(self):
+        from headless_factory_menu_checks import parse_ipc_dump, check
+        payload = ("0x2f028000: 0xeeeeeeee 0x00000000 0x04010800 0x0001400b\\n"
+                   "0x2f028010: 0x00000002 0x000000af\\n")
+        result = parse_ipc_dump(payload)
+        self.assertEqual(result["request"], "0x0001400b")
+        self.assertEqual(result["argument"], 2)
+        self.assertEqual(result["status"], "0x04010800")
+        self.assertEqual(check("menu painter", False, "IPC not completed")["status"],
+                         "BLOCKED")
+        self.assertEqual(check("menu painter", False)["status"], "FAIL")
+
     def test_raw_key_labels_are_not_guessed(self):
         self.assertIn(("DOWN",0x91), gui.KNOWN)
         self.assertIn(("BOOT",0x9c), gui.KNOWN)
