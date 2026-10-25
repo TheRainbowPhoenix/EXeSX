@@ -66,6 +66,8 @@ class EmulatorWorker(threading.Thread):
         self.next_capture = 0
         self.frame_count = 0
         self.stopping = False
+        self.boot_attempt = 0
+        self.last_menu_keys_at = None
 
     def post(self, *items):
         self.updates.put(items)
@@ -103,6 +105,10 @@ class EmulatorWorker(threading.Thread):
 
     def start_vm(self, mode):
         self.stop_vm()
+        self.boot_attempt += 1
+        self.chord_released = False
+        self.menu_macro_fired = False
+        self.last_menu_keys_at = None
         args = self.args
         self.output = args.output_dir.resolve()
         self.output.mkdir(parents=True, exist_ok=True)
@@ -168,7 +174,8 @@ class EmulatorWorker(threading.Thread):
         self.seq_stage = None
         self.pressed = None
         self.next_capture = time.monotonic() + .5
-        self.post("status", "Booting: {}".format(mode))
+        self.post("status", "Booting {} (attempt {}/{})".format(
+            mode, self.boot_attempt, self.args.retries))
         self.frame_count = 0
 
     def trace_step(self):
@@ -204,6 +211,8 @@ class EmulatorWorker(threading.Thread):
             self.sequence.pop(0)
             self.seq_stage = "press" if self.sequence else None
             self.seq_deadline = time.monotonic() + self.args.gap
+            if not self.sequence and self.mode == "menu" and not self.menu_seen:
+                self.last_menu_keys_at = time.monotonic()
 
     def frame_step(self):
         if time.monotonic() < self.next_capture or self.sequence:
@@ -230,8 +239,7 @@ class EmulatorWorker(threading.Thread):
         if what == "quit":
             self.stopping = True
         elif what == "start":
-            self.chord_released = False
-            self.menu_macro_fired = False
+            self.boot_attempt = 0
             self.start_vm(value)
         elif what == "press" and self.proc and not self.sequence:
             self.pressed = value
@@ -287,6 +295,18 @@ class EmulatorWorker(threading.Thread):
                     self.trace_step()
                     self.sequence_step()
                     self.frame_step()
+                    if (self.mode in ("popup", "menu") and
+                            ((not self.wait_seen and
+                              time.monotonic() - self.start_time > self.args.retry_after) or
+                             (self.last_menu_keys_at and not self.menu_seen and
+                              time.monotonic() - self.last_menu_keys_at > 4))):
+                        if self.boot_attempt < self.args.retries:
+                            old_mode = self.mode
+                            self.post("status", "Retrying original cold boot; prior attempt did not reach expected guest PC")
+                            self.start_vm(old_mode)
+                        else:
+                            self.post("status", "No native dialog/menu after {} boots; leaving QEMU running for manual diagnosis".format(self.args.retries))
+                            self.mode = "manual"
             except Exception as exc:
                 self.post("status", "Worker error: {}: {}".format(type(exc).__name__, exc))
                 self.stop_vm()
@@ -394,6 +414,8 @@ def main():
     p.add_argument("--hold", type=float, default=.060)
     p.add_argument("--gap", type=float, default=.025)
     p.add_argument("--release-at", type=float, default=1.2)
+    p.add_argument("--retries", type=int, default=3, help="Fresh boot retries on missed original firmware checkpoints")
+    p.add_argument("--retry-after", type=float, default=24, help="Host seconds allowed for the A7 version-event wait")
     a = p.parse_args()
     a.qemu = optional_qemu_path(a.qemu)
     if a.profile is None:
@@ -405,7 +427,7 @@ def main():
         p.error("OSUP or --elf and --emmc required")
     if a.sd and (not a.sd.is_file() or a.sd.stat().st_size < 2 * 1024**3):
         p.error("SD must be disposable raw image >=2GiB")
-    if a.fps <= 0 or a.hold <= 0 or a.release_at < 0 or a.gap < 0:
+    if a.fps <= 0 or a.hold <= 0 or a.release_at < 0 or a.gap < 0 or a.retries < 1 or a.retry_after <= 0:
         p.error("Invalid timing")
     show_window(a)
 
