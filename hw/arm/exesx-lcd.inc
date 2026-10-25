@@ -9,6 +9,45 @@ static bool exesx_lcd_enabled(EXeSXState *s)
 {
     return s->lcd && s->lcd->lcd_fb;
 }
+/*
+ * Debugger-only, opt-in read-only LCD framebuffer export.
+ * QMP/HMP pmemsave(0xb1000000, 864*480*2) reads real RGB565 pixels
+ * synchronously, without any emulated LCD timer or periodic disk writes.
+ * This is a diagnostic host interface, NOT an invented guest controller.
+ */
+#define EXESX_LCD_EXPORT_BASE UINT64_C(0xb1000000)
+#define EXESX_LCD_EXPORT_SIZE (EXESX_LCD_W * EXESX_LCD_H * 2)
+static uint64_t exesx_lcd_export_read(void *opaque, hwaddr offset,
+                                       unsigned size)
+{
+    EXeSXState *board = opaque;
+    uint64_t result = 0;
+    if (!board->lcd || !board->lcd->lcd_fb ||
+        offset > EXESX_LCD_EXPORT_SIZE ||
+        size > EXESX_LCD_EXPORT_SIZE - offset) {
+        return 0;
+    }
+    for (unsigned i = 0; i < size; i++) {
+        hwaddr addr = offset + i;
+        uint16_t pixel = board->lcd->lcd_fb[addr / 2];
+        result |= (uint64_t)((pixel >> (8 * (addr & 1))) & 255)
+                  << (8 * i);
+    }
+    return result;
+}
+static void exesx_lcd_export_write(void *opaque, hwaddr offset,
+                                   uint64_t value, unsigned size)
+{
+    /* The debugger export is immutable from the guest address space. */
+}
+static const MemoryRegionOps exesx_lcd_export_ops = {
+    .read = exesx_lcd_export_read,
+    .write = exesx_lcd_export_write,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+    .valid = { .min_access_size = 1, .max_access_size = 8, .unaligned = true },
+    .impl = { .min_access_size = 1, .max_access_size = 8, .unaligned = true },
+};
+
 static void exesx_lcd_screenshot_file(EXeSXProfileWindow *w,
                                       const char *file)
 {
