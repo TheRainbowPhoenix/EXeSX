@@ -9,9 +9,9 @@ static bool exesx_lcd_enabled(EXeSXState *s)
 {
     return s->lcd && s->lcd->lcd_fb;
 }
-static void exesx_lcd_screenshot(EXeSXProfileWindow *w)
+static void exesx_lcd_screenshot_file(EXeSXProfileWindow *w,
+                                      const char *file)
 {
-    const char *file = g_getenv("EXESX_LCD_SCREENSHOT");
     FILE *out;
     if (!file || !*file || !w->lcd_fb) {
         return;
@@ -33,10 +33,32 @@ static void exesx_lcd_screenshot(EXeSXProfileWindow *w)
     }
     fclose(out);
 }
+/*
+ * Opt-in capture handshake for deterministic host-stage screenshots.
+ * The host atomically renames a small UTF-8 request file containing an
+ * absolute output pathname. On the next guest-virtual-time timer tick
+ * EXeSX writes exactly ONE PPM. No RAM writes, fake pixels, or A7 events.
+ *
+ * If this opt-in is absent, preserve the historical 0.5s periodic
+ * EXESX_LCD_SCREENSHOT behavior for existing scripts/tests.
+ */
 static void exesx_lcd_snapshot_tick(void *opaque)
 {
     EXeSXProfileWindow *w = opaque;
-    exesx_lcd_screenshot(w);
+    const char *request = g_getenv("EXESX_LCD_CAPTURE_REQUEST_FILE");
+    if (request && *request) {
+        gchar *path = NULL;
+        if (g_file_get_contents(request, &path, NULL, NULL)) {
+            g_strstrip(path);
+            if (*path) {
+                exesx_lcd_screenshot_file(w, path);
+            }
+            g_free(path);
+            remove(request);
+        }
+    } else {
+        exesx_lcd_screenshot_file(w, g_getenv("EXESX_LCD_SCREENSHOT"));
+    }
     timer_mod(w->lcd_screenshot_timer,
               qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 500000000);
 }
