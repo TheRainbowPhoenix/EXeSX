@@ -155,7 +155,11 @@ def main():
     a = p.parse_args()
     a.qemu = optional_qemu_path(a.qemu)
     if a.profile is None:
-        a.profile = Path(__file__).resolve().parent / "profiles" / "imx7ulp-early-boot.ini"
+        here = Path(__file__).resolve().parent
+        locations = [here.parent / "profiles" / "imx7ulp-early-boot.ini",
+                     here / "profiles" / "imx7ulp-early-boot.ini"]
+        a.profile = next((candidate for candidate in locations if candidate.is_file()),
+                         locations[0])
     a.profile = a.profile.resolve()
     a.output_dir = a.output_dir.resolve()
     if (not a.profile.is_file() or
