@@ -59,8 +59,10 @@ The runner records their real guest-visible words in `passive_adc_samples` in a 
 
 No analog sample is synthesized by this probe. QMP framebuffer reads are still disabled by `--no-screenshots`; sampling is limited to the explicitly requested handful of MMIO registers. These experiments do **not** claim the visible factory menu is restored.
 
-### Limitation validated on native QEMU
+### ADC MMIO readback correction: reserved holes are not registers
 
-A direct QMP/HMP `xp` and CPU-1-selected `x` register read of `0x41041000` and `0x410AD000` on the Linux build returned **"Cannot access memory"** rather than ADC register values. Thus passive monitor MMIO sampling **cannot be treated as a successful ADC observation** on that configuration. The optional `--sample-adc` checker now explicitly outputs `accessible:false`, zero decoded registers, and the original monitor error, rather than inventing all-zero ADC status. CPU1 selection did not make these M4 peripheral addresses accessible through HMP.
+The first diagnostic attempted a bulk `xp /16wx` from each base and returned **"Cannot access memory"**. That result was **NOT** an unmapped peripheral or proof of ADC inactivity. The ADC model explicitly rejects accesses to reserved offsets `+0x08/+0x0C`; a multiword QMP read crosses those holes and aborts.
 
-**Next instrumentation must inspect the original M4 CPU-side bus transactions**, e.g. with the existing guest `-d guest_errors` ADC-write logs, opt-in MMIO plugin or an M4-specific bus hook, rather than concluding anything from the unavailable monitor read. The original 0x400B-to-ADC causality is not yet established; no ADC IRQ model has been changed.
+Re-tested with a synthetic real-ARM guest and the same native Linux QEMU: **individual `xp /1wx` reads succeeded** for both ADC0 `0x41041000` and ADC1 `0x410AD000` at valid offsets `+0x00`, `+0x04`, `+0x10`, `+0x14`, `+0x18`, and `+0x30`. `info mtree` independently confirmed both are mounted profile MMIO regions. Both initially returned zeroes in this synthetic control; those are valid initial register values, not original-firmware conversion results.
+
+The optional `--sample-adc` headless monitor now uses **four separate valid reads per bank** and records `ctrl`, `stat`, `ie`, `fctrl`, plus per-register `accessible` and errors. It can provide a genuine, noninvasive original-firmware ADC/0x400B correlation when the factory-menu service is pending. It does **not** synthesize an analog voltage or ADC IRQ. We have **not yet observed original ADC activity during the 0x400B wait**; the link remains a hypothesis.
