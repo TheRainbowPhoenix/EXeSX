@@ -353,10 +353,20 @@ static void exesx_load_profile(MemoryRegion *sysmem, EXeSXState *board)
             w->lcd_rgb565 = true;
             if (g_getenv("EXESX_LCD_SCREENSHOT") ||
                 g_getenv("EXESX_LCD_CAPTURE_REQUEST_FILE")) {
+                /*
+                 * The host capture request must be honored even when a
+                 * guest is halted in WFI and QEMU_CLOCK_VIRTUAL stops.
+                 * Legacy periodic screenshots remain on the virtual clock.
+                 */
+                QEMUClockType capture_clock =
+                    g_getenv("EXESX_LCD_CAPTURE_REQUEST_FILE") ?
+                    QEMU_CLOCK_REALTIME : QEMU_CLOCK_VIRTUAL;
                 w->lcd_screenshot_timer = timer_new_ns(
-                    QEMU_CLOCK_VIRTUAL, exesx_lcd_snapshot_tick, w);
+                    capture_clock, exesx_lcd_snapshot_tick, w);
                 timer_mod(w->lcd_screenshot_timer,
-                          qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 500000000);
+                          qemu_clock_get_ns(capture_clock) +
+                          (capture_clock == QEMU_CLOCK_REALTIME ?
+                           200000000 : 500000000));
             }
             memory_region_init_io(&w->mr, NULL, &exesx_reg_ops, w,
                                   w->name, w->size);
