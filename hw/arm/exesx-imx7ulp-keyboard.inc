@@ -16,16 +16,57 @@ typedef struct EXeSXM4KeyContact {
     uint8_t row, column;
 } EXeSXM4KeyContact;
 
+/* All 49 nonzero entries from original owner M4 key table at 0x1FFD0E14. */
 static const EXeSXM4KeyContact exesx_m4_key_contacts[] = {
-    { 0x93, 8, 7 }, /* original ROM key table: A21 row / A31 column */
-    { 0x94, 6, 6 }, /* original ROM: A17 row / A23 column */
-    { 0x95, 5, 6 }, /* original ROM: A16 row / A23 column */
-    { 0x80, 0, 0 }, /* original ROM: B2 row  / B6 column  */
-    { 0x90, 7, 6 }, /* original ROM: A20 row / A23 column; M4 boot CA05 chord */
-    { 0x9c, 4, 5 }, /* original ROM: A15 row / A19 column; M4 boot CA05 chord */
-    { 0x91, 6, 7 }, /* original ROM: A17 row / A31 column; DOWN key */
-    { 0x92, 7, 7 }, /* original ROM: A20 row / A31 column */
-    { 0x96, 8, 4 }, /* original ROM: A21 row / A18 column */
+    { 0x80, 0, 0 },
+    { 0xc0, 1, 1 },
+    { 0xc1, 1, 2 },
+    { 0xc2, 1, 3 },
+    { 0xc3, 1, 4 },
+    { 0xc4, 1, 5 },
+    { 0xc5, 1, 7 },
+    { 0xc6, 2, 1 },
+    { 0x71, 3, 1 },
+    { 0x77, 3, 2 },
+    { 0x61, 3, 3 },
+    { 0xa0, 3, 4 },
+    { 0x7a, 3, 5 },
+    { 0xd2, 3, 6 },
+    { 0x9b, 3, 7 },
+    { 0x65, 4, 1 },
+    { 0x73, 4, 2 },
+    { 0x64, 4, 3 },
+    { 0x78, 4, 4 },
+    { 0x9c, 4, 5 },
+    { 0xdc, 4, 7 },
+    { 0x72, 5, 1 },
+    { 0x74, 5, 2 },
+    { 0x66, 5, 3 },
+    { 0x63, 5, 4 },
+    { 0x76, 5, 5 },
+    { 0x95, 5, 6 },
+    { 0x62, 5, 7 },
+    { 0x75, 6, 1 },
+    { 0x69, 6, 2 },
+    { 0x6a, 6, 3 },
+    { 0x6e, 6, 4 },
+    { 0x68, 6, 5 },
+    { 0x94, 6, 6 },
+    { 0x91, 6, 7 },
+    { 0x6f, 7, 1 },
+    { 0x6b, 7, 2 },
+    { 0x6d, 7, 3 },
+    { 0x79, 7, 4 },
+    { 0x67, 7, 5 },
+    { 0x90, 7, 6 },
+    { 0x92, 7, 7 },
+    { 0x70, 8, 1 },
+    { 0x6c, 8, 2 },
+    { 0xa3, 8, 3 },
+    { 0x96, 8, 4 },
+    { 0xdd, 8, 5 },
+    { 0xd7, 8, 6 },
+    { 0x93, 8, 7 },
 };
 
 static const uint8_t exesx_m4_row_bank[] = {
@@ -71,12 +112,12 @@ static void exesx_m4_keyboard_row_drive(EXeSXState *board,
  * A single code file remains backwards-compatible. Unknown or malformed
  * codes release ALL keys rather than synthesizing an input.
  */
-static uint16_t exesx_m4_keyboard_code(EXeSXState *board)
+static uint64_t exesx_m4_keyboard_code(EXeSXState *board)
 {
     const char *path = g_getenv("EXESX_M4_KEY_MATRIX_FILE");
     gchar *contents = NULL;
     gchar **tokens;
-    uint16_t contacts = 0;
+    uint64_t contacts = 0;
     unsigned n;
     int64_t now;
     if (!board || !path || !*path) {
@@ -103,7 +144,7 @@ static uint16_t exesx_m4_keyboard_code(EXeSXState *board)
                 }
                 for (i = 0; i < G_N_ELEMENTS(exesx_m4_key_contacts); i++) {
                     if (exesx_m4_key_contacts[i].keycode == code) {
-                        contacts |= (uint16_t)(1U << i);
+                        contacts |= UINT64_C(1) << i;
                         break;
                     }
                 }
@@ -132,7 +173,7 @@ static uint32_t exesx_m4_keyboard_column_levels(EXeSXProfileWindow *w,
                                                   uint32_t external_inputs)
 {
     EXeSXState *b = w->board;
-    uint16_t contacts;
+    uint64_t contacts;
     unsigned i;
     if (!b || !(contacts = exesx_m4_keyboard_code(b))) {
         return external_inputs;
@@ -152,7 +193,7 @@ static uint32_t exesx_m4_keyboard_column_levels(EXeSXProfileWindow *w,
          * (column 7, wrong row) in the original-ROM QEMU trace.
          * Consult the serialized MMIO register, not last-PCOR state.
          */
-        if (!(contacts & (1U << i))) {
+        if (!(contacts & (UINT64_C(1) << i))) {
             continue;
         }
         row_gpio = exesx_m4_row_bank[k->row] ? b->m4_gpio_b : b->m4_gpio_a;
