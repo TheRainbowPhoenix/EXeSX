@@ -296,7 +296,11 @@ def main(argv=None):
     p.add_argument("--guest-errors", action="store_true",
                    help="Extra private QEMU MMIO/exception diagnostics; potentially very large")
     p.add_argument("--menu-only", action="store_true", help="Skip separate popup-only cold boot")
+    p.add_argument("--attempts", type=int, default=3,
+                   help="Fresh-boot retries per phase (timing-sensitive original firmware)")
     args = p.parse_args(argv)
+    if args.attempts <= 0:
+        p.error("--attempts must be positive")
     if args.seconds <= 0 or args.hold <= 0 or args.gap < 0 or args.release_at < 0 or args.post_menu_seconds < 0:
         p.error("invalid timing")
     out = args.output_dir.resolve()
@@ -318,7 +322,23 @@ def main(argv=None):
                "menu_paint_confirmed": False, "service_400b_return_confirmed": False,
                "read_only_menu_smoke": "no destructive SD actions executed"}
     for phase in (("menu",) if args.menu_only else ("popup", "menu")):
-        summary["phases"][phase] = run_phase(args, phase, qemu, elf, emmc, local_profile, out)
+        tries = []
+        for index in range(args.attempts):
+            result = run_phase(args, phase, qemu, elf, emmc, local_profile, out)
+            result["attempt"] = index + 1
+            tries.append(result)
+            achieved = (result.get("screenshot") is not None and
+                        (phase == "popup" or
+                         "factory_menu" in result.get("checkpoints_seconds", {})))
+            if achieved:
+                break
+            print("RETRY", phase, index + 1, "reason:", result.get("reason"), flush=True)
+        summary["phases"][phase] = tries[-1]
+        summary["phases"][phase]["attempt_history"] = [
+            {"attempt": t["attempt"], "reason": t.get("reason"),
+             "checkpoints": list(t.get("checkpoints_seconds", {}))}
+            for t in tries
+        ]
     checkpoints = summary["phases"].get("menu", {}).get("checkpoints_seconds", {})
     summary["menu_entry_confirmed"] = "factory_menu" in checkpoints
     summary["menu_paint_confirmed"] = "menu_painter" in checkpoints
