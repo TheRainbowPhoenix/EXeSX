@@ -44,8 +44,8 @@ class FloatingKeyboardTests(unittest.TestCase):
 
     def test_headless_factory_ipc_parser_and_blocked_semantics(self):
         from headless_factory_menu_checks import parse_ipc_dump, check
-        payload = ("0x2f028000: 0xeeeeeeee 0x00000000 0x04010800 0x0001400b\\n"
-                   "0x2f028010: 0x00000002 0x000000af\\n")
+        payload = ("0x2f028000: 0xeeeeeeee 0x00000000 0x04010800 0x0001400b\n"
+                   "0x2f028010: 0x00000002 0x000000af\n")
         result = parse_ipc_dump(payload)
         self.assertEqual(result["request"], "0x0001400b")
         self.assertEqual(result["argument"], 2)
