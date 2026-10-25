@@ -31,9 +31,12 @@ jobs:
                 preserved.push(b.name); continue;
               }
               const matches = prs.filter(p => p.head.repo?.full_name === context.repo.owner + '/' + context.repo.repo &&
-                  p.head.ref === b.name && p.head.sha === b.commit.sha);
+                  p.head.ref === b.name);
               const merged = matches.some(p => p.merged_at);
               const closedUnmerged = !merged && matches.length > 0 && matches.every(p => p.state === 'closed' && !p.merged_at);
+              // A merged PR branch can receive a post-merge commit. Archive that
+              // exact branch head before cleanup rather than lose unmerged work.
+              const postMergeHead = merged && !matches.some(p => p.merged_at && p.head.sha === b.commit.sha);
               let behindOnly = false;
               if (!merged && !closedUnmerged) {
                 const comparison = await github.rest.repos.compareCommits({owner, repo, base: b.commit.sha, head: 'main'});
@@ -42,9 +45,9 @@ jobs:
               if (!merged && !closedUnmerged && !behindOnly) {
                 preserved.push(b.name + ' (not proved obsolete)'); continue;
               }
-              if (closedUnmerged) {
+              if (closedUnmerged || postMergeHead) {
                 // Recoverability: archive exactly the old branch head before deleting.
-                const tag = 'archive/2026-10-23/' + b.name;
+                const tag = 'archive/2026-10-25/' + b.name;
                 try {
                   await github.rest.git.createRef({owner, repo, ref: 'refs/tags/' + tag, sha: b.commit.sha});
                 } catch (error) {
