@@ -185,6 +185,8 @@ def main():
     pressed, pressed_irq, pressed_pending, logs = run(qemu, profile, True, "1 291 2748")
     assert pressed[0] == 1 and (pressed[1] & 0xf7) == 0x41 and pressed[2:4] == [0x02, 0x29], pressed
     assert pressed[4:8] == [0xab, 0xc0, 0x12, 0x30] and pressed[19] & 0x40, pressed
+    assert pressed[8:12] == [0x32, 0x00, 0x4b, 0x00], pressed  # Z1=800, Z2=1200
+    assert pressed[12:18] == [0] * 6, pressed  # PX/PY/GH: single finger
     assert pressed[20:22] == [0x72, 0], pressed
     assert pressed[18] & 8 == 0 and pressed_irq & 8 and pressed_pending & (1 << 25), (pressed, pressed_irq, pressed_pending)
     assert "BU21029" in logs, logs[-1500:]

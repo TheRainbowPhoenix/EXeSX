@@ -211,7 +211,13 @@ static uint8_t exesx_bu21029_read_byte(EXeSXProfileWindow *w)
         uint16_t words[7] = {
             (uint16_t)(y << 4), (uint16_t)(x << 4),
             (uint16_t)(z1 << 4), (uint16_t)(z2 << 4),
-            (uint16_t)(z1 << 4), 0, 0
+            /*
+             * ROHM 14-byte layout ends with PX, PY and GH dual-finger
+             * parameters, NOT another pressure sample. An unchanged
+             * single finger must report all three as zero. Injecting
+             * Z1 here falsely describes a two-point X separation.
+             */
+            0, 0, 0
         };
         uint16_t v = (down && pos < 14) ? words[pos / 2] : 0;
         return (pos & 1) ? (v & 0xff) : (v >> 8);
