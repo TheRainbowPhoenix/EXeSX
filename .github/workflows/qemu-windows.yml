@@ -99,7 +99,7 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           & $pythonExe -m unittest discover -s tests -p test_factory_control_panel.py -v
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          foreach ($probe in @('probe_imx7ulp.py', 'probe_dma1_memcpy.py', 'probe_lpit1_irq.py', 'probe_lcd_screenshot.py', 'probe_lcd_qmp.py', 'probe_adc_conversion.py', 'probe_lcd_landscape.py', 'probe_gpioa_input.py', 'probe_gpioa_live_input.py', 'probe_factory_snapshot.py', 'probe_lptmr_m4_irq.py', 'probe_m4_key_matrix.py', 'probe_startup_chord.py', 'probe_m4_port_irq.py', 'probe_m4_tpm0_irq.py')) {
+          foreach ($probe in @('probe_imx7ulp.py', 'probe_dma1_memcpy.py', 'probe_lpit1_irq.py', 'probe_lcd_screenshot.py', 'probe_lcd_qmp.py', 'probe_adc_conversion.py', 'probe_i2s_sai.py', 'probe_lcd_landscape.py', 'probe_gpioa_input.py', 'probe_gpioa_live_input.py', 'probe_factory_snapshot.py', 'probe_lptmr_m4_irq.py', 'probe_m4_key_matrix.py', 'probe_startup_chord.py', 'probe_m4_port_irq.py', 'probe_m4_tpm0_irq.py')) {
             & $pythonExe "scripts/$probe" --qemu $qemu --profile profiles/imx7ulp-early-boot.ini
             if ($LASTEXITCODE) { exit $LASTEXITCODE }
           }
