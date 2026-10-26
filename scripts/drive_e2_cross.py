@@ -64,6 +64,15 @@ def write_contact(file, down, x, y, z1, z2):
     os.replace(tmp, file)  # physical sample update, atomic for guest poll
 
 
+def genuine_e2_exit_contact(contact_file, hold_seconds, sleeper=time.sleep):
+    """Real M4 matrix contact to request original framebuffer verdict."""
+    contact_file.write_text("0x94\n", encoding="ascii")
+    try:
+        sleeper(hold_seconds)
+    finally:
+        contact_file.write_text("0\n", encoding="ascii")
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--touch-file", type=Path, required=True)
@@ -162,9 +171,7 @@ def main():
         if not keyboard.is_file():
             raise FileNotFoundError(keyboard)
         time.sleep(0.2)
-        keyboard.write_text("0x94\n", encoding="ascii")
-        time.sleep(args.finish_hold_ms / 1000)
-        keyboard.write_text("0\n", encoding="ascii")
+        genuine_e2_exit_contact(keyboard, args.finish_hold_ms / 1000)
         print("Sent genuine M4 0x94 physical key contact to request"
               " E2 result; check original LCD for OK or NG", flush=True)
 
