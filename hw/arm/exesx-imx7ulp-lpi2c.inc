@@ -68,7 +68,10 @@ static bool exesx_lpi2c_active_mirror(EXeSXProfileWindow *w)
 /* Opt-in ROHM BU26154 touch digital interface (DY890 board candidate).
  * Not assigned to DY357: EXESX_BU26154_LPI2C_BUS=0..3 explicitly selects
  * M4 I2C port. Address 0x1a is the documented ROHM 2-wire slave.
- * TCHCTRL read=0x60 write=0x61; 12-bit ADC results=0x62/0x64.
+ * MAPCON switch: read=0x1c, write=0x1d, select map0/1/2.
+ * Touch controller registers are ONLY on MAP1; on MAP0 0x0c/0x0d
+ * is clock enable, where TCLKEN bit7 must be asserted for conversion.
+ * MAP1: TCHCTRL read=0x60 write=0x61; 12-bit ADC=0x62/0x64.
  * Touch input file "down x y" provides 12-bit RAW 0..4095 samples;
  * default disconnected. Pen IRQ/codec/pressure/clock NOT emulated.
  */
@@ -83,6 +86,14 @@ static bool exesx_bu26154_active(EXeSXProfileWindow *w)
     return exesx_bu26154_present(w) &&
            (w->regfile[0x1c0 / 4] & 0xfe) == 0x34;
 }
+static uint32_t exesx_bu26154_map(EXeSXProfileWindow *w)
+{
+    return w->regfile[0x1ec / 4] & 3;
+}
+static uint32_t exesx_bu26154_touch_clock(EXeSXProfileWindow *w)
+{
+    return w->regfile[0x1f0 / 4] & 0x80;
+}
 static uint32_t exesx_bu26154_ctrl(EXeSXProfileWindow *w)
 {
     return w->regfile[0x1e4 / 4] ? w->regfile[0x1e0 / 4] : 0x78;
@@ -94,7 +105,7 @@ static uint16_t exesx_bu26154_adc(EXeSXProfileWindow *w)
     unsigned down, x, y;
     uint32_t ctrl = exesx_bu26154_ctrl(w);
     uint16_t result = 0;
-    if (!(ctrl & 0x80) || !path || !*path ||
+    if (!(ctrl & 0x80) || !exesx_bu26154_touch_clock(w) || !path || !*path ||
         !g_file_get_contents(path, &src, NULL, NULL)) {
         return 0;
     }
@@ -113,14 +124,21 @@ static uint16_t exesx_bu26154_adc(EXeSXProfileWindow *w)
 }
 static uint32_t exesx_bu26154_read_byte(EXeSXProfileWindow *w)
 {
-    uint32_t reg = w->regfile[0x1e8 / 4] & 255, value = 0;
-    switch (reg) {
-    case 0x60: value = exesx_bu26154_ctrl(w); break;
-    case 0x62: value = exesx_bu26154_adc(w) >> 4; break;
-    case 0x64: value = exesx_bu26154_adc(w) & 15; break;
-    default:
+    uint32_t reg = w->regfile[0x1e8 / 4] & 255;
+    uint32_t bank = exesx_bu26154_map(w), value = 0;
+    if (reg == 0x1c) {
+        value = bank;
+    } else if (bank == 0 && reg == 0x0c) {
+        value = w->regfile[0x1f0 / 4];
+    } else if (bank == 1 && reg == 0x60) {
+        value = exesx_bu26154_ctrl(w);
+    } else if (bank == 1 && (reg == 0x62 || reg == 0x64)) {
+        value = reg == 0x62 ? exesx_bu26154_adc(w) >> 4 :
+                              exesx_bu26154_adc(w) & 15;
+    } else {
         qemu_log_mask(LOG_UNIMP,
-                      "EXeSX BU26154 unsupported register read 0x%02x\n", reg);
+                      "EXeSX BU26154 unsupported read MAP%u reg 0x%02x\n",
+                      bank, reg);
     }
     w->regfile[0x1e8 / 4] = (reg + 2) & 255;
     return value;
@@ -134,17 +152,25 @@ static void exesx_bu26154_tx_byte(EXeSXProfileWindow *w,
         return;
     }
     reg = w->regfile[0x1e8 / 4] & 255;
-    if (reg == 0x61) {
+    uint32_t bank = exesx_bu26154_map(w);
+    if (reg == 0x1d && (data & 255) < 3) {
+        /* MAPCON is the actual ROHM register-bank selector. */
+        w->regfile[0x1ec / 4] = data & 255;
+    } else if (bank == 0 && reg == 0x0d) {
+        /* Preserve CLK.EN bits while gating touch ADC on TCLKEN. */
+        w->regfile[0x1f0 / 4] = data & 255;
+    } else if (bank == 1 && reg == 0x61) {
         w->regfile[0x1e0 / 4] = data & 255;
         w->regfile[0x1e4 / 4] = 1;
         qemu_log_mask(LOG_UNIMP,
-                      "EXeSX BU26154 touch control=0x%02x"
+                      "EXeSX BU26154 MAP1 touch control=0x%02x"
                       " pen IRQ/analog conversion timing not implemented\n",
                       data & 255);
     } else {
         qemu_log_mask(LOG_UNIMP,
-                      "EXeSX BU26154 unsupported register write"
-                      " 0x%02x=0x%02x\n", reg, data & 255);
+                      "EXeSX BU26154 unsupported MAP%u write"
+                      " reg=0x%02x data=0x%02x\n",
+                      bank, reg, data & 255);
     }
     w->regfile[0x1e8 / 4] = (reg + 2) & 255;
 }

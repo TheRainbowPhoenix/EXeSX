@@ -51,10 +51,13 @@ def make_elf():
         load(2, 0, 0x70)
         store(2, 7, slot * 4)
 
-    def write_ctrl(value):
-        select(0x61)
+    def write_reg(register, value):
+        select(register)
         mtdr(value)
         mtdr(0x200)
+
+    def write_ctrl(value):
+        write_reg(0x61, value)
 
     lit(7, OUT)
     lit(0, BUS)
@@ -63,9 +66,16 @@ def make_elf():
     start(0x34)
     load(2, 0, 0x14)
     store(2, 7, 0)
-    read_reg(0x60, 1)              # reset control, 0x78 if attached
+    write_reg(0x1d, 0)             # MAPCON -> MAP0
+    write_reg(0x0d, 0)             # map0 TCLKEN off
+    write_reg(0x1d, 1)             # MAPCON -> MAP1
+    read_reg(0x60, 1)              # map1 reset control, 0x78
     read_reg(0x62, 2)              # TCHEN disabled => ADC zero
     write_ctrl(0xc8)              # TCHEN / X conversion
+    read_reg(0x62, 9)              # TCLKEN still OFF => zero
+    write_reg(0x1d, 0)             # MAPCON -> MAP0
+    write_reg(0x0d, 0x80)          # TCLKEN ON
+    write_reg(0x1d, 1)             # MAPCON -> MAP1
     read_reg(0x62, 3)              # upper 8 of X 0x123 = 0x12
     read_reg(0x64, 4)              # lower 4 of X = 0x03
     write_ctrl(0xd8)              # Y conversion
@@ -126,7 +136,7 @@ def run(qemu, profile, opt_in, touch):
                     qmp.execute("cont")
                     time.sleep(0.8)
                     values = []
-                    for i in range(9):
+                    for i in range(10):
                         reply = qmp.hmp(f"xp /1wx 0x{OUT + i * 4:x}")
                         match = re.search(r":\s+0x([0-9a-fA-F]+)", reply)
                         assert match, reply
@@ -148,15 +158,15 @@ def main():
     args = p.parse_args()
     qemu, profile = args.qemu.resolve(), args.profile.resolve()
     absent, _ = run(qemu, profile, False, "1 291 2748")
-    assert absent[0] == 0x401 and absent[1:8] == [0x4000] * 7, absent
+    assert absent[0] == 0x401 and absent[1:8] == [0x4000] * 7 and absent[9] == 0x4000, absent
     disconnected, _ = run(qemu, profile, True, None)
-    assert disconnected == [1, 0x78, 0, 0, 0, 0, 0, 0, 0x701], disconnected
+    assert disconnected == [1, 0x78, 0, 0, 0, 0, 0, 0, 0x701, 0], disconnected
     released, _ = run(qemu, profile, True, "0 291 2748")
     assert released == disconnected, released
     touched, diagnostics = run(qemu, profile, True, "1 291 2748")
-    assert touched == [1, 0x78, 0, 0x12, 0x3, 0xab, 0xc, 0, 0x701], touched
+    assert touched == [1, 0x78, 0, 0x12, 0x3, 0xab, 0xc, 0, 0x701, 0], touched
     assert "BU26154 touch control" in diagnostics, diagnostics[-2000:]
-    print("PASS BU26154: absent NACK / disconnected / release / X,Y / disable / other-slave NACK")
+    print("PASS BU26154: absent NACK / MAPCON / TCLKEN gate / release / X,Y / disable / unrelated NACK")
 
 
 if __name__ == "__main__":
