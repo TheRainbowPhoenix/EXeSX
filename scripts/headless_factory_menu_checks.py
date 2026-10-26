@@ -92,8 +92,17 @@ def run(a):
                     print("ORIGINAL M4:", value, flush=True)
                 elif kind == "400b_flow":
                     original = parse_m4_event10_guard(value["m4_guard"])
+                    registers = value.get("m4_registers", "")
+                    m4_cpu = {}
+                    for name in ("R13", "R14", "R15", "xPSR", "MSP", "PSP"):
+                        match = re.search(r"\\b" + name +
+                                          r"=([0-9a-fA-F]{8})", registers)
+                        if match:
+                            m4_cpu[name.lower()] = "0x" + match.group(1)
                     flow = {"host_elapsed": round(time.monotonic()-t0, 2),
                             "original_m4_state": original,
+                            "m4_original_state_registers": value.get("m4_state"),
+                            "m4_cpu1_registers": m4_cpu,
                             "original_a7_m4_ipc": parse_ipc_dump(value["shared_ipc"])}
                     flow_samples.append(flow)
                     print("EVENT10 GUARD:", flow, flush=True)
