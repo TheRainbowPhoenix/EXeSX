@@ -222,7 +222,14 @@ static uint8_t exesx_bu21029_read_byte(EXeSXProfileWindow *w)
          */
         unsigned status = w->regfile[0x1f8 / 4] & 2;
         if ((w->regfile[0x1fc / 4] & 0xfc) == 0x80) {
-            status |= 0x48; /* automatic conversion in progress */
+            uint32_t now_us =
+                (uint32_t)(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) / 1000);
+            uint32_t started_us = w->regfile[0x200 / 4];
+            status |= 0x40; /* continuous autoscan selected */
+            if ((uint32_t)(now_us - started_us) < 2000) {
+                /* Initial scan: BUSY, which must not remain stuck. */
+                status |= 0x08;
+            }
         }
         return status | (down ? 1U : 0U);
     }
@@ -243,6 +250,11 @@ static void exesx_bu21029_write_byte(EXeSXProfileWindow *w,
         if (data & 0x80) {
             /* Register-address commands do not end conversion mode. */
             w->regfile[0x1fc / 4] = data & 0xff;
+            if ((data & 0xfc) == 0x80) {
+                /* Save autoscan epoch in serialized register state. */
+                w->regfile[0x200 / 4] =
+                    (uint32_t)(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) / 1000);
+            }
         }
         if ((data & 0xfc) == 0xa8) {
             /* Calibration CF=5 completes and latches STATUS bit1. */

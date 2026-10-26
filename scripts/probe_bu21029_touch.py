@@ -154,11 +154,11 @@ def main():
     assert absent[0] == 0x401 and absent[1:18] == [0x4000] * 17, absent
     assert absent[18] & 8 and not (none_irq & 8), (absent, none_irq)
     released, released_irq, _ = run(qemu, profile, True, "0 291 2748")
-    assert released[0] == 1 and released[1:4] == [0x48, 0x02, 0x29], released
+    assert released[0] == 1 and (released[1] & 0xf7) == 0x40 and released[2:4] == [0x02, 0x29], released
     assert released[4:18] == [0] * 14, released
     assert released[18] & 8 and not (released_irq & 8), (released, released_irq)
     pressed, pressed_irq, logs = run(qemu, profile, True, "1 291 2748")
-    assert pressed[0] == 1 and pressed[1:4] == [0x49, 0x02, 0x29], pressed
+    assert pressed[0] == 1 and (pressed[1] & 0xf7) == 0x41 and pressed[2:4] == [0x02, 0x29], pressed
     assert pressed[4:8] == [0x12, 0x30, 0xab, 0xc0], pressed
     assert pressed[18] & 8 == 0 and pressed_irq & 8, (pressed, pressed_irq)
     assert "BU21029" in logs, logs[-1500:]
