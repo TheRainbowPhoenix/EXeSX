@@ -7,6 +7,7 @@ from e2_original_touch_ipc import (
     FUNC, MARKER, rewrite_regs, wait_for_original_e2,
 )
 from probe_postdma_handoff import decode_registers
+from factory_control_panel import e2_debug_options
 
 
 def main():
@@ -36,6 +37,30 @@ def main():
         log = Path(td) / "e2-runner.log"
         log.write_text(f"unrelated\n{MARKER}\n", encoding="utf-8")
         wait_for_original_e2(log, 0.01)
+    assert e2_debug_options({}) == ("none", [], "exec")
+    hmp, gdb, trace = e2_debug_options({
+        "EXESX_E2_GDB_PORT": "27871",
+        "EXESX_E2_HMP_PORT": "27872",
+        "EXESX_E2_TRACE_I2C": "1",
+    })
+    assert hmp == "tcp:127.0.0.1:27872,server=on,wait=off"
+    assert gdb == ["-gdb", "tcp:127.0.0.1:27871"]
+    assert trace == "exec,guest_errors,unimp"
+    for invalid in ("27871x", "0", "65536", "-1"):
+        try:
+            e2_debug_options({"EXESX_E2_GDB_PORT": invalid})
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("Unsafe debugger port accepted: " + invalid)
+    try:
+        e2_debug_options({
+            "EXESX_E2_GDB_PORT": "27871", "EXESX_E2_HMP_PORT": "27871",
+        })
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Overlapping HMP/GDB ports accepted")
     print("PASS E2 original 0x180C: A7 call target, arm/disarm arg,"
           " register preservation, return-PC validation, E2 gate")
 
