@@ -176,7 +176,7 @@ jobs:
           python3 -m unittest discover -s tests -p test_factory_auto_driver.py -v
           python3 -m unittest discover -s tests -p test_factory_control_panel.py -v
           python3 scripts/probe_lcd_qmp.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
-          python3 scripts/probe_adc_conversion.py scripts/probe_i2s_sai.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
+          python3 scripts/probe_adc_conversion.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
           python3 scripts/probe_i2s_sai.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
       - name: Bundle tested native emulator
         run: |
