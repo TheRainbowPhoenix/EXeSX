@@ -96,10 +96,19 @@ def invoke(gdb_port, hmp_port, arg):
             if rsp.command("Hg2") != "OK":
                 raise RuntimeError("Cannot select M4 CPU")
             pcr3 = rsp.memory(PCR3, 4)
-            if pcr3 is None:
-                raise RuntimeError("Cannot inspect M4 PORTB.PCR3")
-            print(f"Original 0x180C({arg}) returned; "
-                  f"M4 PORTB.PCR3=0x{pcr3:08x}", flush=True)
+            nvic_enabled = rsp.memory(0xE000E104, 4)  # M4 ISER1
+            nvic_pending = rsp.memory(0xE000E204, 4)  # M4 ISPR1
+            if pcr3 is None or nvic_enabled is None or nvic_pending is None:
+                raise RuntimeError("Cannot inspect M4 PORTB/NVIC state")
+            print(f"Original 0x180C({arg}) returned: "
+                  f"PORTB.PCR3=0x{pcr3:08x}, "
+                  f"M4 NVIC IRQ57 enabled="
+                  f"{bool(nvic_enabled & (1 << 25))}, pending="
+                  f"{bool(nvic_pending & (1 << 25))}", flush=True)
+            if not (nvic_enabled & (1 << 25)):
+                print("WARNING: Original M4 NVIC IRQ57 is DISABLED;"
+                      " PCR3 arming alone cannot deliver pen interrupts",
+                      flush=True)
             if rsp.command("Hc-1") != "OK":
                 raise RuntimeError("Cannot select all CPUs for resume")
             sock.sendall(encode_packet("c"))
