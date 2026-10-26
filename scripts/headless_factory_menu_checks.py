@@ -31,6 +31,22 @@ def parse_ipc_dump(value):
     }
 
 
+def parse_m4_event10_guard(text):
+    """Decode an *original read-only RAM* sample of M4 control bit0/bit2.
+
+    0x1FFE42C4 checks (state_byte & 0x5) != 0; if true it skips
+    original event10 semaphore release at 0x1FFE42FA. This is an
+    observation-only classifier, not a command to overwrite the state.
+    """
+    words = re.findall(r"0x([0-9a-fA-F]{1,8})", text.split(":", 1)[-1])
+    if not words:
+        return {"accessible": False, "raw": None,
+                "bit0_or_bit2_blocks_event10": None}
+    value = int(words[0], 16)
+    return {"accessible": True, "raw": "0x{:08x}".format(value),
+            "bit0_or_bit2_blocks_event10": bool(value & 5)}
+
+
 def check(name, condition, blocked=None):
     return {"name": name, "status": "PASS" if condition else
             ("BLOCKED" if blocked else "FAIL"), "blocked_by": blocked}
@@ -46,6 +62,9 @@ def run(a):
     menu_at = painter_at = None
     requested_ipc = did_down = False
     adc_samples = []
+    flow_samples = []
+    m4_execution = []
+    last_flow_at = 0
     last_adc_at = 0
     before_down = None
     t0 = time.monotonic()
@@ -67,6 +86,17 @@ def run(a):
                 elif kind == "ipc":
                     ipc = parse_ipc_dump(value)
                     print("ORIGINAL IPC:", ipc, flush=True)
+                elif kind == "m4_400b":
+                    m4_execution.append({"host_elapsed": round(time.monotonic()-t0, 2),
+                                         **value})
+                    print("ORIGINAL M4:", value, flush=True)
+                elif kind == "400b_flow":
+                    original = parse_m4_event10_guard(value["m4_guard"])
+                    flow = {"host_elapsed": round(time.monotonic()-t0, 2),
+                            "original_m4_state": original,
+                            "original_a7_m4_ipc": parse_ipc_dump(value["shared_ipc"])}
+                    flow_samples.append(flow)
+                    print("EVENT10 GUARD:", flow, flush=True)
                 elif kind == "adc":
                     sample = {"host_elapsed": round(time.monotonic()-t0, 2)}
                     for bank, registers in value.items():
@@ -94,6 +124,10 @@ def run(a):
                     time.monotonic() - menu_at >= 1):
                 actions.put(("read_ipc", None))
                 requested_ipc = True
+            if (getattr(a, "sample_400b_flow", False) and menu_at is not None and
+                    time.monotonic() - last_flow_at >= 7):
+                last_flow_at = time.monotonic()
+                actions.put(("read_400b_flow", None))
             if (getattr(a, "sample_adc", False) and menu_at is not None and
                     time.monotonic() - last_adc_at >= 20):
                 last_adc_at = time.monotonic()
@@ -146,6 +180,8 @@ def run(a):
             "original_checkpoints": observed,
             "shared_ipc": ipc,
             "passive_adc_samples": adc_samples,
+            "event10_guard_samples": flow_samples,
+            "m4_original_post_menu_execution": m4_execution,
             "frames": worker.frame_count,
             "lcd_sha256": final_sha,
             "qemu_running_during_check": bool(worker.proc and worker.proc.poll() is None),
@@ -188,6 +224,8 @@ def main():
                    help="Explicit raw 16-bit ADC0 analog source; diagnostic, default disconnected")
     p.add_argument("--adc1-sample", type=lambda s:int(s,0), default=None,
                    help="Explicit raw 16-bit ADC1 analog source; diagnostic, default disconnected")
+    p.add_argument("--sample-400b-flow", action="store_true",
+                   help="Read-only M4 bit0/bit2 event10 guard and 0x400B shared IPC")
     p.add_argument("--sample-adc", action="store_true",
                    help="Sample genuine ADC0/ADC1 CTRL/STAT/IE/FCTRL via read-only QMP")
     p.add_argument("--no-screenshots", action="store_true",
