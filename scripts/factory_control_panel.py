@@ -28,6 +28,17 @@ KNOWN = [("POWER", 0x80), ("0x90", 0x90), ("DOWN", 0x91),
          ("0x95", 0x95), ("0x96", 0x96), ("BOOT", 0x9c)]
 LABELS = set("".join(ASCII_ROWS))
 TIMESTAMP = re.compile(r"^Trace \d+:.*?/00000000([0-9a-fA-F]{8})/", re.M)
+M4_400B_PATH = {
+    0x1ffe3e38: "M4 event7 dispatcher selected group",
+    0x1ffe4174: "M4 event7 group handler",
+    0x1ffe42bc: "M4 event7 bit24 path",
+    0x1ffe42c8: "M4 event7 bit24 guard allowed",
+    0x1ffe4438: "M4 shared power-state writer",
+    0x1ffe42fa: "M4 event10 semaphore released",
+    0x1ffe4780: "M4 event10 wait entered",
+    0x1ffe478a: "M4 event10 wait returned",
+}
+
 A7_MILESTONES = {
     0x60010868: "Version popup entered",
     0x600108a8: "Version popup event wait",
@@ -210,6 +221,11 @@ class EmulatorWorker(threading.Thread):
             return
         for raw in TIMESTAMP.findall(text):
             pc = int(raw, 16)
+            if (getattr(self.args, "trace_m4_400b", False) and
+                    self.menu_seen and pc in M4_400B_PATH and pc not in self.hit):
+                self.hit.add(pc)
+                self.post("m4_400b", {"pc": "0x{:08x}".format(pc),
+                                       "step": M4_400B_PATH[pc]})
             if pc in A7_MILESTONES and pc not in self.hit:
                 self.hit.add(pc)
                 self.post("milestone", A7_MILESTONES[pc])
