@@ -11,6 +11,7 @@
  * and timer synchronization are not yet emulated.
  */
 #include "qemu/timer.h"
+#include "exesx-imx7ulp-touch.inc"
 #include "exesx-imx7ulp-scg.inc"
 #include "exesx-imx7ulp-tpm.inc"
 #include "exesx-imx7ulp-pmc.inc"
@@ -127,7 +128,7 @@ static uint32_t exesx_gpiob_external_input_mask(void)
             levels |= UINT32_C(0x00004000);
         }
     }
-    return levels;
+    return exesx_bu21029_gpio_b_levels(levels);
 }
 
 static uint32_t exesx_gpioa_external_input_mask(void)
@@ -164,7 +165,8 @@ static void exesx_m4_port_tick(void *opaque)
     }
     timer_mod(port->m4_port_poll_timer,
               qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
-              (g_getenv("EXESX_M4_KEY_MATRIX_FILE") ?
+              ((g_getenv("EXESX_M4_KEY_MATRIX_FILE") ||
+                g_getenv("EXESX_BU21029_TOUCH_FILE")) ?
                INT64_C(1000000) : INT64_C(20000000)));
 }
 

@@ -179,6 +179,7 @@ jobs:
           python3 scripts/probe_adc_conversion.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
           python3 scripts/probe_i2s_sai.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
           python3 scripts/probe_bu26154_touch.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
+          python3 scripts/probe_bu21029_touch.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
       - name: Bundle tested native emulator
         run: |
           mkdir -p dist/exesx-qemu-linux-x86_64

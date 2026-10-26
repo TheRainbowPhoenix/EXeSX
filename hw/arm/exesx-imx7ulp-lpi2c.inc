@@ -61,7 +61,8 @@ static bool exesx_lpi2c_active_mirror(EXeSXProfileWindow *w)
 {
     unsigned addr = w->regfile[0x1c0 / 4] & 0xfe;
     return (addr == 0x96 && exesx_lpi2c_register_mirror(w)) ||
-           (addr == 0x80 && exesx_lpi2c_register_mirror40(w));
+           (addr == 0x80 && exesx_lpi2c_register_mirror40(w) &&
+            !exesx_bu21029_enabled(w->base));
 }
 
 
@@ -175,6 +176,89 @@ static void exesx_bu26154_tx_byte(EXeSXProfileWindow *w,
     w->regfile[0x1e8 / 4] = (reg + 2) & 255;
 }
 
+/*
+ * ROHM BU21029 4-wire resistive touchscreen (not BU26154 CODEC).
+ * Original M4 calls 0x1ffdb9dc, 0x1ffdba12 and reads PORTB3 low.
+ * I2C slave 0x40: register command byte (index << 3 | bank << 2),
+ * then data; conversion commands 0x84/0x8d and 14-byte report.
+ * All mutable state below is in the existing VMState-backed regfile.
+ */
+static bool exesx_bu21029_active(EXeSXProfileWindow *w)
+{
+    return exesx_bu21029_enabled(w->base) &&
+           (w->regfile[0x1c0 / 4] & 0xfe) == 0x80;
+}
+
+static uint8_t exesx_bu21029_read_byte(EXeSXProfileWindow *w)
+{
+    unsigned cmd = w->regfile[0x1f4 / 4] & 0xff;
+    unsigned pos = w->regfile[0x1c8 / 4]++;
+    uint16_t x = 0, y = 0, z1 = 0, z2 = 0;
+    bool down = exesx_bu21029_contact(&x, &y, &z1, &z2);
+    unsigned reg, bank;
+    if (cmd & 0x80) {
+        /* M4 FUN_1FFDba12 decodes seven big-endian 16-bit words.
+         * First two are raw 12-bit coordinates shifted left by four.
+         * Other slots are Z readings / optional dual-touch metadata;
+         * never report a second contact without a second host input. */
+        uint16_t words[7] = {
+            (uint16_t)(x << 4), (uint16_t)(y << 4),
+            (uint16_t)(z1 << 4), (uint16_t)(z2 << 4),
+            (uint16_t)(z1 << 4), 0, 0
+        };
+        uint16_t v = (down && pos < 14) ? words[pos / 2] : 0;
+        return (pos & 1) ? (v & 0xff) : (v >> 8);
+    }
+    reg = (cmd >> 3) & 15;
+    bank = (cmd >> 2) & 1;
+    if (bank == 0 && reg == 0x0d) {
+        /* STATUS: AUTO + BUSY + TOUCH; no invented calibration done. */
+        return 0x48 | (down ? 1U : 0U);
+    }
+    if (bank == 0 && reg == 0x0e) {
+        return 0x02; /* ROHM silicon ID 0x0229 */
+    }
+    if (bank == 0 && reg == 0x0f) {
+        return 0x29;
+    }
+    return w->regfile[0x300 / 4 + bank * 16 + reg] & 0xff;
+}
+
+static void exesx_bu21029_write_byte(EXeSXProfileWindow *w,
+                                    unsigned index, uint32_t data)
+{
+    if (index == 0) {
+        w->regfile[0x1f4 / 4] = data & 0xff; /* command/address */
+        if ((data & 0x80) && data != 0x80 && data != 0x84 &&
+            data != 0x8d && data != 0xa8) {
+            qemu_log_mask(LOG_UNIMP,
+                          "EXeSX BU21029 unimplemented command 0x%02x\n",
+                          data & 0xff);
+        }
+        return;
+    }
+    if (index == 1) {
+        unsigned cmd = w->regfile[0x1f4 / 4] & 0xff;
+        unsigned reg = (cmd >> 3) & 15;
+        unsigned bank = (cmd >> 2) & 1;
+        if (cmd & 0x80) {
+            qemu_log_mask(LOG_UNIMP,
+                          "EXeSX BU21029 unexpected data after command"
+                          " 0x%02x\n", cmd);
+        } else if (bank == 0 && (reg == 0x0d || reg == 0x0e || reg == 0x0f)) {
+            qemu_log_mask(LOG_UNIMP,
+                          "EXeSX BU21029 read-only register write 0x%02x\n",
+                          reg);
+        } else {
+            w->regfile[0x300 / 4 + bank * 16 + reg] = data & 0xff;
+        }
+    } else {
+        qemu_log_mask(LOG_UNIMP,
+                      "EXeSX BU21029 unsupported %u-byte control write\n",
+                      index + 1);
+    }
+}
+
 static bool exesx_lpi2c_valid_base(uint64_t base)
 {
     return base == 0x41033000 || base == 0x41034000 ||
@@ -214,18 +298,23 @@ static MemTxResult exesx_lpi2c_read(EXeSXProfileWindow *w, hwaddr off,
         *value = w->regfile[0x14 / 4] |
                  ((w->regfile[0x10 / 4] & 1) ? 1U : 0U) |
                  ((w->regfile[0x1c4 / 4] && (exesx_lpi2c_probe_reply(w) || exesx_lpi2c_active_mirror(w) ||
-                   exesx_bu26154_active(w)))
+                   exesx_bu26154_active(w) ||
+                   exesx_bu21029_active(w)))
                   ? 2U : 0U);
         return MEMTX_OK;
     case 0x5c: /* MFSR RXCOUNT [18:16] */
         *value = (w->regfile[0x1c4 / 4] &&
                   (exesx_lpi2c_probe_reply(w) || exesx_lpi2c_active_mirror(w) ||
-                   exesx_bu26154_active(w))) ? (1U << 16) : 0;
+                   exesx_bu26154_active(w) ||
+                   exesx_bu21029_active(w))) ? (1U << 16) : 0;
         return MEMTX_OK;
     case 0x70: { /* MRDR; RXEMPTY if no byte pending */
         const char *hex = exesx_lpi2c_probe_reply(w);
         uint32_t remaining = w->regfile[0x1c4 / 4];
-        if (exesx_bu26154_active(w) && remaining) {
+        if (exesx_bu21029_active(w) && remaining) {
+            *value = exesx_bu21029_read_byte(w);
+            w->regfile[0x1c4 / 4] = remaining - 1;
+        } else if (exesx_bu26154_active(w) && remaining) {
             *value = exesx_bu26154_read_byte(w);
             w->regfile[0x1c4 / 4] = remaining - 1;
         } else if (exesx_lpi2c_active_mirror(w) && remaining) {
@@ -294,9 +383,11 @@ static MemTxResult exesx_lpi2c_write(EXeSXProfileWindow *w, hwaddr off,
                             (address_byte == 0x96 || address_byte == 0x97);
             bool accept40 = exesx_lpi2c_register_mirror40(w) &&
                             (address_byte == 0x80 || address_byte == 0x81);
+            bool accept_ts = exesx_bu21029_enabled(w->base) &&
+                             (address_byte == 0x80 || address_byte == 0x81);
             bool accept_bu = exesx_bu26154_present(w) &&
                              (address_byte == 0x34 || address_byte == 0x35);
-            if (accept4b || accept40 || accept_bu) {
+            if (accept4b || accept40 || accept_bu || accept_ts) {
                 w->regfile[0x1c0 / 4] = address_byte; /* active */
                 w->regfile[0x1c4 / 4] = 0; /* pending RX */
                 w->regfile[0x1c8 / 4] = 0; /* read cursor */
@@ -306,8 +397,9 @@ static MemTxResult exesx_lpi2c_write(EXeSXProfileWindow *w, hwaddr off,
                 qemu_log_mask(LOG_GUEST_ERROR,
                               "EXeSX DIAGNOSTIC %s ACK @0x%"
                               HWADDR_PRIx " rw=%s (not chip-validated)\\n",
-                              accept_bu ? "BU26154" :
-                              (accept40 ? "I2C40" : "I2C4B"),
+                              accept_ts ? "BU21029" :
+                              (accept_bu ? "BU26154" :
+                              (accept40 ? "I2C40" : "I2C4B")),
                               w->base, (address_byte & 1) ? "read" : "write");
             } else {
                 w->regfile[0x14 / 4] |= 0x400; /* NDF, no slave */
@@ -319,7 +411,8 @@ static MemTxResult exesx_lpi2c_write(EXeSXProfileWindow *w, hwaddr off,
         } else if (cmd == 1 &&
                    (exesx_lpi2c_probe_reply(w) ||
                     exesx_lpi2c_active_mirror(w) ||
-                    exesx_bu26154_active(w)) &&
+                    exesx_bu26154_active(w) ||
+                    exesx_bu21029_active(w)) &&
                    (w->regfile[0x1c0 / 4] == 0x97 ||
                     w->regfile[0x1c0 / 4] == 0x81 ||
                     w->regfile[0x1c0 / 4] == 0x35)) {
@@ -327,18 +420,22 @@ static MemTxResult exesx_lpi2c_write(EXeSXProfileWindow *w, hwaddr off,
             w->regfile[0x1c8 / 4] = 0;
             qemu_log_mask(LOG_GUEST_ERROR,
                           "EXeSX DIAGNOSTIC %s RX_REQUEST count=%u\\n",
-                          w->regfile[0x1c0 / 4] == 0x35 ? "BU26154" :
-                          (w->regfile[0x1c0 / 4] == 0x81 ? "I2C40" : "I2C4B"),
+                          exesx_bu21029_active(w) ? "BU21029" :
+                          (w->regfile[0x1c0 / 4] == 0x35 ? "BU26154" :
+                          (w->regfile[0x1c0 / 4] == 0x81 ? "I2C40" : "I2C4B")),
                           (unsigned)((bits & 0xff) + 1));
         } else if (cmd == 0 &&
                    (exesx_lpi2c_probe_reply(w) ||
                     exesx_lpi2c_active_mirror(w) ||
-                    exesx_bu26154_active(w)) &&
+                    exesx_bu26154_active(w) ||
+                    exesx_bu21029_active(w)) &&
                    (w->regfile[0x1c0 / 4] == 0x96 ||
                     w->regfile[0x1c0 / 4] == 0x80 ||
                     w->regfile[0x1c0 / 4] == 0x34)) {
             unsigned index = w->regfile[0x1cc / 4]++;
-            if (exesx_bu26154_active(w)) {
+            if (exesx_bu21029_active(w)) {
+                exesx_bu21029_write_byte(w, index, bits & 255);
+            } else if (exesx_bu26154_active(w)) {
                 exesx_bu26154_tx_byte(w, index, bits & 255);
             } else if (exesx_lpi2c_active_mirror(w)) {
                 if (index == 0) {
