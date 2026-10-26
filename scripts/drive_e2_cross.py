@@ -162,9 +162,9 @@ def main():
         if not keyboard.is_file():
             raise FileNotFoundError(keyboard)
         time.sleep(0.2)
-        keyboard.write_text("0x94\\n", encoding="ascii")
+        keyboard.write_text("0x94\n", encoding="ascii")
         time.sleep(args.finish_hold_ms / 1000)
-        keyboard.write_text("0\\n", encoding="ascii")
+        keyboard.write_text("0\n", encoding="ascii")
         print("Sent genuine M4 0x94 physical key contact to request"
               " E2 result; check original LCD for OK or NG", flush=True)
 
