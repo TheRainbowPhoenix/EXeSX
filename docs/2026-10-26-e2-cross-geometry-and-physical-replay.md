@@ -136,3 +136,41 @@ cannot fix the absence of measurement transactions.
 
 All original OSUP, private log/screen, raw media and touch streams
 remain off GitHub.
+
+
+## Physical PTB3 versus firmware PORTB interrupt arming (original ROM)
+
+An additional bounded **original** QEMU/E2 run with a private QMP
+read-only probe sampled GPIOB.PDIR at 0x4100F050, PORTB.PCR3 at
+0x4104000C, and PORTB.ISFR at 0x410400A0 **while the host electrode
+file was actively down**. Real test menu and row13 E2 entry completed,
+420 contact-file updates were sent, and 195 MMIO sample lines were
+collected:
+
+| Register | Observed while down | Interpretation |
+| --- | --- | --- |
+| GPIOB.PDIR | 0x000008C0 | **bit3 is LOW**: physical pen-down voltage does reach original M4 GPIO |
+| PORTB.PCR3 | 0x00000000 | IRQC bits 19:16 = 0: **firmware has disarmed the pen interrupt** |
+| PORTB.ISFR | 0x00000000 | no latched pen IRQ / no original IRQ57-driven coordinate read |
+
+This is not a faulty coordinate translation: the physical GPIO input
+already changes correctly, but the unchanged guest currently does
+not arm the hardware interrupt at the tested E2 stage. The M4
+decompulation clarifies the ownership: FUN_1ffdff08 writes PCR3
+0x00080000, FUN_1ffdff2e writes PCR3 zero, and
+FUN_1ffdbc8c(param_1) **disarms when param_1==1** and **arms for other
+values**. It is reachable through M4 IPC handler FUN_1ffdc76a.
+Separately, FUN_1ffdc2be temporarily disarms the interrupt during
+reset/calibration and rearms only conditionally. Those firmware paths
+must be traced to determine which init/IPC state is missing or
+mis-responded to by the emulator.
+
+No code forcibly sets PCR3 or NVIC IRQ57 in the original-ROM run.
+Never enable it unconditionally in response to a host pen sample: that
+would hide the missing firmware state transition and bypass real
+register ownership. This is still **NG/incomplete E2**; only a
+full original-FW run showing legitimate PCR3 re-arming, original
+14-byte measurement, A7 0x6000 touch events, and E2 OK can pass.
+
+Original OSUP, host input samples, snapshots, and MMIO samples remain
+private and are not in the repository.
