@@ -165,7 +165,10 @@ def main():
     assert released == disconnected, released
     touched, diagnostics = run(qemu, profile, True, "1 291 2748")
     assert touched == [1, 0x78, 0, 0x12, 0x3, 0xab, 0xc, 0, 0x701, 0], touched
-    assert "BU26154 touch control" in diagnostics, diagnostics[-2000:]
+    for value in (0xc8, 0xd8, 0x48):
+        assert f"EXeSX BU26154 MAP1 touch control=0x{value:02x}" in diagnostics, (
+            value, diagnostics[-4000:]
+        )
     print("PASS BU26154: absent NACK / MAPCON / TCLKEN gate / release / X,Y / disable / unrelated NACK")
 
 
