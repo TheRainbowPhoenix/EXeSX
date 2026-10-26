@@ -80,10 +80,24 @@ def main():
     p.add_argument("--swap-axes", action="store_true")
     p.add_argument("--max-wait", type=float, default=210)
     p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--arm-original-a7", action="store_true",
+                   help="Opt-in: call ORIGINAL A7 firmware 0x180C(0) via GDB"
+                        " after LCD-confirmed E2 ENTER (debugger-assisted)")
+    p.add_argument("--gdb-port", type=int)
+    p.add_argument("--hmp-port", type=int)
+    p.add_argument("--finish-key-file", type=Path,
+                   help="Optional private M4 matrix contact file for REAL"
+                        " E2 exit/coverage evaluation after all strokes")
+    p.add_argument("--finish-hold-ms", type=float, default=60)
     args = p.parse_args()
     if (args.offset_step < 1 or args.point_step <= 0 or
             args.period_ms < 5 or args.release_ms < 5):
         p.error("Invalid sample spacing/timing")
+    if args.arm_original_a7 and (not args.wait_log or
+                                 not args.gdb_port or not args.hmp_port):
+        p.error("--arm-original-a7 requires --wait-log, --gdb-port and --hmp-port")
+    if args.finish_key_file and not 10 <= args.finish_hold_ms <= 100:
+        p.error("--finish-hold-ms must be 10..100")
     mapping = dict(flip_x=args.flip_x, flip_y=args.flip_y,
                    swap_axes=args.swap_axes)
     paths = list(sample_lines(strokes(args.offset_step),
@@ -113,7 +127,18 @@ def main():
             time.sleep(.02)
         else:
             raise RuntimeError("E2 ENTER was never confirmed from original LCD")
-        print("E2 ENTER observed; beginning physical contact replay", flush=True)
+        print("E2 ENTER observed; original screen still needs pen"
+              " IRQ + coordinate events", flush=True)
+    if args.arm_original_a7:
+        from e2_original_touch_ipc import invoke
+        pcr3 = invoke(args.gdb_port, args.hmp_port, 0)
+        if pcr3 != 0x00080000:
+            raise RuntimeError(
+                f"Original A7 0x180C(0) did not arm M4 PCR3:"
+                f" 0x{pcr3:08x}; refusing physical input replay")
+        print("Original A7 firmware 0x180C(0) returned;"
+              " genuine M4 pen IRQ armed", flush=True)
+    print("Beginning physical BU21029 input replay", flush=True)
     sent = 0
     try:
         for points in paths:
@@ -129,6 +154,19 @@ def main():
     finally:
         write_contact(touch, 0, 0, 0, args.z1, args.z2)
     print(f"Finished {sent} physical samples; pen released", flush=True)
+    if args.finish_key_file:
+        # An ordinary M4 keyboard contact (NOT an A7 event injection).
+        # Request E2's original framebuffer coverage verdict only after
+        # the entire source-derived stroke set has been delivered.
+        keyboard = args.finish_key_file.resolve()
+        if not keyboard.is_file():
+            raise FileNotFoundError(keyboard)
+        time.sleep(0.2)
+        keyboard.write_text("0x94\\n", encoding="ascii")
+        time.sleep(args.finish_hold_ms / 1000)
+        keyboard.write_text("0\\n", encoding="ascii")
+        print("Sent genuine M4 0x94 physical key contact to request"
+              " E2 result; check original LCD for OK or NG", flush=True)
 
 
 if __name__ == "__main__":
