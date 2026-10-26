@@ -113,6 +113,8 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           & $pythonExe scripts/probe_e2_touch_ipc.py
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & $pythonExe scripts/check_original_touch_dispatch.py
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Archive tested Windows distribution
         shell: pwsh
         run: |
