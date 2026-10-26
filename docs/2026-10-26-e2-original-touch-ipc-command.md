@@ -43,3 +43,25 @@ The driver executes **the original A7 function** via `scripts/e2_original_touch_
 The firmware-free regression `scripts/probe_e2_touch_ipc.py` verifies saved A7 CPU register preservation, correct 0/1 argument selection, return-PC validation, opt-in loopback-only debug ports, and newline-delimited physical exit contacts on Linux and Windows. A synthetic pass cannot establish real original E2 success.
 
 No private ROM, original decomp, synthetic owner media, trace dumps, QMP frames, MAC/serial or raw touch capture is committed.
+
+## Exact original M4 dispatch-table verification
+
+The owner-private original M4 binary's Thumb-handler pointer table starts at image offset `0x3DC` for IPC group `0x1800`. Therefore handler `0x180C` is at offset `0x3DC + 12*4 = 0x40C`, and the word there is the Thumb pointer to **`FUN_1ffdc76a`**. A direct local original-binary comparison confirmed:
+
+| Original IPC | M4 handler |
+| --- | --- |
+| `0x1809` | `0x1FFDC6CC` — I²C register-byte read |
+| `0x180A` | `0x1FFDC704` — original 14-byte touch packet |
+| `0x180B` | `0x1FFDC730` |
+| `0x180C` | `0x1FFDC76A` — calls `FUN_1ffdbc8c(arg)` |
+| `0x180E` | `0x1FFDC794` |
+
+This **rules out** the speculative idea of sending `0x1809` as touch reset: in this firmware, `0x1809` reads registers. Use `0x180C` with argument zero for pen IRQ enable, argument one for disable. `scripts/check_original_touch_dispatch.py --private-m4-bin /private/m4.bin` validates the owner's original M4 image locally; CI tests the same decoder on fabricated pointers and intentionally corrupts `0x180C` to ensure a wrong dispatcher is rejected. No original pointer-table bytes or copyrighted binaries are committed.
+
+## Why arm success still isn't an E2 pass
+
+The first debugger-assisted original-firmware `0x180C(0)` call **returned** and made PCR3 read `0x00080000`, then a complete physical 36-stroke / 1,649-sample replay ran. It did not yield a confirmed original E2 OK or erased cross. The subsequent verbose tracing attempt did **not** reliably reach the menu and therefore provided no new valid evidence about actual 14-byte reads. These experiments must remain separate; do not claim that absence of reads was proven **after** the successful arm command.
+
+There are two distinct enable states: the PORTB PCR3 IRQC mode and **M4 NVIC IRQ57 enable (ISER1 bit25)**. The updated debugger diagnostic reads both ISER1 `0xE000E104` and ISPR1 `0xE000E204` through the M4 CPU to determine whether original firmware has globally enabled pen interrupts. It only reports these bits. A synthetic probe checking *pending* IRQ57 does not establish that the original M4 can service it. Neither NVIC bit nor PCR3 is forcibly set by the diagnostic.
+
+The integrated `scripts/drive_e2_cross.py --arm-original-a7` variant combines original firmware arming, PCR3 verification, raw touch strokes and optional genuine physical-key verdict request into one explicit diagnostic workflow. This cannot be described as **normal unassisted factory initialization** until original E2 firmware itself issues the enable command. The original LCD must report OK for a real E2 pass.
