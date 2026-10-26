@@ -24,6 +24,12 @@ static MemTxResult exesx_lpspi2_write(EXeSXProfileWindow *w,
     /* MEN and reset/FIFO command control bits are recorded only.
      * Hardware reset semantics and SPI transfers are not yet emulated.
      */
+    if (((uint32_t)value & 1) && !(w->regfile[0x10 / 4] & 1)) {
+        qemu_log_mask(LOG_UNIMP,
+                      "EXeSX LPSPI2 MEN enabled @0x40290010:"
+                      " SPI TX/RX FIFO, clock/chip-select and IRQ"
+                      " not implemented (ATWINC15x0 host wiring unverified)\\n");
+    }
     w->regfile[0x10 / 4] = (uint32_t)value;
     return MEMTX_OK;
 }
