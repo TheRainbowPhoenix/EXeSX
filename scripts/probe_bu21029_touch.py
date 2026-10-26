@@ -4,6 +4,8 @@ import argparse
 import os
 from pathlib import Path
 import re
+import socket
+from probe_postdma_handoff import RSP
 import struct
 import subprocess
 import tempfile
@@ -113,11 +115,15 @@ def run(qemu, profile, enabled=False, contact=None):
         if lib.is_dir():
             env["LD_LIBRARY_PATH"] = str(lib) + os.pathsep + env.get("LD_LIBRARY_PATH", "")
         port = choose_port()
+        gdb = choose_port()
+        while gdb == port:
+            gdb = choose_port()
         cmd = [str(qemu), "-machine", "exesx", "-m", "64M",
                "-accel", "tcg", "-display", "none", "-serial", "none",
                "-monitor", "none", "-no-reboot", "-S",
                "-d", "unimp,guest_errors", "-D", str(log),
                "-qmp", f"tcp:127.0.0.1:{port},server=on,wait=off",
+               "-gdb", f"tcp:127.0.0.1:{gdb}",
                "-device", f"loader,file={elf},cpu-num=0"]
         with (root / "console.log").open("wb") as stdout:
             child = subprocess.Popen(cmd, env=env, stdin=subprocess.DEVNULL,
@@ -134,7 +140,17 @@ def run(qemu, profile, enabled=False, contact=None):
                         return int(m.group(1), 16)
                     data = [read_word(OUT + 4 * i) for i in range(19)]
                     isfr = read_word(0x410400a0)
-                    return data, isfr, log.read_text(encoding="utf-8", errors="replace")
+                    # A7's MMIO aperture cannot read the M4's NVIC.
+                    # Inspect IRQ57 through the actual M4 CPU GDB view.
+                    qmp.execute("stop")
+                    with socket.create_connection(("127.0.0.1", gdb), 3) as gs:
+                        rsp = RSP(gs)
+                        rsp.command("?")
+                        assert rsp.command("Hg2") == "OK"
+                        pending = rsp.memory(0xe000e204, 4)
+                    assert pending is not None
+                    return data, isfr, pending, log.read_text(
+                        encoding="utf-8", errors="replace")
             finally:
                 child.terminate()
                 try:
@@ -150,19 +166,19 @@ def main():
     p.add_argument("--profile", type=Path, required=True)
     args = p.parse_args()
     qemu, profile = args.qemu.resolve(), args.profile.resolve()
-    absent, none_irq, _ = run(qemu, profile, False, "1 291 2748")
+    absent, none_irq, none_pending, _ = run(qemu, profile, False, "1 291 2748")
     assert absent[0] == 0x401 and absent[1:18] == [0x4000] * 17, absent
-    assert absent[18] & 8 and not (none_irq & 8), (absent, none_irq)
-    released, released_irq, _ = run(qemu, profile, True, "0 291 2748")
+    assert absent[18] & 8 and not (none_irq & 8) and not (none_pending & (1 << 25)), (absent, none_irq, none_pending)
+    released, released_irq, released_pending, _ = run(qemu, profile, True, "0 291 2748")
     assert released[0] == 1 and (released[1] & 0xf7) == 0x40 and released[2:4] == [0x02, 0x29], released
     assert released[4:18] == [0] * 14, released
-    assert released[18] & 8 and not (released_irq & 8), (released, released_irq)
-    pressed, pressed_irq, logs = run(qemu, profile, True, "1 291 2748")
+    assert released[18] & 8 and not (released_irq & 8) and not (released_pending & (1 << 25)), (released, released_irq, released_pending)
+    pressed, pressed_irq, pressed_pending, logs = run(qemu, profile, True, "1 291 2748")
     assert pressed[0] == 1 and (pressed[1] & 0xf7) == 0x41 and pressed[2:4] == [0x02, 0x29], pressed
     assert pressed[4:8] == [0x12, 0x30, 0xab, 0xc0], pressed
-    assert pressed[18] & 8 == 0 and pressed_irq & 8, (pressed, pressed_irq)
+    assert pressed[18] & 8 == 0 and pressed_irq & 8 and pressed_pending & (1 << 25), (pressed, pressed_irq, pressed_pending)
     assert "BU21029" in logs, logs[-1500:]
-    print("PASS BU21029 real ARM: default NACK, ID/status, raw XY, GPIOB3 pen IRQ and release")
+    print("PASS BU21029 real ARM: absent NACK, ID/status, raw XY, PTB3/ISFR, M4 NVIC IRQ57 and release")
 
 
 if __name__ == "__main__":

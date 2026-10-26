@@ -27,3 +27,19 @@ Public references: [ROHM BU21029 datasheet](https://www.furutaka-netsel.co.jp/pd
 **Verification boundary:** the firmware-free synthetic real-ARM I2C/GPIO regression must show no-device NACK, controller status and read protocol, raw byte positions, contact/release GPIO levels and genuine PORTB.ISFR flag. *A passing register probe alone does not prove the original E2 factory test passes.* An original-ROM run must separately display real touch response, pass all requested crosses/contacts, and report a genuine E2 success.
 
 **Caution:** BU21029 hardware timing, pressure equations, GPIO IRQ persistence, calibration/second-finger handling and full register mode bits need original-ROM observation. The unimplemented aspects must be logged. No original OSUP firmware, decompiler source, MAC identifier, screenshot, firmware-derived media or private logs belong in GitHub.
+
+## Verified native interrupt and original-ROM integration boundary
+
+The independent firmware-free M4 pen-interrupt experiment used a real guest ARM write of `0x00080000` to `PORTB.PCR3 0x4104000C`, matching the original M4, then changed **only** the host-supplied contact-file voltage from released to pressed. It examined actual M4 CPU2 NVIC memory through GDB after the virtual timer ran:
+
+| Control | PORTB.ISFR | M4 NVIC ISPR1 bit25 (external IRQ57) |
+| --- | --- | --- |
+| Port IRQ bridge disabled | 0 | 0 |
+| PCR3 IRQC disabled | 0 | 0 |
+| Bridge and IRQC=8; physical press | `0x00000008` | `0x02000000` |
+
+This is genuine QEMU PORTB/NVIC pending behavior without A7 event fabrication. The project now adds this assertion to `scripts/probe_bu21029_touch.py` using the actual M4 GDB thread, not an A7 CPU read of the Cortex-M SCB.
+
+**End-to-end not yet passing:** Separate original unchanged owner OSUP cold-boot experiments with the opt-in BU21029 attachment encountered a pre-menu startup stall in their bounded windows, both with a continuously pressed raw contact and with a released contact. A matched control using the **same new QEMU binary**, but without BU21029 attachment, reached real `0x400B` completion, menu painter, DOWN navigation, and the genuine E2 cross-check screen. The attempted press-then-stroke replay was **not started**, because E2 was not reached with BU21029 attached. Thus no original A7 `0x6000` event or passing E2 test has been established, and the model should remain opt-in.
+
+ROHM STATUS bits are AUTO (6), PDM (5), BUSY (3), ACTIVE (2), CALIB_DONE (1), TOUCH (0). The model now avoids permanently setting BUSY: its first conversion expires after 2ms of guest virtual time; CF=5 calibration latches CALIB_DONE. Analog conversion timing is a simplification, not full silicon emulation. The next decisive original-ROM experiment is to find why the original M4 init/task may block with the live I2C 0x40 device, compare STOP-aware transfers and IRQ57 state against the diagnostic mirror control, then validate original M4 touch event publication to the A7. Do not invent any RTOS flag or E2 success indicator.
