@@ -21,6 +21,7 @@
 #include "exesx-imx7ulp-snvs.inc"
 #include "exesx-imx7ulp-lpi2c.inc"
 #include "exesx-imx7ulp-adc.inc"
+#include "exesx-imx7ulp-i2s.inc"
 #include "exesx-imx7ulp-dma.inc"
 #include "exesx-imx7ulp-usdhc.inc"
 #include "exesx-imx7ulp-dmamux.inc"
@@ -188,6 +189,7 @@ static bool exesx_imx7ulp_kind(const char *kind)
            g_strcmp0(kind, "imx7ulp-snvs") == 0 ||
            g_strcmp0(kind, "imx7ulp-lpi2c") == 0 ||
            g_strcmp0(kind, "imx7ulp-adc") == 0 ||
+           g_strcmp0(kind, "imx7ulp-i2s") == 0 ||
            g_strcmp0(kind, "imx7ulp-dma") == 0 ||
            g_strcmp0(kind, "imx7ulp-usdhc") == 0 ||
            g_strcmp0(kind, "imx7ulp-usdhc1") == 0 ||
@@ -308,6 +310,9 @@ static MemTxResult exesx_imx7ulp_read(EXeSXProfileWindow *w,
 
     if (!strcmp(w->kind, "imx7ulp-adc")) {
         return exesx_adc_read(w, off, value, size);
+    }
+    if (!strcmp(w->kind, "imx7ulp-i2s")) {
+        return exesx_i2s_read(w, off, value, size);
     }
     if (!strcmp(w->kind, "imx7ulp-usdhc")) {
         return exesx_usdhc0_read(w, off, value, size);
@@ -503,6 +508,9 @@ static MemTxResult exesx_imx7ulp_write(EXeSXProfileWindow *w,
 
     if (!strcmp(w->kind, "imx7ulp-adc")) {
         return exesx_adc_write(w, off, value, size);
+    }
+    if (!strcmp(w->kind, "imx7ulp-i2s")) {
+        return exesx_i2s_write(w, off, value, size);
     }
     if (!strcmp(w->kind, "imx7ulp-usdhc")) {
         return exesx_usdhc0_write(w, off, value, size);
