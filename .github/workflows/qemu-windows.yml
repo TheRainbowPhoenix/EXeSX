@@ -103,6 +103,12 @@ jobs:
             & $pythonExe "scripts/$probe" --qemu $qemu --profile profiles/imx7ulp-early-boot.ini
             if ($LASTEXITCODE) { exit $LASTEXITCODE }
           }
+      - name: Validate stale factory profile recovery
+        shell: pwsh
+        run: |
+          $pythonExe = (Get-Command python -ErrorAction Stop).Source
+          & $pythonExe scripts/probe_factory_profile_backfill.py
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Archive tested Windows distribution
         shell: pwsh
         run: |
