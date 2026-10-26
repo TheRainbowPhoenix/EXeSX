@@ -221,7 +221,15 @@ static MemTxResult exesx_reg_read(void *opaque, hwaddr offset, uint64_t *data,
         return MEMTX_ERROR;
     }
     if (exesx_imx7ulp_kind(w->kind)) {
-        return exesx_imx7ulp_read(w, offset, data, size);
+        MemTxResult status = exesx_imx7ulp_read(w, offset, data, size);
+        if (status != MEMTX_OK) {
+            /* Preserve the bus fault: never invent an MMIO read value. */
+            qemu_log_mask(LOG_GUEST_ERROR | LOG_UNIMP,
+                          "EXeSX unimplemented/invalid %s MMIO READ"
+                          " @0x%" HWADDR_PRIx " size=%u: BUS FAULT\n",
+                          w->kind, w->base + offset, size);
+        }
+        return status;
     }
     if (size == 4 && !(offset & 3) && offset <= UINT32_MAX - 1) {
         v = g_hash_table_lookup(w->registers,
@@ -250,7 +258,16 @@ static MemTxResult exesx_reg_write(void *opaque, hwaddr offset, uint64_t data,
         return exesx_lcd_write(w, offset, data, size);
     }
     if (exesx_imx7ulp_kind(w->kind)) {
-        return exesx_imx7ulp_write(w, offset, data, size);
+        MemTxResult status = exesx_imx7ulp_write(w, offset, data, size);
+        if (status != MEMTX_OK) {
+            /* Keep strict invalid/reserved accesses faulting the guest. */
+            qemu_log_mask(LOG_GUEST_ERROR | LOG_UNIMP,
+                          "EXeSX unimplemented/invalid %s MMIO WRITE"
+                          " @0x%" HWADDR_PRIx " size=%u data=0x%" PRIx64
+                          ": BUS FAULT\n",
+                          w->kind, w->base + offset, size, data);
+        }
+        return status;
     }
     if (size == 4 && !(offset & 3) && offset <= UINT32_MAX - 1) {
         v = g_hash_table_lookup(w->registers,

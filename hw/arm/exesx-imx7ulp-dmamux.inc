@@ -50,6 +50,16 @@ static MemTxResult exesx_dmamux1_write(EXeSXProfileWindow *w,
     w->regfile[off / 4] = ((old_cfg & ~mask) |
                           (((uint32_t)value << shift) & mask)) &
                          EXESX_DMAMUX1_CHCFG_MASK;
+    if (w->base == UINT64_C(0x41020000) &&
+        !(old_cfg & UINT32_C(0x80000000)) &&
+        (w->regfile[off / 4] & UINT32_C(0x80000000))) {
+        qemu_log_mask(LOG_UNIMP,
+                      "EXeSX M4 DMAMUX0 channel %u enabled"
+                      " (source=%u): peripheral DMA requests"
+                      " not implemented\n",
+                      (unsigned)(off / 4),
+                      w->regfile[off / 4] & 0x7f);
+    }
     if (!g_strcmp0(g_getenv("EXESX_TRACE_M4_DMAMUX0"), "1") &&
         w->base == UINT64_C(0x41020000) &&
         old_cfg != w->regfile[off / 4]) {

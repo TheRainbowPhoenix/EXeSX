@@ -44,6 +44,13 @@ static MemTxResult exesx_i2s_read(EXeSXProfileWindow *w, hwaddr off,
     } else if (off == 4) {
         /* PARAM is read-only; unknown hardware line/FIFO capacities. */
         *result = 0;
+    } else if (off >= 0xa0 && off <= 0xac) {
+        /* No receiver/codec is connected: never echo stale TX/RX data. */
+        qemu_log_mask(LOG_UNIMP,
+                      "EXeSX I2S @0x%" HWADDR_PRIx
+                      " RX FIFO read not implemented (no audio source)\n",
+                      w->base + off);
+        *result = 0;
     } else if ((off >= 0x40 && off <= 0x4c) ||
                (off >= 0xc0 && off <= 0xcc)) {
         /* No guest-configured audio clock, hence no data FIFO progress. */
@@ -64,6 +71,14 @@ static MemTxResult exesx_i2s_write(EXeSXProfileWindow *w, hwaddr off,
         (off >= 0xc0 && off <= 0xcc)) {
         return MEMTX_ERROR;
     }
+    if (off >= 0x20 && off <= 0x2c) {
+        /* Register write is acknowledged, but no audio FIFO exists. */
+        qemu_log_mask(LOG_UNIMP,
+                      "EXeSX I2S @0x%" HWADDR_PRIx
+                      " TX FIFO write not implemented (sample dropped)\n",
+                      w->base + off);
+        return MEMTX_OK;
+    }
     if (off == 0x08 || off == 0x88) {
         /* TCSR/RCSR: 0x01000000 software reset and 0x02000000
          * FIFO reset are commands that self-clear. FEF, SEF and WSF
@@ -71,6 +86,14 @@ static MemTxResult exesx_i2s_write(EXeSXProfileWindow *w, hwaddr off,
          * Do not assert FIFO-ready or fire an IRQ without a clock.
          */
         uint32_t old = w->regfile[off / 4];
+        if ((value & UINT32_C(0x80000000)) &&
+            !(old & UINT32_C(0x80000000))) {
+            qemu_log_mask(LOG_UNIMP,
+                          "EXeSX I2S @0x%" HWADDR_PRIx
+                          " %s enabled: audio clock/FIFO/DMA/IRQ"
+                          " not implemented\n",
+                          w->base + off, off == 0x08 ? "TX" : "RX");
+        }
         uint32_t status = (old & UINT32_C(0x001c0000)) &
                           ~(value & UINT32_C(0x001c0000));
         w->regfile[off / 4] = (value & ~UINT32_C(0x031c0000)) |
