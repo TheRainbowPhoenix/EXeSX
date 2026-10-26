@@ -97,3 +97,42 @@ Keep 38ms an *E2-specific* diagnostic duration; do not globally
 weaken menu/boot keyboard contacts that already work.
 
 All owner-ROM screenshots and logs remain private.
+
+
+## Authentic M4 I2C / PORTB trace after source-derived strokes
+
+A separate owner-private native Linux QEMU run used the corrected I2S
+profile, BU21029 LPI2C2 attachment, explicit raw contact-file strokes,
+38ms real ENTER, and **guest_errors/unimp diagnostics from launch**.
+We retained the original A7 menu execution filter, avoiding the
+hot-switch debugger perturbation. Actual original A7 0x400B completion,
+menu painter, row13 E2 entry, full-screen X, and 552 explicit physical
+raw touch samples were observed. E2 stayed open without NG (short
+ENTER) but the image did not visibly erase.
+
+The serial MMIO trace establishes that original M4 talks to the
+BU21029 device at LPI2C2 0x41035000, reading one-byte status:
+- BU21029 ACK and RX_REQUEST count=1 both occur in original execution.
+- **RX_REQUEST count=14 never occurs in the entire observed trace**.
+  Consequently, there is no genuine original-firmware seven-word X/Y/
+  pressure packet consumption during the replay.
+- PORTB.PCR3 writes at 0x4104000C include both 0x00080000
+  (low-level IRQ mode) and 0 (disarmed); PORTB.ISFR acknowledgements
+  at 0x410400A0 are also observed.
+
+This narrows the current failure to the original M4 pen-detection/
+touch-worker arming path **upstream of the 14-byte ADC read**.
+It does not establish whether the root issue is GPIO voltage selection,
+IRQ scheduling/clearing, controller status bits, or higher-level mode
+IPC. The synthetic IRQ57 probe remains green but is not a substitute
+for the unchanged ROM driving that path.
+
+**Do not** fix E2 by pushing 0x6000 records directly to A7 or marking
+zero pixels as covered. Preserve actual M4 state changes and verify
+that a real RX_REQUEST count=14 follows pen-down before attempting
+any more full-screen strokes. The source-derived geometry and
+raw input replay were already exercised; coordinate orientation alone
+cannot fix the absence of measurement transactions.
+
+All original OSUP, private log/screen, raw media and touch streams
+remain off GitHub.
