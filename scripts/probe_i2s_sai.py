@@ -46,7 +46,7 @@ def make_elf():
         load(2,0,0x10); store(2,7,bank*32+16)
         lit(1,0x00200040);store(1,0,0x94)      # RCR3
         load(2,0,0x94); store(2,7,bank*32+20)
-        lit(1,0x20000000)                      # FR selfclear
+        lit(1,0x02000000)                      # FR bit25 selfclear per NXP header
         store(1,0,0x88)
         load(2,0,0x88);store(2,7,bank*32+24)
     emit(0xeafffffe)
