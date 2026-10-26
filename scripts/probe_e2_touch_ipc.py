@@ -8,6 +8,7 @@ from e2_original_touch_ipc import (
 )
 from probe_postdma_handoff import decode_registers
 from factory_control_panel import e2_debug_options
+from drive_e2_cross import genuine_e2_exit_contact
 
 
 def main():
@@ -61,6 +62,16 @@ def main():
         pass
     else:
         raise AssertionError("Overlapping HMP/GDB ports accepted")
+    class FakeContact:
+        def __init__(self):
+            self.writes = []
+        def write_text(self, value, encoding):
+            self.writes.append((value, encoding))
+    c = FakeContact()
+    duration = []
+    genuine_e2_exit_contact(c, .06, sleeper=duration.append)
+    assert c.writes == [("0x94\n", "ascii"), ("0\n", "ascii")]
+    assert duration == [.06]
     print("PASS E2 original 0x180C: A7 call target, arm/disarm arg,"
           " register preservation, return-PC validation, E2 gate")
 
