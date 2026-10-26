@@ -201,8 +201,15 @@ static uint8_t exesx_bu21029_read_byte(EXeSXProfileWindow *w)
          * First two are raw 12-bit coordinates shifted left by four.
          * Other slots are Z readings / optional dual-touch metadata;
          * never report a second contact without a second host input. */
+        /*
+         * Original M4 FUN_1ffdba48: raw word0 (local_4c) becomes
+         * *param_2, raw word1 (local_4a) becomes *param_1.
+         * So BU21029 first ADC word is Y; second is X. Keep host
+         * coordinates named X/Y in screen/electrode order, swap only
+         * at the actual serialized controller report boundary.
+         */
         uint16_t words[7] = {
-            (uint16_t)(x << 4), (uint16_t)(y << 4),
+            (uint16_t)(y << 4), (uint16_t)(x << 4),
             (uint16_t)(z1 << 4), (uint16_t)(z2 << 4),
             (uint16_t)(z1 << 4), 0, 0
         };
