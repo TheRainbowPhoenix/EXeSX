@@ -95,7 +95,7 @@ def run(a):
                     registers = value.get("m4_registers", "")
                     m4_cpu = {}
                     for name in ("R13", "R14", "R15", "xPSR", "MSP", "PSP"):
-                        match = re.search(r"\\b" + name +
+                        match = re.search(r"\b" + name +
                                           r"=([0-9a-fA-F]{8})", registers)
                         if match:
                             m4_cpu[name.lower()] = "0x" + match.group(1)
