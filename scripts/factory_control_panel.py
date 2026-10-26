@@ -309,8 +309,17 @@ class EmulatorWorker(threading.Thread):
             # *(uint8_t*)0x1FFECD58 & 0x5 to decide whether to give
             # semaphore object 10 (0x1FFE42FA). Do NOT write those bits.
             guard = self.qmp.hmp("xp /1wx 0x1ffecd58")
+            state = self.qmp.hmp("xp /4wx 0x1ffecd58")
             ipc = self.qmp.hmp("xp /6wx 0x2f028000")
-            self.post("400b_flow", {"m4_guard": guard, "shared_ipc": ipc})
+            # HMP cpu 1 in separate calls silently resets to CPU0.
+            # info registers 1 explicitly selects the actual M4 vCPU.
+            self.qmp.execute("stop")
+            try:
+                m4_regs = self.qmp.hmp("info registers 1")
+            finally:
+                self.qmp.execute("cont")
+            self.post("400b_flow", {"m4_guard": guard, "m4_state": state,
+                                    "shared_ipc": ipc, "m4_registers": m4_regs})
         elif what == "read_adc" and self.proc and self.qmp:
             # ADC MMIO has RESERVED holes (+0x08/+0x0c), so a bulk
             # xp /16wx fails even though all the real registers are mapped.
