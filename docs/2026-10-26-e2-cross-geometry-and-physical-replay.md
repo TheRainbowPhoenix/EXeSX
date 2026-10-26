@@ -67,3 +67,33 @@ pen IRQ, and original IPC input worker proceed during E2. Independently
 check A7 FUN_60047504 for actual type 0x6000 records. Only report an
 E2 PASS when the ORIGINAL LCD genuinely reports OK, not when the
 firmware-free device register test passes.
+
+
+## Critical early-exit timing control on corrected native build
+
+Using the latest Linux native binary from commit 9afb9cd and unchanged
+owner OSUP (real 0x400B return, menu painter, LCD-confirmed row13):
+
+- **60ms physical ENTER** (original headless sweep default): E2 displayed
+  the diagonal cross and quickly showed NG, before the 36-stroke physical
+  sweep could complete.
+- **38ms physical ENTER** (targeted original-ROM differential): the same
+  genuine menu entry recognized ENTER and opened E2, but **did not show
+  NG or OK during a 33-second observation window**. The real black cross
+  remained onscreen.
+- The private physical touch file then supplied the same **36 strokes /
+  1,649 raw samples**, with 50ms release gaps and corrected 14-byte
+  X/Y/Z1/Z2/PX/PY/GH packing. The initial cross appeared in successive
+  framebuffer snapshots, then stopped changing; **no touch-drawn
+  rasterization was observed** despite the contact-file updates.
+
+This distinguishes an unwanted/early exit event (60ms key case) from
+an independently missing input-event delivery path (38ms case). It
+is **not** evidence of a passing E2 touchscreen: source
+FUN_6005c6bc only reports OK on actual raster coverage at exit.
+A targeted original M4 I2C2 0x40 read / PTB3 ISR and A7 event 0x6000
+trace is necessary before changing hardware behavior further.
+Keep 38ms an *E2-specific* diagnostic duration; do not globally
+weaken menu/boot keyboard contacts that already work.
+
+All owner-ROM screenshots and logs remain private.
