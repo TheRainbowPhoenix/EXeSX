@@ -49,7 +49,8 @@ def parse_m4_event10_guard(text):
 
 def check(name, condition, blocked=None):
     return {"name": name, "status": "PASS" if condition else
-            ("BLOCKED" if blocked else "FAIL"), "blocked_by": blocked}
+            ("BLOCKED" if blocked else "FAIL"),
+            "blocked_by": None if condition else blocked}
 
 
 def run(a):
@@ -206,7 +207,9 @@ def run(a):
                 " ({})".format(item["blocked_by"]) if item["blocked_by"] else ""),
                 flush=True)
         print("PRIVATE REPORT:", outfile, flush=True)
-        return 0 if menu and painter and did_down else (3 if menu else 2)
+        return (0 if (menu and painter and did_down and
+                       before_down and final_sha != before_down) else
+                (3 if menu else 2))
     finally:
         actions.put(("quit", None))
         worker.join(timeout=12)
