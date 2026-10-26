@@ -56,6 +56,7 @@ def synthetic_elf():
     start(0x80)
     load(2, 0, 0x14)
     output(0)
+    command(0x80)    # trigger original BU21029 continuous autoscan mode
     read_reg(0x68, 1)  # BU21029 STATUS register 0x0d
     read_reg(0x70, 2)  # ID high
     read_reg(0x78, 3)  # ID low

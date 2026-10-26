@@ -212,8 +212,19 @@ static uint8_t exesx_bu21029_read_byte(EXeSXProfileWindow *w)
     reg = (cmd >> 3) & 15;
     bank = (cmd >> 2) & 1;
     if (bank == 0 && reg == 0x0d) {
-        /* STATUS: AUTO + BUSY + TOUCH; no invented calibration done. */
-        return 0x48 | (down ? 1U : 0U);
+        /*
+         * Original M4 FUN_1ffdbe18 issues calibration CF=5 (0xa8)
+         * and polls STATUS.CALIB_DONE bit1. Real ROHM STATUS:
+         * D6 AUTO, D5 PDM, D3 BUSY, D2 ACTIVE, D1 CALIB_DONE,
+         * D0 TOUCH. Do not leave CALIB_DONE permanently clear.
+         * Model completed conversion at the transaction boundary;
+         * analog startup and sampling delays remain unimplemented.
+         */
+        unsigned status = w->regfile[0x1f8 / 4] & 2;
+        if ((w->regfile[0x1fc / 4] & 0xfc) == 0x80) {
+            status |= 0x48; /* automatic conversion in progress */
+        }
+        return status | (down ? 1U : 0U);
     }
     if (bank == 0 && reg == 0x0e) {
         return 0x02; /* ROHM silicon ID 0x0229 */
@@ -229,6 +240,17 @@ static void exesx_bu21029_write_byte(EXeSXProfileWindow *w,
 {
     if (index == 0) {
         w->regfile[0x1f4 / 4] = data & 0xff; /* command/address */
+        if (data & 0x80) {
+            /* Register-address commands do not end conversion mode. */
+            w->regfile[0x1fc / 4] = data & 0xff;
+        }
+        if ((data & 0xfc) == 0xa8) {
+            /* Calibration CF=5 completes and latches STATUS bit1. */
+            w->regfile[0x1f8 / 4] |= 2;
+            qemu_log_mask(LOG_UNIMP,
+                          "EXeSX BU21029 calibration completion is immediate;"
+                          " conversion delay not implemented\n");
+        }
         if ((data & 0x80) && data != 0x80 && data != 0x84 &&
             data != 0x8d && data != 0xa8) {
             qemu_log_mask(LOG_UNIMP,
@@ -339,7 +361,7 @@ static MemTxResult exesx_lpi2c_read(EXeSXProfileWindow *w, hwaddr off,
             *value = (hi << 4) | lo;
             qemu_log_mask(LOG_GUEST_ERROR,
                           "EXeSX DIAGNOSTIC I2C4B READ byte=0x%02x"
-                          " remaining=%u\\n",
+                          " remaining=%u\n",
                           (unsigned)*value, remaining - 1);
         } else {
             *value = 0x4000;
@@ -396,7 +418,7 @@ static MemTxResult exesx_lpi2c_write(EXeSXProfileWindow *w, hwaddr off,
                 }
                 qemu_log_mask(LOG_GUEST_ERROR,
                               "EXeSX DIAGNOSTIC %s ACK @0x%"
-                              HWADDR_PRIx " rw=%s (not chip-validated)\\n",
+                              HWADDR_PRIx " rw=%s (not chip-validated)\n",
                               accept_ts ? "BU21029" :
                               (accept_bu ? "BU26154" :
                               (accept40 ? "I2C40" : "I2C4B")),
@@ -405,7 +427,7 @@ static MemTxResult exesx_lpi2c_write(EXeSXProfileWindow *w, hwaddr off,
                 w->regfile[0x14 / 4] |= 0x400; /* NDF, no slave */
                 qemu_log_mask(LOG_GUEST_ERROR,
                               "EXeSX LPI2C @0x%" HWADDR_PRIx
-                              " address=0x%02x: NACK (no slave attached)\\n",
+                              " address=0x%02x: NACK (no slave attached)\n",
                               w->base, address_byte);
             }
         } else if (cmd == 1 &&
@@ -419,7 +441,7 @@ static MemTxResult exesx_lpi2c_write(EXeSXProfileWindow *w, hwaddr off,
             w->regfile[0x1c4 / 4] = (bits & 0xff) + 1;
             w->regfile[0x1c8 / 4] = 0;
             qemu_log_mask(LOG_GUEST_ERROR,
-                          "EXeSX DIAGNOSTIC %s RX_REQUEST count=%u\\n",
+                          "EXeSX DIAGNOSTIC %s RX_REQUEST count=%u\n",
                           exesx_bu21029_active(w) ? "BU21029" :
                           (w->regfile[0x1c0 / 4] == 0x35 ? "BU26154" :
                           (w->regfile[0x1c0 / 4] == 0x81 ? "I2C40" : "I2C4B")),
@@ -459,7 +481,7 @@ static MemTxResult exesx_lpi2c_write(EXeSXProfileWindow *w, hwaddr off,
                                    ((bits & 0xff) << 8);
                     qemu_log_mask(LOG_GUEST_ERROR,
                                   "EXeSX DIAGNOSTIC I2C4B pointer=0x%04x"
-                                  " (unidentified slave)\\n", ptr);
+                                  " (unidentified slave)\n", ptr);
                 }
             }
         } else if (cmd == 2) {
