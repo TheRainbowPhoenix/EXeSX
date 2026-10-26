@@ -120,6 +120,16 @@ class EmulatorWorker(threading.Thread):
         self.stop_vm()
         self.boot_attempt += 1
         self.chord_released = False
+        # A real BU21029 changes original M4 touch/keyboard init latency.
+        # Keep the simultaneous power-on matrix contacts longer only for
+        # this explicitly opted-in model; no IPC/key event is fabricated.
+        self.boot_chord_seconds = args.release_at
+        if (os.environ.get("EXESX_BU21029_LPI2C_BUS") == "2" and
+                args.release_at == 1.2):
+            self.boot_chord_seconds = 4.0
+            self.post("status",
+                      "Opt-in BU21029: holding genuine power-on key chord"
+                      " for 4.0 s (override with --release-at)")
         self.menu_macro_fired = False
         self.last_menu_keys_at = None
         args = self.args
@@ -374,7 +384,7 @@ class EmulatorWorker(threading.Thread):
                         self.post("status", "QEMU PID {} alive ({} s); {}. {} frames.".format(
                             self.proc.pid, age, step, self.frame_count))
                     if (self.mode in ("popup","menu") and not self.chord_released
-                            and time.monotonic() - self.start_time >= self.args.release_at):
+                            and time.monotonic() - self.start_time >= self.boot_chord_seconds):
                         self.physical(None)
                         self.chord_released = True
                     self.trace_step()
