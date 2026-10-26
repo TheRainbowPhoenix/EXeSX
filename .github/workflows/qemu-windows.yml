@@ -111,6 +111,8 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           & $pythonExe scripts/probe_e2_cross_geometry.py
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & $pythonExe scripts/probe_e2_touch_ipc.py
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Archive tested Windows distribution
         shell: pwsh
         run: |
