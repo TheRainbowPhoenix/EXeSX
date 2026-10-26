@@ -137,6 +137,18 @@ def prepare_media(args, output):
 
 def profile_with_lcd(path, output):
     text = path.read_text(encoding="utf-8")
+    # Owner test suites may retain a pre-I2S original-ROM profile. This is
+    # exactly the old 0x400B HardFault (CFSR=0x8200 BFAR=0x41037008):
+    # new QEMU code cannot register a missing MMIO window if it is absent
+    # from EXESX_MEMORY_PROFILE. Backfill both *hardware* SAI windows only
+    # for the factory helper, and report it instead of silently timing out.
+    for label, base in (("i2s0-m4", "0x41037000"),
+                        ("i2s1-m4", "0x410aa000")):
+        if base not in text.lower():
+            text += ("\n[" + label + "]\nkind=imx7ulp-i2s\n"
+                     "base=" + base + "\nsize=0x100\n")
+            print("EXeSX factory profile: restored missing " + label +
+                  " MMIO window " + base, flush=True)
     if "[diagnostic-flexbus-lcd]" not in text and "base=0xb0000000" not in text.lower():
         text += ("\n[diagnostic-flexbus-lcd]\nkind=exesx-lcd\n"
                  "base=0xb0000000\nsize=0x1000\n")
