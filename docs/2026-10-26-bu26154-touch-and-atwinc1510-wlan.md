@@ -30,3 +30,17 @@ The successful original factory-menu sweep reached `WIFI AUTO TEST` but produced
 ## Safety and status
 
 No touch or Wi-Fi chip responses are enabled by default on DY357. Do not upload photos, MAC addresses, private OSUP, extracted A7/M4 binary, original screenshots or execution traces to the public repository. Preserve observed factory `NG` touch outcomes rather than fabricating a pass. This initial change is an opt-in, hardware-specific **digital-subset implementation** with synthetic tests; complete original firmware integration and WLAN behavior remain outstanding.
+
+## Real unchanged DY357 original OSUP: negative E2 touch differential
+
+After the native Linux QEMU compiled the new BU26154 model, the owner-derived unchanged original A7/M4 firmware was cold-booted twice with `EXESX_BU26154_LPI2C_BUS=2`, the explicit synthetic ADC source `0x1230/0x4560`, and eMMC+disposable SD both `snapshot=on`. The real `0x9C+0x90` chord and `0x93,0x93,0x94` accepted guest keyboard contacts led to original `0x400B` return and factory-menu painter. Genuine DOWN navigation with LCD-highlight verification selected **row 13 E2 PATTERN CHECK**, then original ENTER. Host QMP framebuffer sampling was disabled until the real painter executed; no guest RAM/IPC writes or forced jumps.
+
+- **No-contact control:** `EXESX_BU26154_TOUCH_FILE` contained `0 2048 2048`. The original factory E2 touch cross displayed. No complete touch interaction was observed.
+- **Contact differential:** a separate fresh cold boot with the raw file `1 2048 2048`, remaining pressed through E2 entry, displayed the real factory `NG` / `Retry 'TOUCH PANEL CROSS TEST'` failure. This is a **negative integration test** of the candidate bus and unscheduled touch ADC: the factory test does **not** pass by supplying an arbitrary BU26154 register sample.
+- Both were authentic guest execution and LCD captures from native QEMU, but **did not trace an original guest transaction to the opt-in address 0x1A**. They do not demonstrate whether DY357 uses BU26154, what bus is wired, whether the touch ADC is enabled, or which GPIO/interrupt indicates pen state. Missing physical pen IRQ/analog timing remain explicit.
+
+The original private screenshots, OSUP, traces, raw touch inputs and virtual media are *not* published. Avoid manufacturing touch hits or overriding the negative NG outcome. Next decisive experiment: record STOP-aware I2C or SPI accesses and original firmware touch subroutine PC during the E2 target, correlate any address 0x1A traffic and pen IRQ. Only then wire the correct input path and test actual per-target touch coordinates (not an always-pressed static center sample).
+
+## WLAN logging addition
+
+`hw/arm/exesx-imx7ulp-lpspi.inc` now emits a `LOG_UNIMP` warning when LPSPI2 CR.MEN is newly enabled: register enable alone has **no SPI clock, TX/RX FIFO, chip-select, or IRQ engine**, and there is no verified ATWINC attachment. Existing strict unsupported register accesses still bus-fault. This diagnostic must **not** be interpreted as evidence that the pictured ATWINC1510 is on LPSPI2.
