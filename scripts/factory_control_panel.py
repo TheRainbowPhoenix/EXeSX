@@ -170,7 +170,9 @@ class EmulatorWorker(threading.Thread):
             "-device", "loader,file={},cpu-num=0".format(elf),
             "-d", "exec", "-dfilter",
             ("0x60010868+0x140,0x6003a878+0x500,0x60006240+0x60,0x60057668+0x30,"
-             "0x1ffe470c+0x90,0x1ffd537e+0x100,0x1ffd8e76+0x200,0x1ffd6320+0x90"
+             "0x1ffe3e1e+0x24,0x1ffe4126+0x24,0x1ffe4174+0x18,"
+             "0x1ffe42bc+0x44,0x1ffe4438+0x12,0x1ffe4776+0x18,"
+             "0x1ffd635c+0x8,0x1ffd6450+0x8"
              if getattr(args, "trace_m4_400b", False) else
              "0x60010868+0x140,0x6003a878+0x500,0x60006240+0x60,0x60057668+0x30"),
             "-D", str(trace),
@@ -285,6 +287,14 @@ class EmulatorWorker(threading.Thread):
         elif what == "read_ipc" and self.proc and self.qmp:
             # Read original shared control request on the sole QMP owner thread.
             self.post("ipc", self.qmp.hmp("xp /12wx 0x2f028000"))
+        elif what == "read_400b_flow" and self.proc and self.qmp:
+            # Post-menu read-only M4 guard + original A7/M4 control slot.
+            # Object 7 bit24 handler at 0x1FFE42BC uses
+            # *(uint8_t*)0x1FFECD58 & 0x5 to decide whether to give
+            # semaphore object 10 (0x1FFE42FA). Do NOT write those bits.
+            guard = self.qmp.hmp("xp /1wx 0x1ffecd58")
+            ipc = self.qmp.hmp("xp /6wx 0x2f028000")
+            self.post("400b_flow", {"m4_guard": guard, "shared_ipc": ipc})
         elif what == "read_adc" and self.proc and self.qmp:
             # ADC MMIO has RESERVED holes (+0x08/+0x0c), so a bulk
             # xp /16wx fails even though all the real registers are mapped.
