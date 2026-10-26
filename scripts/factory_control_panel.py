@@ -119,6 +119,7 @@ class EmulatorWorker(threading.Thread):
     def start_vm(self, mode):
         self.stop_vm()
         self.boot_attempt += 1
+        args = self.args
         self.chord_released = False
         # A real BU21029 changes original M4 touch/keyboard init latency.
         # Keep the simultaneous power-on matrix contacts longer only for
@@ -132,7 +133,6 @@ class EmulatorWorker(threading.Thread):
                       " for 4.0 s (override with --release-at)")
         self.menu_macro_fired = False
         self.last_menu_keys_at = None
-        args = self.args
         self.output = args.output_dir.resolve()
         self.output.mkdir(parents=True, exist_ok=True)
         if self.prepared_inputs is None:
