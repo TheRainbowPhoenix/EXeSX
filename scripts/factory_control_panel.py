@@ -59,6 +59,37 @@ def pure_rgb565_lcd(mm):
     return rgb565_to_rgb888(mm[:])
 
 
+def e2_debug_options(environment):
+    """Explicit loopback-only guest debugging; completely disabled normally.
+
+    The original-A7 diagnostic needs two independent connections so the
+    factory worker can retain its QMP monitor and LCD frame thread.
+    """
+    ports = []
+    for name in ("EXESX_E2_HMP_PORT", "EXESX_E2_GDB_PORT"):
+        raw = environment.get(name, "")
+        if not raw:
+            ports.append(None)
+            continue
+        if not raw.isascii() or not raw.isdecimal():
+            raise ValueError(name + " must be a decimal TCP port")
+        port = int(raw)
+        if not 1 <= port <= 65535:
+            raise ValueError(name + " outside TCP port range")
+        ports.append(port)
+    hmp_port, gdb_port = ports
+    if hmp_port is not None and hmp_port == gdb_port:
+        raise ValueError("E2 GDB and HMP ports must differ")
+    hmp = ("tcp:127.0.0.1:{},server=on,wait=off".format(hmp_port)
+           if hmp_port else "none")
+    gdb = (["-gdb", "tcp:127.0.0.1:{}".format(gdb_port)]
+           if gdb_port else [])
+    trace = ("exec,guest_errors,unimp"
+             if environment.get("EXESX_E2_TRACE_I2C", "") == "1"
+             else "exec")
+    return hmp, gdb, trace
+
+
 class EmulatorWorker(threading.Thread):
     def __init__(self, args, actions, updates):
         super().__init__(daemon=True, name="EXeSX-QEMU-monitor")
@@ -182,14 +213,15 @@ class EmulatorWorker(threading.Thread):
         if lib.is_dir():
             env["LD_LIBRARY_PATH"] = str(lib) + os.pathsep + env.get("LD_LIBRARY_PATH", "")
         port = choose_port()
+        monitor_spec, gdb_options, qemu_log_categories = e2_debug_options(env)
         command = [
             str(args.qemu.resolve()), "-machine", "exesx", "-m", "64M",
             "-accel", "tcg,thread={}".format(getattr(args, "tcg_thread", "multi")), "-display", "none", "-serial", "none",
-            "-monitor", "none", "-no-reboot",
+            "-monitor", monitor_spec, "-no-reboot",
             "-S", "-qmp", "tcp:127.0.0.1:{},server=on,wait=off".format(port),
             "-drive", "if=none,id=exesx-emmc,file={},format=raw,snapshot=on".format(emmc),
             "-device", "loader,file={},cpu-num=0".format(elf),
-            "-d", "exec", "-dfilter",
+            "-d", qemu_log_categories, "-dfilter",
             ("0x60010868+0x140,0x6003a878+0x500,0x60006240+0x60,0x60057668+0x30,"
              "0x1ffe3e1e+0x24,0x1ffe4126+0x24,0x1ffe4174+0x18,"
              "0x1ffe42bc+0x44,0x1ffe4438+0x12,0x1ffe4776+0x18,"
@@ -198,6 +230,7 @@ class EmulatorWorker(threading.Thread):
              "0x60010868+0x140,0x6003a878+0x500,0x60006240+0x60,0x60057668+0x30"),
             "-D", str(trace),
         ]
+        command += gdb_options
         if args.sd:
             command += ["-drive", "if=none,id=exesx-sd,file={},format=raw,snapshot=on".format(args.sd)]
         self.console = (self.output / "gui-console-private.log").open("wb")
