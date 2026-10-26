@@ -183,6 +183,7 @@ jobs:
           python3 scripts/probe_factory_profile_backfill.py
           python3 scripts/probe_e2_cross_geometry.py
           python3 scripts/probe_e2_touch_ipc.py
+          python3 scripts/check_original_touch_dispatch.py
       - name: Bundle tested native emulator
         run: |
           mkdir -p dist/exesx-qemu-linux-x86_64
