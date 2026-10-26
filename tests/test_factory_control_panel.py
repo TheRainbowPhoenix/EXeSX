@@ -54,6 +54,19 @@ class FloatingKeyboardTests(unittest.TestCase):
                          "BLOCKED")
         self.assertEqual(check("menu painter", False)["status"], "FAIL")
 
+    def test_event10_guard_read_only_decoder(self):
+        from headless_factory_menu_checks import parse_m4_event10_guard
+        normal = parse_m4_event10_guard("000000001ffecd58: 0x00000000")
+        self.assertTrue(normal["accessible"])
+        self.assertFalse(normal["bit0_or_bit2_blocks_event10"])
+        for mask in (1, 4, 5):
+            guard = parse_m4_event10_guard(
+                "000000001ffecd58: 0x{:08x}".format(mask))
+            self.assertTrue(guard["bit0_or_bit2_blocks_event10"])
+        inaccessible = parse_m4_event10_guard("Cannot access memory")
+        self.assertFalse(inaccessible["accessible"])
+        self.assertIsNone(inaccessible["bit0_or_bit2_blocks_event10"])
+
     def test_raw_key_labels_are_not_guessed(self):
         self.assertIn(("DOWN",0x91), gui.KNOWN)
         self.assertIn(("BOOT",0x9c), gui.KNOWN)
