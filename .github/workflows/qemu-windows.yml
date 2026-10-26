@@ -109,6 +109,8 @@ jobs:
           $pythonExe = (Get-Command python -ErrorAction Stop).Source
           & $pythonExe scripts/probe_factory_profile_backfill.py
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & $pythonExe scripts/probe_e2_cross_geometry.py
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Archive tested Windows distribution
         shell: pwsh
         run: |
