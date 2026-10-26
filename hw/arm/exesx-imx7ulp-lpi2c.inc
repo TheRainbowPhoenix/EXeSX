@@ -247,11 +247,15 @@ static void exesx_bu21029_write_byte(EXeSXProfileWindow *w,
 {
     if (index == 0) {
         w->regfile[0x1f4 / 4] = data & 0xff; /* command/address */
-        if (data & 0x80) {
-            /* Register-address commands do not end conversion mode. */
+        if ((data & 0x80) &&
+            (!(data & 0x04) || (data & 0x01))) {
+            /*
+             * CMSK=1 selects conversion result for I2C read; this does
+             * not turn off an existing CF=0 autoscan! STPCF=1, however,
+             * explicitly aborts the conversion and powers down.
+             */
             w->regfile[0x1fc / 4] = data & 0xff;
             if ((data & 0xfc) == 0x80) {
-                /* Save autoscan epoch in serialized register state. */
                 w->regfile[0x200 / 4] =
                     (uint32_t)(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) / 1000);
             }

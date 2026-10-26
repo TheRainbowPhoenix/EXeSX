@@ -76,6 +76,8 @@ def synthetic_elf():
     lit(0, 0x41040000)
     lit(1, 0x80000)
     store(1, 0, 0x0c) # PORTB.PCR3 IRQC=8 (logic-zero)
+    lit(0, I2C)
+    read_reg(0x68, 19) # CMSK=1 conversion read must preserve AUTO
     # Polling IRQ runs in M4 virtual time after CPU reaches a tight loop.
     emit(0xeafffffe)
     for pos, reg, value in literals:
@@ -138,7 +140,7 @@ def run(qemu, profile, enabled=False, contact=None):
                         m = re.search(r":\s+0x([0-9a-fA-F]+)", value)
                         assert m, value
                         return int(m.group(1), 16)
-                    data = [read_word(OUT + 4 * i) for i in range(19)]
+                    data = [read_word(OUT + 4 * i) for i in range(20)]
                     isfr = read_word(0x410400a0)
                     # A7's MMIO aperture cannot read the M4's NVIC.
                     # Inspect IRQ57 through the actual M4 CPU GDB view.
@@ -167,15 +169,15 @@ def main():
     args = p.parse_args()
     qemu, profile = args.qemu.resolve(), args.profile.resolve()
     absent, none_irq, none_pending, _ = run(qemu, profile, False, "1 291 2748")
-    assert absent[0] == 0x401 and absent[1:18] == [0x4000] * 17, absent
+    assert absent[0] == 0x401 and absent[1:18] == [0x4000] * 17 and absent[19] == 0x4000, absent
     assert absent[18] & 8 and not (none_irq & 8) and not (none_pending & (1 << 25)), (absent, none_irq, none_pending)
     released, released_irq, released_pending, _ = run(qemu, profile, True, "0 291 2748")
     assert released[0] == 1 and (released[1] & 0xf7) == 0x40 and released[2:4] == [0x02, 0x29], released
-    assert released[4:18] == [0] * 14, released
+    assert released[4:18] == [0] * 14 and released[19] & 0x40, released
     assert released[18] & 8 and not (released_irq & 8) and not (released_pending & (1 << 25)), (released, released_irq, released_pending)
     pressed, pressed_irq, pressed_pending, logs = run(qemu, profile, True, "1 291 2748")
     assert pressed[0] == 1 and (pressed[1] & 0xf7) == 0x41 and pressed[2:4] == [0x02, 0x29], pressed
-    assert pressed[4:8] == [0x12, 0x30, 0xab, 0xc0], pressed
+    assert pressed[4:8] == [0x12, 0x30, 0xab, 0xc0] and pressed[19] & 0x40, pressed
     assert pressed[18] & 8 == 0 and pressed_irq & 8 and pressed_pending & (1 << 25), (pressed, pressed_irq, pressed_pending)
     assert "BU21029" in logs, logs[-1500:]
     print("PASS BU21029 real ARM: absent NACK, ID/status, raw XY, PTB3/ISFR, M4 NVIC IRQ57 and release")
