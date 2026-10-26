@@ -239,6 +239,21 @@ static uint8_t exesx_bu21029_read_byte(EXeSXProfileWindow *w)
     if (bank == 0 && reg == 0x0f) {
         return 0x29;
     }
+    /*
+     * Power-on defaults from the public BU21029 register definition.
+     * An explicit firmware write (even zero) takes priority. Prior to
+     * this, the synthetic device incorrectly returned 0 for CFR3
+     * reset=0x72, corrupting the real M4 init read-modify-write.
+     */
+    if (!(w->regfile[0x204 / 4 + bank] & (1U << reg)) && bank == 0) {
+        switch (reg) {
+        case 0x00: return 0x20; /* CFR0 */
+        case 0x01: return 0xa6; /* CFR1 */
+        case 0x02: return 0x04; /* CFR2 */
+        case 0x0b: return 0x72; /* CFR3 */
+        default: break;
+        }
+    }
     return w->regfile[0x300 / 4 + bank * 16 + reg] & 0xff;
 }
 
@@ -289,6 +304,7 @@ static void exesx_bu21029_write_byte(EXeSXProfileWindow *w,
                           reg);
         } else {
             w->regfile[0x300 / 4 + bank * 16 + reg] = data & 0xff;
+            w->regfile[0x204 / 4 + bank] |= 1U << reg;
         }
     } else {
         qemu_log_mask(LOG_UNIMP,
