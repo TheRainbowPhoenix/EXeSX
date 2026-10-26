@@ -44,3 +44,11 @@ The original private screenshots, OSUP, traces, raw touch inputs and virtual med
 ## WLAN logging addition
 
 `hw/arm/exesx-imx7ulp-lpspi.inc` now emits a `LOG_UNIMP` warning when LPSPI2 CR.MEN is newly enabled: register enable alone has **no SPI clock, TX/RX FIFO, chip-select, or IRQ engine**, and there is no verified ATWINC attachment. Existing strict unsupported register accesses still bus-fault. This diagnostic must **not** be interpreted as evidence that the pictured ATWINC1510 is on LPSPI2.
+
+## Original WLAN AUTO TEST, post-menu MMIO diagnostics
+
+A separate unchanged-OSUP cold-boot run (private), using the actual row-gated chord and visually verified menu row **8**, reached original factory-menu painter and entered **WIFI AUTO TEST**. The LCD showed its heading but no completion/result during a 13-second bounded observation. **This does not establish a passing WLAN test.**
+
+To avoid boot timing distortion, the host QMP debugger enabled only `exec,unimp` logging **after** the original menu painter was observed. The focused log captured repeated genuine DMA1 framebuffer memory-to-memory copies but **no new LPSPI/ATWINC unsupported-MMIO warning** in that run. That negative trace is *not* proof that the ATWINC chip or a different SPI controller is inactive: it does not identify a WLAN command caller, mapped bus, or GPIO transaction. Next, add targeted A7/M4 driver call tracing and actual SPI/CS/MISO observation in a post-menu snapshot before choosing a WLAN host controller.
+
+Original WLAN LCD screenshot, guest log, raw firmware and storage remain local.
