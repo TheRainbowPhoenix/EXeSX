@@ -39,6 +39,12 @@ typedef struct EXeSXState {
     uint64_t m4_keyboard_code;
     int m4_keyboard_row;
     int64_t m4_keyboard_next_poll_ns;
+    /* Host touch electrodes are sampled once per 5ms guest virtual time,
+     * never on each hot MMIO GPIO/I2C read. External host data is
+     * deliberately resampled after loadvm, not a fabricated guest event. */
+    int64_t m4_touch_next_poll_ns;
+    bool m4_touch_down;
+    uint16_t m4_touch_x, m4_touch_y, m4_touch_z1, m4_touch_z2;
     uint64_t cp15_dacr_s_saved;
     uint64_t cp15_ttbr1_s_saved;
     bool m4_released;

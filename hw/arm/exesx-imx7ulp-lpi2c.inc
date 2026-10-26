@@ -194,7 +194,7 @@ static uint8_t exesx_bu21029_read_byte(EXeSXProfileWindow *w)
     unsigned cmd = w->regfile[0x1f4 / 4] & 0xff;
     unsigned pos = w->regfile[0x1c8 / 4]++;
     uint16_t x = 0, y = 0, z1 = 0, z2 = 0;
-    bool down = exesx_bu21029_contact(&x, &y, &z1, &z2);
+    bool down = exesx_bu21029_contact(w->board, &x, &y, &z1, &z2);
     unsigned reg, bank;
     if (cmd & 0x80) {
         /* M4 FUN_1FFDba12 decodes seven big-endian 16-bit words.
