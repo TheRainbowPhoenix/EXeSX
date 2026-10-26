@@ -150,11 +150,11 @@ def main():
     absent, _ = run(qemu, profile, False, "1 291 2748")
     assert absent[0] == 0x401 and absent[1:8] == [0x4000] * 7, absent
     disconnected, _ = run(qemu, profile, True, None)
-    assert disconnected == [1, 0x78, 0, 0, 0, 0, 0, 0, 0x401], disconnected
+    assert disconnected == [1, 0x78, 0, 0, 0, 0, 0, 0, 0x701], disconnected
     released, _ = run(qemu, profile, True, "0 291 2748")
     assert released == disconnected, released
     touched, diagnostics = run(qemu, profile, True, "1 291 2748")
-    assert touched == [1, 0x78, 0, 0x12, 0x3, 0xab, 0xc, 0, 0x401], touched
+    assert touched == [1, 0x78, 0, 0x12, 0x3, 0xab, 0xc, 0, 0x701], touched
     assert "BU26154 touch control" in diagnostics, diagnostics[-2000:]
     print("PASS BU26154: absent NACK / disconnected / release / X,Y / disable / other-slave NACK")
 
