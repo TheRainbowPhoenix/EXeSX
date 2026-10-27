@@ -127,13 +127,26 @@ static bool exesx_bu21029_pen_irq_asserted(EXeSXState *board)
     down = exesx_bu21029_contact(board, NULL, NULL, NULL, NULL);
     state = w->regfile[0x240 / 4];
     if (!down || (w->regfile[0x1fc / 4] & 0xfc) != 0x80) {
-        /* Pen release or explicit stop/conversion mode: idle, INT HIGH. */
+        /*
+         * ROHM touch detection is a *separate physical circuit*.
+         * In standby, XP's internal pull-up and YN's pull-down make
+         * active-low INT respond directly to pen resistance. The
+         * original M4 expects this pen-down indication before issuing
+         * its 0x80 automatic-scan command. Requiring an existing
+         * autoscan here deadlocks the genuine touch-start sequence.
+         *
+         * With no pen INT is high; when the pen is pressed outside
+         * auto-scan mode it is low. In automatic mode (below), first
+         * data ready gates INT until conversion is complete.
+         * No IRQ is posted directly: PORTB.PCR3 and the M4 NVIC
+         * remain authoritative.
+         */
         if (state && !g_strcmp0(g_getenv("EXESX_TRACE_BU21029"), "1")) {
-            qemu_log("EXeSX BU21029 PEN_IRQ idle: down=%u command=0x%02x prior=%u\n",
+            qemu_log("EXeSX BU21029 PEN_IRQ standby: down=%u command=0x%02x prior=%u\n",
                      down, w->regfile[0x1fc / 4] & 0xff, state);
         }
         w->regfile[0x240 / 4] = 0;
-        return false;
+        return down;
     }
     now_us = (uint32_t)(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) / 1000);
     if (!(state & 1)) {
