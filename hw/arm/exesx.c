@@ -49,7 +49,7 @@ typedef struct EXeSXState {
     uint64_t cp15_ttbr1_s_saved;
     bool m4_released;
     /* MU_A input is M4 NVIC IRQ22; MU_B is GIC SPI19 on A7. */
-    qemu_irq mu_a_irq, mu_b_irq, lpit1_irq, lptmr0_irq, lptmr1_irq, tpm0_irq, m4_porta_irq, m4_portb_irq, adc0_irq, adc1_irq;
+    qemu_irq mu_a_irq, mu_b_irq, lpit0_irq, lpit1_irq, lptmr0_irq, lptmr1_irq, tpm0_irq, m4_porta_irq, m4_portb_irq, adc0_irq, adc1_irq;
     MemoryRegion firmware, vectors, sram, ipc, provisional_writable, lcd_export;
 } EXeSXState;
 
@@ -478,8 +478,10 @@ static void exesx_load_profile(MemoryRegion *sysmem, EXeSXState *board)
                 w->regfile[0x200 / 4] = 1; /* SIRCEN */
                 w->regfile[0x300 / 4] = 1; /* FIRCEN */
             }
-            if (w->base == 0x40270000 &&
-                !g_strcmp0(g_getenv("EXESX_EXPERIMENTAL_LPIT1_IRQ"), "1")) {
+            if ((w->base == 0x40270000 &&
+                 !g_strcmp0(g_getenv("EXESX_EXPERIMENTAL_LPIT1_IRQ"), "1")) ||
+                (w->base == 0x4102d000 &&
+                 !g_strcmp0(g_getenv("EXESX_EXPERIMENTAL_M4_LPIT0_IRQ"), "1"))) {
                 w->lpit_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
                                              exesx_lpit_timer_tick, w);
             }
@@ -770,6 +772,11 @@ static void exesx_init(MachineState *ms)
     sysbus_realize(SYS_BUS_DEVICE(&s->m4), &error_fatal);
     /* MCIMX7U5_cm4_COMMON.h: MU_A_IRQn = 22 (external NVIC line). */
     s->mu_a_irq = qdev_get_gpio_in(DEVICE(&s->m4), 22);
+    /* Original M4 FUN_1FFD684A enables LPIT0_IRQn=49 (0x31).
+     * Timer 2's 1ms callback drives the factory touch worker.
+     * No synthetic flag/event is posted: the guest must program and
+     * acknowledge LPIT0 and NVIC using its real instructions. */
+    s->lpit0_irq = qdev_get_gpio_in(DEVICE(&s->m4), 49);
     /* NXP i.MX7ULP NVIC: LPTMR0_IRQn=36, LPTMR1_IRQn=37. */
     s->lptmr0_irq = qdev_get_gpio_in(DEVICE(&s->m4), 36);
     s->lptmr1_irq = qdev_get_gpio_in(DEVICE(&s->m4), 37);
