@@ -68,8 +68,8 @@ static bool exesx_bu21029_contact(EXeSXState *board,
  * LPI2C2 register file. CF=0 autoscan must precede an IRQ; a raw host
  * electrode alone must not impersonate a completed measurement.
  *
- * State @0x208: bit0 touch scanned/interval started, bit1 INT asserted.
- * Deadline @0x20c: unsigned guest-virtual microseconds (wrap-safe).
+ * State @0x240: bit0 touch scanned/interval started, bit1 INT asserted.
+ * Deadline @0x244: unsigned guest-virtual microseconds (wrap-safe).
  * The first conversion is modeled as 2ms, later conversions as 20.48ms
  * interval + 2ms conversion. Analog filters are not modeled.
  *
@@ -86,33 +86,33 @@ static bool exesx_bu21029_pen_irq_asserted(EXeSXState *board)
         return false;
     }
     down = exesx_bu21029_contact(board, NULL, NULL, NULL, NULL);
-    state = w->regfile[0x208 / 4];
+    state = w->regfile[0x240 / 4];
     if (!down || (w->regfile[0x1fc / 4] & 0xfc) != 0x80) {
         /* Pen release or explicit stop/conversion mode: idle, INT HIGH. */
         if (state && !g_strcmp0(g_getenv("EXESX_TRACE_BU21029"), "1")) {
             qemu_log("EXeSX BU21029 PEN_IRQ idle: down=%u command=0x%02x prior=%u\n",
                      down, w->regfile[0x1fc / 4] & 0xff, state);
         }
-        w->regfile[0x208 / 4] = 0;
+        w->regfile[0x240 / 4] = 0;
         return false;
     }
     now_us = (uint32_t)(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) / 1000);
     if (!(state & 1)) {
-        w->regfile[0x20c / 4] = now_us + 2000;
+        w->regfile[0x244 / 4] = now_us + 2000;
         state = 1;
     } else {
-        deadline = w->regfile[0x20c / 4];
+        deadline = w->regfile[0x244 / 4];
         if (!(state & 2) && (int32_t)(now_us - deadline) >= 0) {
             state |= 2;
         }
     }
-    if (state != w->regfile[0x208 / 4] &&
+    if (state != w->regfile[0x240 / 4] &&
         !g_strcmp0(g_getenv("EXESX_TRACE_BU21029"), "1")) {
         qemu_log("EXeSX BU21029 PEN_IRQ state=%u (old=%u) now_us=%u next_us=%u\n",
-                 state, w->regfile[0x208 / 4], now_us,
-                 w->regfile[0x20c / 4]);
+                 state, w->regfile[0x240 / 4], now_us,
+                 w->regfile[0x244 / 4]);
     }
-    w->regfile[0x208 / 4] = state;
+    w->regfile[0x240 / 4] = state;
     return (state & 2) != 0;
 }
 
