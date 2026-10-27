@@ -47,6 +47,20 @@ def make_elf():
         load(2,0,0x30);store(2,7,bank*48+24)  # FCOUNT0 after pop
         load(2,0,0x300);store(2,7,bank*48+28) # empty
         load(2,0,0x14);store(2,7,bank*48+32)  # STATUS
+    # Distinguish one genuine LPADC SW trigger with CMD1H.LOOP=2
+    # from three separate SW triggers. The original M4 battery-power
+    # routine uses this three-sample sequence with FWMARK0=2.
+    lit(0,0x41041000)
+    lit(1,0x00020200)
+    store(1,0,0x104)         # CMD1H LOOP=2, STS=2
+    lit(1,1)
+    store(1,0,0x34)          # ONE SWTRIG0, three CMD1 conversions
+    load(2,0,0x14);store(2,7,24*4) # FIFO watermark status
+    load(2,0,0x30);store(2,7,25*4) # 3 results, watermark 2
+    for n in range(3):
+        load(2,0,0x300);store(2,7,(26+n)*4)
+    load(2,0,0x14);store(2,7,29*4) # drained, ready deasserted
+    load(2,0,0x30);store(2,7,30*4) # count zero
     op(0xeafffffe)           # harmless infinite original-ARM loop
     for pos,reg,value in literals:
         dest=len(words)*4
@@ -97,7 +111,7 @@ def run(qemu,profile,raw0,raw1):
                     qmp=QMP(sock)
                     qmp.execute("cont")
                     time.sleep(.65)
-                    for n in range(21):
+                    for n in range(31):
                         address=OUT+n*4
                         output=qmp.hmp(f"xp /1wx 0x{address:08x}")
                         m=re.search(r"(?im)^0*"+f"{address:08x}"+r":\s+0x([0-9a-f]+)",output)
@@ -120,7 +134,20 @@ def run(qemu,profile,raw0,raw1):
             got=[fields[i] for i in range(n,n+9)]
             if got!=expected:
                 raise AssertionError(f"ADC{bank}: {list(map(hex,got))} != {list(map(hex,expected))}")
-        print("PASS actual ARM ADC FIFO/watermark", "source off" if raw0 is None else "source explicitly configured")
+        if raw0 is None:
+            expected_loop = [0, 0x00020000, 0, 0, 0, 0, 0x00020000]
+        else:
+            value = 0x81000000 | raw0
+            expected_loop = [1, 0x00020003, value, value, value,
+                             0, 0x00020000]
+        got_loop = [fields[n] for n in range(24,31)]
+        if got_loop != expected_loop:
+            raise AssertionError(
+                f"ADC CMDH LOOP=2 single trigger: "
+                f"{list(map(hex,got_loop))} != "
+                f"{list(map(hex,expected_loop))}")
+        print("PASS actual ARM ADC FIFO/watermark/LOOP=2",
+              "source off" if raw0 is None else "source explicitly configured")
 
 if __name__=="__main__":
     p=argparse.ArgumentParser(description=__doc__)
