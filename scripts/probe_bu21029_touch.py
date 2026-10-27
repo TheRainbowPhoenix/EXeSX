@@ -192,7 +192,10 @@ def main():
     assert pressed[8:12] == [0x32, 0x00, 0x4b, 0x00], pressed  # Z1=800, Z2=1200
     assert pressed[12:18] == [0] * 6, pressed  # PX/PY/GH: single finger
     assert pressed[20:22] == [0x72, 0], pressed
-    assert pressed[18] & 8 == 0 and pressed_irq & 8 and pressed_pending & (1 << 25), (pressed, pressed_irq, pressed_pending)
+    # At the end of a completed 14-byte report the controller releases
+    # INT (PTB3 high). PORTB.ISFR remains latched until the M4 clears it;
+    # a held touch can assert INT again on the next autoscan interval.
+    assert pressed[18] & 8 and pressed_irq & 8 and pressed_pending & (1 << 25), (pressed, pressed_irq, pressed_pending)
     assert "BU21029" in logs, logs[-1500:]
     print("PASS BU21029 real ARM: absent NACK, ID/status, raw XY, CFR3 reset/write, PTB3/ISFR, M4 NVIC IRQ57 and release")
 
