@@ -16,6 +16,20 @@ I2C = ROOT / "hw/arm/exesx-imx7ulp-lpi2c.inc"
 
 
 class BU21029PrivateStateTests(unittest.TestCase):
+    def test_original_cfr2_interval_is_not_linux_default(self):
+        pen = TOUCH.read_text(encoding="utf-8")
+        i2c = I2C.read_text(encoding="utf-8")
+        # Original DY357 M4 writes CFR2=0x4a, selecting 0x4 = 256us.
+        # Generic Linux often writes 0xc9, selecting 0xc = 20480us.
+        us = [0, 0, 0, 0, 256, 1024, 2048, 4096,
+              5120, 8912, 10240, 15360, 20480, 20480, 20480, 20480]
+        self.assertEqual(us[0x4a >> 4], 256)
+        self.assertEqual(us[0xc9 >> 4], 20480)
+        self.assertIn("exesx_bu21029_config(w, 2, 0x04)", pen)
+        self.assertIn("256, 1024, 2048, 4096", pen)
+        self.assertIn("exesx_bu21029_interval_us(w)", i2c)
+        self.assertIn("exesx_bu21029_conversion_us(w)", i2c)
+
     def test_scan_slots_do_not_alias_bank1_write_mask(self):
         pen = TOUCH.read_text(encoding="utf-8")
         i2c = I2C.read_text(encoding="utf-8")
