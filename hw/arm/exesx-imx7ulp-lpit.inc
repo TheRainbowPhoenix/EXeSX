@@ -2,10 +2,11 @@
  * NXP i.MX7ULP LPIT0/LPIT1, simple four-channel interval timer.
  * PERI_LPIT.h: MCR +0x08, MSR +0x0c, MIER +0x10,
  * SETTEN/CLRTEN +0x14/+0x18, TVAL/CVAL/TCTRL 0x20+0x10*n.
- * Current counter tracks QEMU virtual microseconds (uncalibrated).
- * Interrupt flags are exposed for polling; the A7 LPIT1 IRQ output is
- * optionally wired to GIC SPI25 with EXESX_EXPERIMENTAL_LPIT1_IRQ=1.
- * The LPIT0/M4 IRQ and DMA outputs remain unimplemented.
+ * LPIT1 retains the existing 1MHz provisional tick. Opt-in M4 LPIT0
+ * runs at the original firmware's effective 12MHz timer source. Its
+ * genuine interrupt is routed to Cortex-M4 NVIC IRQ49 when enabled via
+ * EXESX_EXPERIMENTAL_M4_LPIT0_IRQ=1. LPIT1 continues to use GIC SPI25.
+ * DMA outputs remain unimplemented.
  * Hidden per-channel timestamps are saved by board VMState regfile.
  */
 static bool exesx_lpit_valid(EXeSXProfileWindow *w, hwaddr off)
@@ -33,6 +34,36 @@ static void exesx_lpit_epoch_reset(EXeSXProfileWindow *w, unsigned n)
     w->regfile[(0x200+0x10*n)/4] = (uint32_t)t;
     w->regfile[(0x204+0x10*n)/4] = (uint32_t)(t >> 32);
 }
+/*
+ * Original M4 FUN_1FFD684A programs CH1.TVAL=12000 for a 1ms touch
+ * timer, selecting an effective 12MHz LPIT0 clock. The existing A7
+ * LPIT1 diagnostic source continues at 1MHz. Keep both derived from
+ * QEMU virtual time; the original guest supplies period/MIER/TCTRL.
+ *
+ * With LPIT0 opt-in disabled preserve legacy 1MHz polling behavior.
+ * 12MHz -> 12 ticks per microsecond, so values of 12000 are 1ms.
+ */
+static bool exesx_lpit_m4_clock(EXeSXProfileWindow *w)
+{
+    return w->base == UINT64_C(0x4102d000) &&
+           !g_strcmp0(g_getenv("EXESX_EXPERIMENTAL_M4_LPIT0_IRQ"), "1");
+}
+static uint64_t exesx_lpit_elapsed_ticks(EXeSXProfileWindow *w,
+                                         uint64_t delta_ns)
+{
+    if (exesx_lpit_m4_clock(w)) {
+        return (delta_ns / 1000) * 12 + (delta_ns % 1000) * 12 / 1000;
+    }
+    return delta_ns / 1000;
+}
+static uint64_t exesx_lpit_duration_ns(EXeSXProfileWindow *w,
+                                       uint64_t ticks)
+{
+    if (exesx_lpit_m4_clock(w)) {
+        return (ticks * 1000 + 11) / 12;
+    }
+    return ticks * 1000;
+}
 static uint32_t exesx_lpit_cval(EXeSXProfileWindow *w, unsigned n)
 {
     uint32_t ctrl = w->regfile[(0x28+0x10*n)/4];
@@ -41,8 +72,9 @@ static uint32_t exesx_lpit_cval(EXeSXProfileWindow *w, unsigned n)
     if (!(w->regfile[0x08/4] & 1) || !(ctrl & 1)) {
         return tval;
     }
-    t = (qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) -
-         exesx_lpit_epoch(w, n)) / 1000;
+    t = exesx_lpit_elapsed_ticks(
+        w, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) -
+           exesx_lpit_epoch(w, n));
     return (uint32_t)(tval - (t % period));
 }
 static MemTxResult exesx_lpit_read(EXeSXProfileWindow *w, hwaddr off,
@@ -65,9 +97,10 @@ static MemTxResult exesx_lpit_read(EXeSXProfileWindow *w, hwaddr off,
         for (n=0; n<4; n++) {
             if ((w->regfile[0x8/4] & 1) &&
                 (w->regfile[(0x28+0x10*n)/4] & 1) &&
-                (qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) -
-                 exesx_lpit_epoch(w,n)) / 1000 >
-                     w->regfile[(0x20+0x10*n)/4]) {
+                exesx_lpit_elapsed_ticks(
+                    w, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) -
+                       exesx_lpit_epoch(w,n)) >
+                    w->regfile[(0x20+0x10*n)/4]) {
                 status |= 1U << n;
             }
         }
@@ -96,9 +129,16 @@ static MemTxResult exesx_lpit_read(EXeSXProfileWindow *w, hwaddr off,
  */
 static void exesx_lpit_irq_update(EXeSXProfileWindow *w)
 {
-    if (w->lpit_timer && w->board->lpit1_irq) {
-        qemu_set_irq(w->board->lpit1_irq,
-                     (w->regfile[0xc / 4] & w->regfile[0x10 / 4] & 0xf) != 0);
+    qemu_irq irq = NULL;
+    if (!w->lpit_timer || !w->board) {
+        return;
+    }
+    irq = w->base == UINT64_C(0x4102d000) ?
+          w->board->lpit0_irq : w->board->lpit1_irq;
+    if (irq) {
+        qemu_set_irq(irq,
+                     (w->regfile[0xc / 4] &
+                      w->regfile[0x10 / 4] & 0xf) != 0);
     }
 }
 static void exesx_lpit_timer_update(EXeSXProfileWindow *w)
@@ -114,7 +154,8 @@ static void exesx_lpit_timer_update(EXeSXProfileWindow *w)
             !(w->regfile[(0x28 + 0x10 * n) / 4] & 1)) {
             continue;
         }
-        period = ((uint64_t)w->regfile[(0x20 + 0x10 * n) / 4] + 1) * 1000;
+        period = exesx_lpit_duration_ns(
+            w, (uint64_t)w->regfile[(0x20 + 0x10 * n) / 4] + 1);
         epoch = exesx_lpit_epoch(w, n);
         if (now >= epoch && now - epoch >= period) {
             uint64_t cycles = (now - epoch) / period;
