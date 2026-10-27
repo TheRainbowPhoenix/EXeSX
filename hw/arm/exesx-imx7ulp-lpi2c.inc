@@ -231,6 +231,10 @@ static uint8_t exesx_bu21029_read_byte(EXeSXProfileWindow *w)
         if ((cmd & 0xfc) == 0x84 &&
             w->regfile[0x1c4 / 4] == 1 &&
             (w->regfile[0x208 / 4] & 2)) {
+            if (!g_strcmp0(g_getenv("EXESX_TRACE_BU21029"), "1")) {
+                qemu_log("EXeSX BU21029 report consumed, INT released pos=%u x=%u y=%u z1=%u z2=%u\n",
+                         pos, x, y, z1, z2);
+            }
             uint32_t now_us =
                 (uint32_t)(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) / 1000);
             w->regfile[0x208 / 4] = 1; /* active scan, INT inactive */
@@ -301,6 +305,12 @@ static void exesx_bu21029_write_byte(EXeSXProfileWindow *w,
 {
     if (index == 0) {
         w->regfile[0x1f4 / 4] = data & 0xff; /* command/address */
+        if ((data & 0x80) &&
+            !g_strcmp0(g_getenv("EXESX_TRACE_BU21029"), "1")) {
+            qemu_log("EXeSX BU21029 command=0x%02x contact_down=%u\n",
+                     (unsigned)(data & 0xff),
+                     exesx_bu21029_contact(w->board, NULL, NULL, NULL, NULL));
+        }
         if ((data & 0x80) &&
             (!(data & 0x04) || (data & 0x01))) {
             /*
@@ -511,6 +521,12 @@ static MemTxResult exesx_lpi2c_write(EXeSXProfileWindow *w, hwaddr off,
                     w->regfile[0x1c0 / 4] == 0x35)) {
             w->regfile[0x1c4 / 4] = (bits & 0xff) + 1;
             w->regfile[0x1c8 / 4] = 0;
+            if (exesx_bu21029_active(w) &&
+                !g_strcmp0(g_getenv("EXESX_TRACE_BU21029"), "1")) {
+                qemu_log("EXeSX BU21029 RX_REQUEST count=%u command=0x%02x\n",
+                         (unsigned)((bits & 0xff) + 1),
+                         w->regfile[0x1f4 / 4] & 0xff);
+            }
             qemu_log_mask(LOG_GUEST_ERROR,
                           "EXeSX DIAGNOSTIC %s RX_REQUEST count=%u\n",
                           exesx_bu21029_active(w) ? "BU21029" :
