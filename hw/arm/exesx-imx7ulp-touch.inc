@@ -64,14 +64,53 @@ static bool exesx_bu21029_contact(EXeSXState *board,
     return board->m4_touch_down;
 }
 
+/* ROHM CFR1/CFR2 analog timing: original DY357 M4 programs CFR1=0xa6,
+ * CFR2=0x4a. CFR2.INVL=4 means 256us, not the 20.48ms used by
+ * Linux's different 0xc9 default. Use the guest-programmed registers,
+ * respecting power-on reset values until each firmware write. */
+static uint32_t exesx_bu21029_config(EXeSXProfileWindow *w,
+                                     unsigned reg, uint8_t reset)
+{
+    if (w->regfile[0x204 / 4] & (UINT32_C(1) << reg)) {
+        return w->regfile[0x300 / 4 + reg] & 0xff;
+    }
+    return reset;
+}
+
+static uint32_t exesx_bu21029_interval_us(EXeSXProfileWindow *w)
+{
+    static const uint32_t intervals[16] = {
+        0, 0, 0, 0, 256, 1024, 2048, 4096,
+        5120, 8912, 10240, 15360, 20480, 20480, 20480, 20480,
+    };
+    uint32_t reg = exesx_bu21029_config(w, 2, 0x04);
+    uint32_t period = intervals[(reg >> 4) & 15];
+    return period ? period : 256; /* reserved values are unsupported */
+}
+
+static uint32_t exesx_bu21029_conversion_us(EXeSXProfileWindow *w)
+{
+    static const uint16_t settle[16] = {
+        10, 20, 30, 40, 50, 60, 70, 80,
+        90, 100, 200, 250, 300, 350, 400, 450,
+    };
+    uint32_t cfr1 = exesx_bu21029_config(w, 1, 0xa6);
+    uint32_t cfr2 = exesx_bu21029_config(w, 2, 0x04);
+    uint32_t smpl = (cfr1 & 7) + 1;
+    /* Datasheet tConv4 = tPON(710us) + tDLY1(1.5us) +
+     * 3*(TIME_ST_ADC + 2*tADC(18us)*SMPL + tDLY2(1us)).
+     * Round initial 1.5us up to 2us; no host timing dependence. */
+    return 712 + 3 * (settle[cfr2 & 15] + 36 * smpl + 1);
+}
+
 /* BU21029 scan and pen-INT state, stored in the existing migration-safe
  * LPI2C2 register file. CF=0 autoscan must precede an IRQ; a raw host
  * electrode alone must not impersonate a completed measurement.
  *
- * State @0x240: bit0 touch scanned/interval started, bit1 INT asserted.
+ * State @0x240: bit0 active, bit1 INT asserted, bit2 between scans.
  * Deadline @0x244: unsigned guest-virtual microseconds (wrap-safe).
- * The first conversion is modeled as 2ms, later conversions as 20.48ms
- * interval + 2ms conversion. Analog filters are not modeled.
+ * Conversion duration and interscan time follow firmware-written CFR1/2.
+ * Analog filtering/output noise are not modeled.
  *
  * Per ROHM Auto Mode sequence, INT is initially HIGH. It goes LOW
  * only after the first full X/Y/Z scan; reading the conversion result
@@ -98,12 +137,13 @@ static bool exesx_bu21029_pen_irq_asserted(EXeSXState *board)
     }
     now_us = (uint32_t)(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) / 1000);
     if (!(state & 1)) {
-        w->regfile[0x244 / 4] = now_us + 2000;
+        w->regfile[0x244 / 4] =
+            now_us + exesx_bu21029_conversion_us(w);
         state = 1;
     } else {
         deadline = w->regfile[0x244 / 4];
         if (!(state & 2) && (int32_t)(now_us - deadline) >= 0) {
-            state |= 2;
+            state = (state & ~UINT32_C(4)) | 2;
         }
     }
     if (state != w->regfile[0x240 / 4] &&
