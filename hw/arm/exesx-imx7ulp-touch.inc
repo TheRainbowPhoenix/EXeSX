@@ -90,7 +90,7 @@ static bool exesx_bu21029_pen_irq_asserted(EXeSXState *board)
     if (!down || (w->regfile[0x1fc / 4] & 0xfc) != 0x80) {
         /* Pen release or explicit stop/conversion mode: idle, INT HIGH. */
         if (state && !g_strcmp0(g_getenv("EXESX_TRACE_BU21029"), "1")) {
-            qemu_log("EXeSX BU21029 PEN_IRQ idle: down=%u command=0x%02x prior=%u\\n",
+            qemu_log("EXeSX BU21029 PEN_IRQ idle: down=%u command=0x%02x prior=%u\n",
                      down, w->regfile[0x1fc / 4] & 0xff, state);
         }
         w->regfile[0x208 / 4] = 0;
@@ -108,7 +108,7 @@ static bool exesx_bu21029_pen_irq_asserted(EXeSXState *board)
     }
     if (state != w->regfile[0x208 / 4] &&
         !g_strcmp0(g_getenv("EXESX_TRACE_BU21029"), "1")) {
-        qemu_log("EXeSX BU21029 PEN_IRQ state=%u (old=%u) now_us=%u next_us=%u\\n",
+        qemu_log("EXeSX BU21029 PEN_IRQ state=%u (old=%u) now_us=%u next_us=%u\n",
                  state, w->regfile[0x208 / 4], now_us,
                  w->regfile[0x20c / 4]);
     }
