@@ -182,6 +182,10 @@ class EmulatorWorker(threading.Thread):
             EXESX_EXPERIMENTAL_M4_BOOT="1",
             EXESX_EXPERIMENTAL_MU_IRQ="1",
             EXESX_EXPERIMENTAL_LPIT1_IRQ="1",
+            # M4 LPIT0 IRQ49: original 1ms timer drives touch worker.
+            # Guest firmware still programs LPIT0/NVIC and posts RTOS
+            # events itself. No synthetic touch messages are generated.
+            EXESX_EXPERIMENTAL_M4_LPIT0_IRQ="1",
             EXESX_EXPERIMENTAL_LPTMR_IRQ="1",
             EXESX_EXPERIMENTAL_LPTMR_PCS_CLOCKS="1",
             EXESX_EXPERIMENTAL_M4_PORT_IRQ="1",
@@ -223,6 +227,8 @@ class EmulatorWorker(threading.Thread):
             ",0x1ffdbfb4+0x20,0x1ffdbfd6+0x58"
             ",0x1ffd53ba+0x20,0x1ffd6bac+0x10"
             ",0x1ffe02a0+0x10,0x1ffdc1c6+0x10"
+            ",0x1ffd684a+0x4a,0x1ffd6988+0x55"
+            ",0x1ffd69f2+0x40"
             if env.get("EXESX_TRACE_TOUCH_WORKER") == "1" else ""
         )
         command = [
