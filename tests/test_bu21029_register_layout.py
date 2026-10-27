@@ -39,8 +39,10 @@ class BU21029PrivateStateTests(unittest.TestCase):
             self.assertIn(ref, i2c)
             self.assertGreaterEqual(offset, 0x220)
             self.assertLess(offset, 0x300)
-        for offset in (0x204, 0x208):
-            self.assertNotIn(f"w->regfile[0x{offset:x} / 4]", pen)
+        # The legitimate PAGE0 write-mask is read by the timing helper.
+        # Only PAGE1 (+0x208) must be absent as a standalone scan slot.
+        self.assertIn("w->regfile[0x204 / 4]", pen)
+        self.assertNotIn("w->regfile[0x208 / 4]", pen)
         self.assertIn("w->regfile[0x204 / 4 + bank]", i2c)
         self.assertNotIn("w->regfile[0x208 / 4]", i2c)
 
