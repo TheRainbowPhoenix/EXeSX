@@ -220,7 +220,23 @@ static uint8_t exesx_bu21029_read_byte(EXeSXProfileWindow *w)
             0, 0, 0
         };
         uint16_t v = (down && pos < 14) ? words[pos / 2] : 0;
-        return (pos & 1) ? (v & 0xff) : (v >> 8);
+        uint8_t byte = (pos & 1) ? (v & 0xff) : (v >> 8);
+        /*
+         * The real BU21029 deasserts active-low INT when the host
+         * consumes a completed coordinate report, then scans again
+         * after INTVL_TIME. This is independent of the M4 PORTB ISR
+         * acknowledgement, which remains the original firmware's job.
+         * The model does not generate fake 0x6000 A7 events.
+         */
+        if ((cmd & 0xfc) == 0x84 &&
+            w->regfile[0x1c4 / 4] == 1 &&
+            (w->regfile[0x208 / 4] & 2)) {
+            uint32_t now_us =
+                (uint32_t)(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) / 1000);
+            w->regfile[0x208 / 4] = 1; /* active scan, INT inactive */
+            w->regfile[0x20c / 4] = now_us + 22480; /* interval + scan */
+        }
+        return byte;
     }
     reg = (cmd >> 3) & 15;
     bank = (cmd >> 2) & 1;
