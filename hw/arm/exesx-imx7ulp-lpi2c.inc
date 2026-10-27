@@ -234,14 +234,24 @@ static uint8_t exesx_bu21029_read_byte(EXeSXProfileWindow *w)
          * analog startup and sampling delays remain unimplemented.
          */
         unsigned status = w->regfile[0x1f8 / 4] & 2;
-        if ((w->regfile[0x1fc / 4] & 0xfc) == 0x80) {
-            uint32_t now_us =
-                (uint32_t)(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) / 1000);
-            uint32_t started_us = w->regfile[0x200 / 4];
-            status |= 0x40; /* continuous autoscan selected */
-            if ((uint32_t)(now_us - started_us) < 2000) {
-                /* Initial scan: BUSY, which must not remain stuck. */
-                status |= 0x08;
+        unsigned conversion = w->regfile[0x1fc / 4] & 0xff;
+        if (conversion & 0x02) {
+            status |= 0x20; /* PDM mirrors the last conversion command */
+        }
+        if ((conversion & 0xfc) == 0x80) {
+            /* CF=0: autoscan mode. With the pen released, the analog
+             * converter is asleep: no first-coordinate conversion is
+             * running and neither BUSY nor ACTIVE may be asserted.
+             * See ROHM BU21029 STATUS D3/D2 and autoscan semantics. */
+            status |= 0x40;
+            if (down) {
+                uint32_t now_us =
+                    (uint32_t)(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) / 1000);
+                uint32_t started_us = w->regfile[0x200 / 4];
+                status |= 0x04; /* ACTIVE: analog circuit powered */
+                if ((uint32_t)(now_us - started_us) < 2000) {
+                    status |= 0x08; /* first-coordinate conversion BUSY */
+                }
             }
         }
         return status | (down ? 1U : 0U);
