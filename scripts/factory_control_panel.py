@@ -579,7 +579,7 @@ def main():
     p.add_argument("--fps", type=float, default=2., help="Host LCD refresh limit, 0.1-4 advised")
     p.add_argument("--no-screenshots", action="store_true",
                    help="Disable all QMP framebuffer reads and image generation during boot")
-    p.add_argument("--tcg-thread", choices=("single", "multi"), default="multi",
+    p.add_argument("--tcg-thread", choices=("single", "multi"), default="single",
                    help="Compare A7/M4 interprocessor scheduling without guest patching")
     p.add_argument("--adc0-sample", type=lambda s:int(s,0), default=None,
                    help="Explicit 16-bit ADC0 result for opt-in original M4 IRQ experiment")
