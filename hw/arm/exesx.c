@@ -35,7 +35,7 @@ typedef struct EXeSXState {
     Clock *m4cpuclk, *m4refclk;
     ARMCPU *a7cpu;
     EXeSXProfileWindow *mu_a, *mu_b, *lcd, *dmamux1, *m4_gpio_a, *m4_gpio_b;
-    EXeSXProfileWindow *m4_port_a, *m4_port_b, *m4_iomuxc0;
+    EXeSXProfileWindow *m4_port_a, *m4_port_b, *m4_iomuxc0, *m4_lpi2c2;
     uint64_t m4_keyboard_code;
     int m4_keyboard_row;
     int64_t m4_keyboard_next_poll_ns;
@@ -430,6 +430,13 @@ static void exesx_load_profile(MemoryRegion *sysmem, EXeSXState *board)
                     timer_mod(w->m4_port_poll_timer,
                               qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 20000000);
                 }
+            }
+            /* The BU21029 pen voltage is driven by actual I2C autoscan
+             * state, not by a host contact file alone. The GPIOB input
+             * sampler needs the exact LPI2C2 register window. */
+            if (!strcmp(kind, "imx7ulp-lpi2c") &&
+                w->base == UINT64_C(0x41035000)) {
+                board->m4_lpi2c2 = w;
             }
             if (!strcmp(kind, "imx7ulp-gpio")) {
                 if (w->base == 0x4100f000) {
