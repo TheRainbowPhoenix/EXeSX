@@ -16,7 +16,7 @@ from drive_factory_menu import QMP, choose_port, connect
 BASE, OUT, I2C = 0x60000000, 0x62008300, 0x41035000
 
 
-def synthetic_elf():
+def synthetic_elf(standby=False):
     ins, literals = [], []
 
     def emit(word):
@@ -58,7 +58,7 @@ def synthetic_elf():
     start(0x80)
     load(2, 0, 0x14)
     output(0)
-    command(0x80)    # trigger original BU21029 continuous autoscan mode
+    command(0x8d if standby else 0x80)  # STP/manual vs continuous autoscan
     read_reg(0x68, 1)  # BU21029 STATUS register 0x0d
     read_reg(0x70, 2)  # ID high
     read_reg(0x78, 3)  # ID low
@@ -99,11 +99,11 @@ def synthetic_elf():
     return eh + ph + bytes(0x100 - len(eh) - len(ph)) + body
 
 
-def run(qemu, profile, enabled=False, contact=None):
+def run(qemu, profile, enabled=False, contact=None, standby=False):
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
         elf = root / "bu21029-arm.elf"
-        elf.write_bytes(synthetic_elf())
+        elf.write_bytes(synthetic_elf(standby=standby))
         log = root / "qemu.log"
         env = os.environ.copy()
         for key in ("EXESX_BU21029_LPI2C_BUS", "EXESX_BU21029_TOUCH_FILE",
@@ -197,7 +197,16 @@ def main():
     # a held touch can assert INT again on the next autoscan interval.
     assert pressed[18] & 8 and pressed_irq & 8 and pressed_pending & (1 << 25), (pressed, pressed_irq, pressed_pending)
     assert "BU21029" in logs, logs[-1500:]
-    print("PASS BU21029 real ARM: absent NACK, ID/status, raw XY, CFR3 reset/write, PTB3/ISFR, M4 NVIC IRQ57 and release")
+    # ROHM's independent standby pen-detect circuit must pull PTB3
+    # LOW on physical press even before the guest issues AUTO scan.
+    # A previous model incorrectly waited for CF=0x0 first; the
+    # real M4 cannot begin first-scan handling if it never sees pen.
+    standby, standby_irq, standby_pending, _ = run(
+        qemu, profile, True, "1 291 2748", standby=True)
+    assert not (standby[18] & 8), standby
+    assert standby_irq & 8, standby_irq
+    assert standby_pending & (1 << 25), standby_pending
+    print("PASS BU21029 real ARM: absent NACK, ID/status, raw XY, CFR3 reset/write, standby pen detect, PTB3/ISFR, M4 NVIC IRQ57 and release")
 
 
 if __name__ == "__main__":
