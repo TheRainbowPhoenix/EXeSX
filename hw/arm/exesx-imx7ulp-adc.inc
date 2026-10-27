@@ -173,7 +173,23 @@ static MemTxResult exesx_adc_write(EXeSXProfileWindow *w, hwaddr off,
                 for (unsigned trig = 0; trig < 4; ++trig) {
                     unsigned cmd = (w->regfile[(0xc0 + trig * 4) / 4] >> 24) & 0xf;
                     if ((word & (1U << trig)) && cmd) {
-                        exesx_adc_fifo_push(w, sample, trig);
+                        /*
+                         * NXP LPADC CMDnH.LOOP[19:16] executes the
+                         * selected command LOOP+1 times, storing one
+                         * result per conversion. Original DY357 M4
+                         * battery check programs CMD1H=0x00020200
+                         * (LOOP=2), FCTRL.FWMARK0=2, and sends only
+                         * ONE SW trigger. A single FIFO result never
+                         * reaches that genuine interrupt watermark.
+                         * Preserve the explicit analog-source gate:
+                         * absent electrodes must NOT create results.
+                         */
+                        uint32_t cmdh = w->regfile[
+                            (0x104 + (cmd - 1) * 8) / 4];
+                        unsigned iterations = 1 + ((cmdh >> 16) & 15);
+                        for (unsigned n = 0; n < iterations; n++) {
+                            exesx_adc_fifo_push(w, sample, trig);
+                        }
                     }
                 }
             }
