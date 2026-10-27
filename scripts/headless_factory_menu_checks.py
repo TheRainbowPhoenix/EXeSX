@@ -242,7 +242,7 @@ def main():
                    help="Sample genuine ADC0/ADC1 CTRL/STAT/IE/FCTRL via read-only QMP")
     p.add_argument("--no-screenshots", action="store_true",
                    help="No LCD QMP reads, mmap or PPM; investigate IPC independent of capture")
-    p.add_argument("--tcg-thread", choices=("single","multi"), default="multi",
+    p.add_argument("--tcg-thread", choices=("single","multi"), default="single",
                    help="A7/M4 scheduling A/B test")
     p.add_argument("--trace-m4-400b", action="store_true",
                    help="Include native M4 event7 wait/producer PCs in private execution trace")
