@@ -20,7 +20,7 @@ def fake_elf():
                      0x60174d00, 0x60174d00, 0x400, 0x400, 5, 0x100)
     four = [(0,100,200,900,1100),(1,2000,300,3900,1200),
             (2,110,2200,890,3400),(3,2100,2300,3800,3500)]
-    two = [four[0],four[3]]
+    two = [four[0],(1,*four[3][1:])]
     for address, regions in [(0x60174d88,four),(0x60174dc4,two)]:
         start=0x100+address-0x60174d00
         for i,entry in enumerate(regions):
