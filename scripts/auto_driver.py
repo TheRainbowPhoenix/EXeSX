@@ -199,6 +199,13 @@ def run_phase(args, phase, qemu, elf, emmc, profile, output):
         "EXESX_GPIOB_INPUT_MASK": "0xc8",
         "EXESX_M4_KEY_MATRIX_FILE": str(contacts.resolve()),
     })
+    for bank in (0, 1):
+        raw = getattr(args, f"adc{bank}_sample", None)
+        name = f"EXESX_ADC{bank}_SAMPLE_RAW"
+        if raw is not None:
+            env[name] = hex(raw)
+        else:
+            env.pop(name, None)
     lib = qemu.parent / "lib"
     if lib.is_dir():
         env["LD_LIBRARY_PATH"] = str(lib) + os.pathsep + env.get("LD_LIBRARY_PATH", "")
@@ -207,7 +214,7 @@ def run_phase(args, phase, qemu, elf, emmc, profile, output):
     qmp_port = choose_port()
     command = [
         str(qemu), "-machine", "exesx", "-m", "64M",
-        "-accel", "tcg", "-display", "none", "-serial", "none",
+        "-accel", f"tcg,thread={args.tcg_thread}", "-display", "none", "-serial", "none",
         "-monitor", "none", "-no-reboot",
         "-S", "-qmp", "tcp:127.0.0.1:{},server=on,wait=off".format(qmp_port),
         "-drive", "if=none,id=exesx-emmc,file={},format=raw,snapshot=on".format(emmc),
@@ -335,6 +342,13 @@ def main(argv=None):
     p.add_argument("--output-dir", type=Path, default=Path("private/factory-auto"))
     p.add_argument("--seconds", type=float, default=50,
                    help="Maximum wall seconds PER cold boot pass")
+    p.add_argument("--tcg-thread", choices=("single", "multi"),
+                   default="single",
+                   help="Single-thread TCG avoids unstable A7/M4 startup timing")
+    p.add_argument("--adc0-sample", type=lambda s: int(s, 0),
+                   help="Optional SIMULATED 16-bit ADC0 power source (not a measurement)")
+    p.add_argument("--adc1-sample", type=lambda s: int(s, 0),
+                   help="Optional SIMULATED 16-bit ADC1 power source (not a measurement)")
     p.add_argument("--release-at", type=float, default=1.2)
     p.add_argument("--hold", type=float, default=.060)
     p.add_argument("--gap", type=float, default=.025)
@@ -349,6 +363,12 @@ def main(argv=None):
     p.add_argument("--attempts", type=int, default=3,
                    help="Fresh-boot retries per phase (timing-sensitive original firmware)")
     args = p.parse_args(argv)
+    if any(v is not None and not 0 <= v <= 0xffff for v in
+           (args.adc0_sample, args.adc1_sample)):
+        p.error("Simulated ADC source must be a 16-bit unsigned raw value")
+    if args.adc0_sample is not None or args.adc1_sample is not None:
+        print("SIMULATED virtual ADC source(s); not actual battery measurements",
+              flush=True)
     if args.attempts <= 0:
         p.error("--attempts must be positive")
     if args.seconds <= 0 or args.hold <= 0 or args.gap < 0 or args.release_at < 0 or args.post_menu_seconds < 0 or args.popup_settle_seconds < 0:
