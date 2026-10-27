@@ -255,6 +255,14 @@ static uint8_t exesx_bu21029_read_byte(EXeSXProfileWindow *w)
          * Model completed conversion at the transaction boundary;
          * analog startup and sampling delays remain unimplemented.
          */
+        /*
+         * BU21029 conversions complete autonomously. The original M4
+         * can poll STATUS with PORTB.PCR3 intentionally disabled (raw
+         * A/D diagnostics); do not make BUSY completion depend on a
+         * separate GPIOB input sample. This advances only physical
+         * scan time/state, never firmware interrupt flags or IPC.
+         */
+        exesx_bu21029_pen_irq_asserted(w->board);
         unsigned status = w->regfile[0x1f8 / 4] & 2;
         unsigned conversion = w->regfile[0x1fc / 4] & 0xff;
         if (conversion & 0x02) {
@@ -276,7 +284,16 @@ static uint8_t exesx_bu21029_read_byte(EXeSXProfileWindow *w)
                 }
             }
         }
-        return status | (down ? 1U : 0U);
+        status |= down ? 1U : 0U;
+        if (!g_strcmp0(g_getenv("EXESX_TRACE_BU21029"), "1") &&
+            w->regfile[0x248 / 4] != (status | UINT32_C(0x100))) {
+            qemu_log("EXeSX BU21029 STATUS=0x%02x pen=%u "
+                     "scan=%u conversion=0x%02x\n",
+                     status, down, w->regfile[0x240 / 4],
+                     conversion);
+        }
+        w->regfile[0x248 / 4] = status | UINT32_C(0x100);
+        return status;
     }
     if (bank == 0 && reg == 0x0e) {
         return 0x02; /* ROHM silicon ID 0x0229 */
