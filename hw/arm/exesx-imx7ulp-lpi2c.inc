@@ -237,8 +237,10 @@ static uint8_t exesx_bu21029_read_byte(EXeSXProfileWindow *w)
             }
             uint32_t now_us =
                 (uint32_t)(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) / 1000);
-            w->regfile[0x240 / 4] = 1; /* active scan, INT inactive */
-            w->regfile[0x244 / 4] = now_us + 22480; /* interval + scan */
+            w->regfile[0x240 / 4] = 5; /* active; waiting between scans */
+            w->regfile[0x244 / 4] = now_us +
+                exesx_bu21029_interval_us(w) +
+                exesx_bu21029_conversion_us(w);
         }
         return byte;
     }
@@ -265,12 +267,12 @@ static uint8_t exesx_bu21029_read_byte(EXeSXProfileWindow *w)
              * See ROHM BU21029 STATUS D3/D2 and autoscan semantics. */
             status |= 0x40;
             if (down) {
-                uint32_t now_us =
-                    (uint32_t)(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) / 1000);
-                uint32_t started_us = w->regfile[0x200 / 4];
+                uint32_t scan = w->regfile[0x240 / 4];
                 status |= 0x04; /* ACTIVE: analog circuit powered */
-                if ((uint32_t)(now_us - started_us) < 2000) {
-                    status |= 0x08; /* first-coordinate conversion BUSY */
+                if ((scan & 7) == 1) {
+                    /* A pen conversion is in progress, not merely a
+                     * subsequent interval or a pending unread report. */
+                    status |= 0x08;
                 }
             }
         }
