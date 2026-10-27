@@ -216,7 +216,7 @@ class EmulatorWorker(threading.Thread):
         monitor_spec, gdb_options, qemu_log_categories = e2_debug_options(env)
         command = [
             str(args.qemu.resolve()), "-machine", "exesx", "-m", "64M",
-            "-accel", "tcg,thread={}".format(getattr(args, "tcg_thread", "multi")), "-display", "none", "-serial", "none",
+            "-accel", "tcg,thread={}".format(getattr(args, "tcg_thread", "single")), "-display", "none", "-serial", "none",
             "-monitor", monitor_spec, "-no-reboot",
             "-S", "-qmp", "tcp:127.0.0.1:{},server=on,wait=off".format(port),
             "-drive", "if=none,id=exesx-emmc,file={},format=raw,snapshot=on".format(emmc),
