@@ -175,6 +175,11 @@ static MemTxResult exesx_port_write(EXeSXProfileWindow *w, hwaddr off,
     if (w->m4_port_poll_timer) {
         exesx_m4_port_irq_update(w);
     }
+    if (w->base == UINT64_C(0x41040000) && off == 0x0c &&
+        !g_strcmp0(g_getenv("EXESX_TRACE_BU21029"), "1")) {
+        qemu_log("EXeSX BU21029 PORTB.PCR3 write=0x%08x effective=0x%08x ISFR=0x%08x\n",
+                 bits, w->regfile[off / 4], w->regfile[0xa0 / 4]);
+    }
     qemu_log_mask(LOG_GUEST_ERROR,
                   "EXeSX PORT WRITE @0x%" HWADDR_PRIx
                   " data=0x%08x\n", w->base+off, bits);
