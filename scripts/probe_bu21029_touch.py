@@ -178,12 +178,15 @@ def main():
     assert absent[0] == 0x401 and absent[1:18] == [0x4000] * 17 and absent[19:22] == [0x4000] * 3, absent
     assert absent[18] & 8 and not (none_irq & 8) and not (none_pending & (1 << 25)), (absent, none_irq, none_pending)
     released, released_irq, released_pending, _ = run(qemu, profile, True, "0 291 2748")
-    assert released[0] == 1 and (released[1] & 0xf7) == 0x40 and released[2:4] == [0x02, 0x29], released
+    # No pen: AUTO remains set, but BUSY/ACTIVE/TOUCH all remain clear.
+    assert released[0] == 1 and (released[1] & 0x4d) == 0x40 and released[2:4] == [0x02, 0x29], released
     assert released[4:18] == [0] * 14 and released[19] & 0x40, released
     assert released[20:22] == [0x72, 0], released
     assert released[18] & 8 and not (released_irq & 8) and not (released_pending & (1 << 25)), (released, released_irq, released_pending)
     pressed, pressed_irq, pressed_pending, logs = run(qemu, profile, True, "1 291 2748")
-    assert pressed[0] == 1 and (pressed[1] & 0xf7) == 0x41 and pressed[2:4] == [0x02, 0x29], pressed
+    # Pen down: AUTO, ACTIVE, TOUCH are set. A completed initial
+    # conversion must clear BUSY; a read alone does not advance time.
+    assert pressed[0] == 1 and (pressed[1] & 0x4d) == 0x45 and pressed[2:4] == [0x02, 0x29], pressed
     assert pressed[4:8] == [0xab, 0xc0, 0x12, 0x30] and pressed[19] & 0x40, pressed
     assert pressed[8:12] == [0x32, 0x00, 0x4b, 0x00], pressed  # Z1=800, Z2=1200
     assert pressed[12:18] == [0] * 6, pressed  # PX/PY/GH: single finger
