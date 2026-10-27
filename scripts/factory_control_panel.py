@@ -214,6 +214,15 @@ class EmulatorWorker(threading.Thread):
             env["LD_LIBRARY_PATH"] = str(lib) + os.pathsep + env.get("LD_LIBRARY_PATH", "")
         port = choose_port()
         monitor_spec, gdb_options, qemu_log_categories = e2_debug_options(env)
+        # Passive guest-TB checkpoints for original M4 touch acquisition.
+        # No CPU breakpoints, IRQ injections, RAM patches or touch events.
+        # Keep OFF by default: logging changes TCG wall-time behavior.
+        touch_trace = (
+            ",0x1ffdba48+0x10,0x1ffdbcde+0x10,0x1ffdc2be+0x10"
+            ",0x1ffdff08+0x10,0x1ffdff2e+0x10,0x1ffdfeea+0x10"
+            ",0x1ffdbfb4+0x20,0x1ffdc1c6+0x10"
+            if env.get("EXESX_TRACE_TOUCH_WORKER") == "1" else ""
+        )
         command = [
             str(args.qemu.resolve()), "-machine", "exesx", "-m", "64M",
             "-accel", "tcg,thread={}".format(getattr(args, "tcg_thread", "single")), "-display", "none", "-serial", "none",
@@ -227,7 +236,8 @@ class EmulatorWorker(threading.Thread):
              "0x1ffe42bc+0x44,0x1ffe4438+0x12,0x1ffe4776+0x18,"
              "0x1ffd635c+0x8,0x1ffd6450+0x8"
              if getattr(args, "trace_m4_400b", False) else
-             "0x60010868+0x140,0x6003a878+0x500,0x60006240+0x60,0x60057668+0x30"),
+             "0x60010868+0x140,0x6003a878+0x500,0x60006240+0x60,0x60057668+0x30")
+            + touch_trace,
             "-D", str(trace),
         ]
         command += gdb_options
