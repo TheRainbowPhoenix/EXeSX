@@ -230,15 +230,15 @@ static uint8_t exesx_bu21029_read_byte(EXeSXProfileWindow *w)
          */
         if ((cmd & 0xfc) == 0x84 &&
             w->regfile[0x1c4 / 4] == 1 &&
-            (w->regfile[0x208 / 4] & 2)) {
+            (w->regfile[0x240 / 4] & 2)) {
             if (!g_strcmp0(g_getenv("EXESX_TRACE_BU21029"), "1")) {
                 qemu_log("EXeSX BU21029 report consumed, INT released pos=%u x=%u y=%u z1=%u z2=%u\n",
                          pos, x, y, z1, z2);
             }
             uint32_t now_us =
                 (uint32_t)(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) / 1000);
-            w->regfile[0x208 / 4] = 1; /* active scan, INT inactive */
-            w->regfile[0x20c / 4] = now_us + 22480; /* interval + scan */
+            w->regfile[0x240 / 4] = 1; /* active scan, INT inactive */
+            w->regfile[0x244 / 4] = now_us + 22480; /* interval + scan */
         }
         return byte;
     }
