@@ -52,6 +52,34 @@ A7_MILESTONES = {
 }
 
 
+def original_menu_highlight(rgb):
+    """Find original full-width inverse-highlight bar, or None.
+
+    Works on both TEST MENU and its 14-row MANUAL MENU; does not depend
+    on the title header color (the original menu inverts that header).
+    Reads only exported RGB pixels, never guest MMIO or RAM.
+    """
+    if len(rgb) != 864 * 480 * 3:
+        return None
+    run_start, run_len = None, 0
+    for y in range(25, 410):
+        black = True
+        for x in (610, 720, 820, 850):
+            i = (864 * y + x) * 3
+            if rgb[i:i+3] != b"\\x00\\x00\\x00":
+                black = False
+                break
+        if black:
+            if run_start is None:
+                run_start = y
+            run_len += 1
+            if run_len >= 12:
+                return run_start
+        else:
+            run_start, run_len = None, 0
+    return None
+
+
 def pure_rgb565_lcd(mm):
     """Read the host QMP RGB565 file through mmap, without guest writes."""
     if len(mm) != 864 * 480 * 2:
@@ -112,6 +140,10 @@ class EmulatorWorker(threading.Thread):
         self.last_menu_keys_at = None
         self.prepared_inputs = None
         self.last_heartbeat = 0
+        self.safe_down_held = False
+        self.safe_down_since = None
+        self.safe_down_before = None
+        self.last_frame_selection = None
 
     def post(self, *items):
         self.updates.put(items)
@@ -152,6 +184,10 @@ class EmulatorWorker(threading.Thread):
         self.boot_attempt += 1
         args = self.args
         self.chord_released = False
+        self.safe_down_held = False
+        self.safe_down_since = None
+        self.safe_down_before = None
+        self.last_frame_selection = None
         # Hold the genuine startup chord through the original M4/A7 CA05
         # handshake; 1.2 s was flaky under single-thread TCG.
         self.boot_chord_seconds = args.release_at
@@ -325,6 +361,15 @@ class EmulatorWorker(threading.Thread):
         with self.framefile.open("rb") as f:
             with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as memory:
                 rgb = pure_rgb565_lcd(memory)
+        self.last_frame_selection = original_menu_highlight(rgb)
+        if (self.safe_down_held and self.last_frame_selection is not None and
+                self.last_frame_selection != self.safe_down_before):
+            self.physical(None)
+            self.safe_down_held = False
+            self.safe_down_since = None
+            self.post("status", "Original menu navigation confirmed: "
+                      "physical DOWN moved the inverse-highlighted row "
+                      "to LCD y={}".format(self.last_frame_selection))
         ppm = self.output / "gui-screen.ppm"
         staging = ppm.with_suffix(".ppm.tmp")
         staging.write_bytes(b"P6\n864 480\n255\n" + rgb)
@@ -391,13 +436,19 @@ class EmulatorWorker(threading.Thread):
         elif what == "safe_check" and self.proc:
             if 0x60057668 not in self.hit:
                 self.post("status", "SAFE CHECK BLOCKED: TEST MENU painter has not executed; IPC 0x400B still pending")
-            elif not self.sequence:
-                # Navigation only: original M4 code 0x91 is DOWN.
-                # No SD read/write/FORMAT option is activated automatically.
-                self.sequence = ["0x91"]
-                self.seq_stage = "press"
-                self.seq_deadline = time.monotonic()
-                self.post("status", "Safe navigation: DOWN key only")
+            elif not self.sequence and not self.safe_down_held:
+                # A short synthetic pulse was too fast under single-thread
+                # TCG. Hold REAL M4 electrical contact until the firmware
+                # paints a different selected row, then release in frame_step.
+                if self.frame_count == 0 or getattr(self.args, "no_screenshots", False):
+                    self.post("status", "Safe navigation requires a painted LCD frame")
+                else:
+                    self.safe_down_before = self.last_frame_selection
+                    self.safe_down_held = True
+                    self.safe_down_since = time.monotonic()
+                    self.physical(0x91)
+                    self.post("status", "Safe navigation: holding genuine M4 DOWN "
+                              "until LCD selection moves (bounded 4.5s)")
         elif what == "screenshot" and self.proc:
             frame = self.output / "gui-screen.ppm"
             if frame.exists():
@@ -434,6 +485,13 @@ class EmulatorWorker(threading.Thread):
                     self.trace_step()
                     self.sequence_step()
                     self.frame_step()
+                    if (self.safe_down_held and self.safe_down_since is not None and
+                            time.monotonic() - self.safe_down_since > 4.5):
+                        self.physical(None)
+                        self.safe_down_held = False
+                        self.safe_down_since = None
+                        self.post("status", "Original DOWN timed out without a "
+                                  "confirmed selected-row change")
                     if (self.mode in ("popup", "menu") and
                             ((not self.wait_seen and
                               time.monotonic() - self.start_time > self.args.retry_after) or
