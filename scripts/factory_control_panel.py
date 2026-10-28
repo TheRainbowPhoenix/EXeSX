@@ -182,7 +182,7 @@ class EmulatorWorker(threading.Thread):
             EXESX_EXPERIMENTAL_M4_BOOT="1",
             EXESX_EXPERIMENTAL_MU_IRQ="1",
             EXESX_EXPERIMENTAL_LPIT1_IRQ="1",
-            # M4 LPIT0 IRQ49: original 1ms timer drives touch worker.
+            # M4 LPIT0 external IRQ33 (exception 49): original 1ms touch timer.
             # Guest firmware still programs LPIT0/NVIC and posts RTOS
             # events itself. No synthetic touch messages are generated.
             EXESX_EXPERIMENTAL_M4_LPIT0_IRQ="1",
