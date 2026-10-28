@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 from pathlib import Path
 import re
 import time
@@ -75,6 +76,27 @@ def verdict_after_offset(trace_path, offset):
     return None
 
 
+def capture_native_result_frame(lcd, output, before, seconds=2):
+    """Save *only* real GUI LCD pixels after the original OK branch.
+
+    A nonblank frame is a candidate screen capture, NOT proof of readable
+    OK text. The calling code must still confirm the guest-executed branch
+    and a human must visually inspect the image.
+    """
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        try:
+            state = frame_info(lcd)
+            if (state["sha256"] != before and 10 < state["black"] < 50000):
+                output.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(lcd, output)
+                return state
+        except (OSError, ValueError):
+            pass
+        time.sleep(.04)
+    return None
+
+
 def run(args):
     if args.raw_x < 0 or args.raw_y < 0 or args.raw_x > 4095 or args.raw_y > 4095:
         raise ValueError("Raw electrode coordinates must be 0..4095")
@@ -117,6 +139,19 @@ def run(args):
         # to avoid a second repeated key dismissing the result text.
         atomic_contact(args.key_file, key_release)
         print("Original E2 verdict:", result["verdict"], flush=True)
+        if verdict == "OK" and args.ok_screen:
+            capture = capture_native_result_frame(
+                args.lcd, args.ok_screen, touched["sha256"], args.screen_timeout)
+            result["post_ok_frame_captured"] = capture is not None
+            if capture:
+                result["post_ok_frame_sha256"] = capture["sha256"]
+                print("Saved original post-OK LCD candidate:", args.ok_screen,
+                      "(visually inspect text before claiming screenshot proof)",
+                      flush=True)
+            else:
+                print("No readable post-OK frame captured; retaining original"
+                      " A7-branch evidence, not fabricating an OK screenshot",
+                      flush=True)
     finally:
         atomic_contact(args.touch_file, touch_release)
         atomic_contact(args.key_file, key_release)
@@ -143,9 +178,13 @@ def main():
     p.add_argument("--release-seconds", type=float, default=3.0)
     p.add_argument("--exit-timeout", type=float, default=4.5)
     p.add_argument("--report", type=Path)
+    p.add_argument("--ok-screen", type=Path,
+                   help="Save original PPM result candidate after genuine OK branch;"
+                        " visually inspect for readable OK, never synthesize text")
+    p.add_argument("--screen-timeout", type=float, default=2.0)
     args = p.parse_args()
     if min(args.ready_timeout, args.touch_timeout, args.release_seconds,
-           args.exit_timeout) <= 0:
+           args.exit_timeout, args.screen_timeout) <= 0:
         p.error("Time limits must be positive")
     try:
         return run(args)
