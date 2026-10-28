@@ -18,6 +18,10 @@ class NativeMenuLcdTests(unittest.TestCase):
             pixel[offset:offset + 3*(x1-x0)] = b"\x00" * (3*(x1-x0))
         if menu:
             black_row(10, 0, 864)
+            for y in range(315, 333):
+                black_row(y, 20, 52)
+            for y in range(391, 405):
+                black_row(y, 20, 52)
         if highlighted is not None:
             for y in range(highlighted, highlighted+15):
                 black_row(y, 0, 864)
@@ -36,6 +40,16 @@ class NativeMenuLcdTests(unittest.TestCase):
             selected = menu_lcd_state(p)
             self.assertEqual(selected["selection_bands"], [[51, 65]])
             self.assertNotEqual(selected["sha256"], frame["sha256"])
+            # Firmware inverts the header after selecting a row. This
+            # must still count as a genuine sixteen-item TEST MENU.
+            img = bytearray(p.read_bytes())
+            header = b"P6\\n864 480\\n255\\n"
+            start = len(header) + 3 * 864 * 10
+            img[start:start + 3 * 864] = b"\\xff" * (3 * 864)
+            p.write_bytes(img)
+            inverted = menu_lcd_state(p)
+            self.assertIsNotNone(inverted)
+            self.assertEqual(inverted["selection_bands"], [[51, 65]])
 
     def test_partial_frame_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
