@@ -63,7 +63,7 @@ def menu_lcd_state(path):
     if not path.is_file():
         return None
     raw = path.read_bytes()
-    header = b"P6\\n864 480\\n255\\n"
+    header = b"P6\n864 480\n255\n"
     if not raw.startswith(header) or len(raw) != len(header) + 864 * 480 * 3:
         return None
     pixels = memoryview(raw)[len(header):]
