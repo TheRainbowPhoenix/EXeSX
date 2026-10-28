@@ -84,6 +84,27 @@ def original_menu_highlight(rgb):
     return None
 
 
+def decode_original_factory_results(array, active, cursor):
+    """Read-only original A7 FUN_60048470 factory verdict array.
+
+    Each word at 0x62344EF0 is written by the unchanged BIOS: 1=OK,
+    -1=NG, -2=SKIPPED. Active state and cursor are also original RAM.
+    Never infer a test result from an unwritten zero slot.
+    """
+    def words(dump):
+        if "Cannot access memory" in dump:
+            return []
+        return [int(x, 16) for x in re.findall(r"0x([0-9a-fA-F]{8})\\b", dump)]
+    vals, flags, index = words(array), words(active), words(cursor)
+    if len(vals) != 16 or len(flags) != 1 or len(index) != 1:
+        return {"accessible": False, "entries": [], "active": None}
+    labels = {1: "OK", 0xffffffff: "NG", 0xfffffffe: "SKIPPED"}
+    return {"accessible": True, "active": flags[0] != 0,
+            "cursor": (index[0] >> 24) & 255,
+            "entries": [{"slot": i + 1, "value": v, "status": labels[v]}
+                        for i, v in enumerate(vals) if v in labels]}
+
+
 def pure_rgb565_lcd(mm):
     """Read the host QMP RGB565 file through mmap, without guest writes."""
     if len(mm) != 864 * 480 * 2:
@@ -486,6 +507,14 @@ class EmulatorWorker(threading.Thread):
             self.seq_stage = "press"
             self.seq_deadline = time.monotonic()
             self.post("status", "Sending 0x93 0x93 0x94 at the original event wait")
+        elif what == "read_e2_results" and self.proc and self.qmp:
+            # Only read unchanged A7 memory; no guest result is written.
+            result = decode_original_factory_results(
+                self.qmp.hmp("xp /16wx 0x62344ef0"),
+                self.qmp.hmp("xp /1wx 0x62344eec"),
+                self.qmp.hmp("xp /1wx 0x62413258"))
+            self.post("factory_results", result)
+            self.post("status", "Original factory result array: {}".format(result))
         elif what == "read_ipc" and self.proc and self.qmp:
             # Read original shared control request on the sole QMP owner thread.
             self.post("ipc", self.qmp.hmp("xp /12wx 0x2f028000"))
@@ -656,6 +685,7 @@ def show_window(args):
     ttk.Button(controls, text="AUTO TEST MENU [93 93 94]", command=lambda:cmd("menu")).pack(side="left")
     ttk.Button(controls, text="Manual 93→93→94", command=lambda:actions.put(("menu_keys",None))).pack(side="left")
     ttk.Button(controls, text="Safe DOWN check", command=lambda:actions.put(("safe_check",None))).pack(side="left")
+    ttk.Button(controls, text="Read factory results", command=lambda:actions.put(("read_e2_results",None))).pack(side="left")
     ttk.Button(controls, text="Save screenshot", command=lambda:actions.put(("screenshot", None))).pack(side="left")
     ttk.Button(controls, text="Stop", command=lambda:actions.put(("shutdown", None))).pack(side="left")
     status = tk.StringVar(value="Choose a boot macro. All key contacts are original ROM codes.")
