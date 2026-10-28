@@ -238,6 +238,7 @@ def run_phase(args, phase, qemu, elf, emmc, profile, output):
     image_ready = False
     released = False
     menu_at = None
+    paint_at = None
     t0 = time.monotonic()
     print("START", phase, flush=True)
     with console.open("wb") as log:
@@ -275,6 +276,8 @@ def run_phase(args, phase, qemu, elf, emmc, profile, output):
                                 print(phase, label, round(elapsed, 2), flush=True)
                                 if label == "factory_menu":
                                     menu_at = time.monotonic()
+                                if label == "menu_painter":
+                                    paint_at = time.monotonic()
                     if (phase == "popup" and "event_wait" in first_seen and
                             elapsed - report["checkpoints_seconds"]["event_wait"] >= args.popup_settle_seconds and
                             not capture_issued):
@@ -301,8 +304,8 @@ def run_phase(args, phase, qemu, elf, emmc, profile, output):
                             report["physical_contacts"].append(["release", key,
                                                                  round(time.monotonic()-t0, 3)])
                             time.sleep(args.gap)
-                    if phase == "menu" and menu_at is not None:
-                        if time.monotonic() - menu_at >= args.post_menu_seconds and not capture_issued:
+                    if phase == "menu" and paint_at is not None:
+                        if time.monotonic() - paint_at >= args.post_menu_seconds and not capture_issued:
                             capture_frame(qmp, raw_frame, screenshot)
                             capture_issued = True
                         if image_ready:
@@ -310,7 +313,9 @@ def run_phase(args, phase, qemu, elf, emmc, profile, output):
                             break
                     time.sleep(.02)
                 else:
-                    report["reason"] = "bounded timeout"
+                    report["reason"] = ("menu IPC 0x400B still pending; painter not observed"
+                                        if phase == "menu" and menu_at is not None and paint_at is None
+                                        else "bounded timeout")
         finally:
             if qmp_sock is not None:
                 qmp_sock.close()
