@@ -66,7 +66,7 @@ def original_menu_highlight(rgb):
         black = True
         for x in (610, 720, 820, 850):
             i = (864 * y + x) * 3
-            if rgb[i:i+3] != b"\\x00\\x00\\x00":
+            if rgb[i:i+3] != b"\x00\x00\x00":
                 black = False
                 break
         if black:
