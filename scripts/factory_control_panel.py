@@ -49,6 +49,10 @@ A7_MILESTONES = {
     0x60006240: "IPC 0x400B invoked",
     0x60006268: "IPC 0x400B returned",
     0x60057668: "Menu painter executed",
+    # Original owner A7 FUN_6005C6BC: these are the actual E2 verdict
+    # branches, not host-side guesses from a black/white framebuffer.
+    0x6005cd08: "E2 original OK branch entered",
+    0x6005cd30: "E2 original NG branch entered",
 }
 
 
@@ -253,6 +257,11 @@ class EmulatorWorker(threading.Thread):
         # Passive guest-TB checkpoints for original M4 touch acquisition.
         # No CPU breakpoints, IRQ injections, RAM patches or touch events.
         # Keep OFF by default: logging changes TCG wall-time behavior.
+        # Opt-in, read-only E2 A7 translated-block trace. This is
+        # cheaper than a full firmware trace and does NOT generate any
+        # keyboard/touch events or alter original guest code.
+        e2_a7_trace = (",0x6005c6bc+0x780"
+                        if env.get("EXESX_TRACE_E2_A7") == "1" else "")
         touch_trace = (
             ",0x1ffdba48+0x10,0x1ffdbcde+0x10,0x1ffdc2be+0x10"
             ",0x1ffdff08+0x10,0x1ffdff2e+0x10,0x1ffdfeea+0x10"
@@ -277,7 +286,7 @@ class EmulatorWorker(threading.Thread):
              "0x1ffd635c+0x8,0x1ffd6450+0x8"
              if getattr(args, "trace_m4_400b", False) else
              "0x60010868+0x140,0x6003a878+0x500,0x60006240+0x60,0x60057668+0x30")
-            + touch_trace,
+            + touch_trace + e2_a7_trace,
             "-D", str(trace),
         ]
         command += gdb_options
