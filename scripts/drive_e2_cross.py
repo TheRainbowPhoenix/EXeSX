@@ -115,7 +115,7 @@ def write_contact(file, down, x, y, z1, z2):
 
 
 def genuine_e2_exit_contact(contact_file, hold_seconds, sleeper=time.sleep):
-    """Real M4 matrix contact to request original framebuffer verdict."""
+    """Original 0x94 physical key maps to A7 type 0x12 in FUN_600132B4.\n\n    Single-thread TCG needs enough time for real M4 debounce, state2 to\n    state1, before subtype1 is queued. Short contacts can be dropped.\n    Confirm the real LCD result; never infer OK from this host action.\n    """
     contact_file.write_text("0x94\n", encoding="ascii")
     try:
         sleeper(hold_seconds)
@@ -150,7 +150,7 @@ def main():
     p.add_argument("--finish-key-file", type=Path,
                    help="Optional private M4 matrix contact file for REAL"
                         " E2 exit/coverage evaluation after all strokes")
-    p.add_argument("--finish-hold-ms", type=float, default=60)
+    p.add_argument("--finish-hold-ms", type=float, default=2500)
     args = p.parse_args()
     if (args.offset_step < 1 or args.point_step <= 0 or
             args.period_ms < 5 or args.release_ms < 5):
@@ -158,8 +158,8 @@ def main():
     if args.arm_original_a7 and (not args.wait_log or
                                  not args.gdb_port or not args.hmp_port):
         p.error("--arm-original-a7 requires --wait-log, --gdb-port and --hmp-port")
-    if args.finish_key_file and not 10 <= args.finish_hold_ms <= 100:
-        p.error("--finish-hold-ms must be 10..100")
+    if args.finish_key_file and not 10 <= args.finish_hold_ms <= 6000:
+        p.error("--finish-hold-ms must be 10..6000")
     calibration = None
     if args.calibration_json:
         calibration = fit_raw_to_screen(json.loads(
@@ -230,7 +230,7 @@ def main():
         keyboard = args.finish_key_file.resolve()
         if not keyboard.is_file():
             raise FileNotFoundError(keyboard)
-        time.sleep(0.2)
+        time.sleep(0.8)
         genuine_e2_exit_contact(keyboard, args.finish_hold_ms / 1000)
         print("Sent genuine M4 0x94 physical key contact to request"
               " E2 result; check original LCD for OK or NG", flush=True)
