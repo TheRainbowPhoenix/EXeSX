@@ -133,6 +133,9 @@ class EmulatorWorker(threading.Thread):
         self.sequence = []
         self.seq_stage = None
         self.seq_deadline = 0
+        self.seq_gated = False
+        self.seq_pressed_at = 0
+        self.seq_released_at = 0
         self.next_capture = 0
         self.frame_count = 0
         self.stopping = False
@@ -298,6 +301,9 @@ class EmulatorWorker(threading.Thread):
         self.hit.clear()
         self.sequence.clear()
         self.seq_stage = None
+        self.seq_gated = False
+        self.seq_pressed_at = 0
+        self.seq_released_at = 0
         self.pressed = None
         self.next_capture = time.monotonic() + .5
         self.post("status", "Booting {} attempt {}/{} — QEMU PID {} (headless, LCD shown here)".format(
@@ -326,25 +332,86 @@ class EmulatorWorker(threading.Thread):
         if self.mode == "menu" and self.wait_seen and not self.sequence and not self.menu_seen and not getattr(self, "menu_macro_fired", False):
             self.menu_macro_fired = True
             self.sequence = list(KEYS)
+            self.seq_gated = getattr(self.args, "tcg_thread", "single") == "single"
             self.seq_stage = "press"
             self.seq_deadline = time.monotonic()
-            self.post("status", "Sending genuine 0x93 -> 0x93 -> 0x94")
+            self.post("status", "Sending genuine 0x93 -> 0x93 -> 0x94"
+                      + (" with original M4 debounce/release gates"
+                         if self.seq_gated else ""))
+
+    def original_m4_keyboard_state(self):
+        """Read only the unchanged M4 keyboard-debounce word in SRAM.
+
+        Real original M4: 0x1FFEA320 state 0 = released/idle;
+        state 2 = guest selected and debounced an electrical key.
+        The host must not synthesize an A7 event or change guest SRAM.
+        """
+        if not self.qmp:
+            return None
+        reply = self.qmp.hmp("xp /1wx 0x1ffea320")
+        match = re.search(r":\\s+0x([0-9a-fA-F]+)", reply)
+        return int(match.group(1), 16) if match else None
 
     def sequence_step(self):
         if not self.sequence or time.monotonic() < self.seq_deadline:
             return
+        now = time.monotonic()
+        if self.seq_gated:
+            if self.seq_stage == "press":
+                self.physical(int(self.sequence[0], 0))
+                self.seq_pressed_at = now
+                self.seq_stage = "debounce"
+                self.seq_deadline = now + .035
+                return
+            if self.seq_stage == "debounce":
+                state = self.original_m4_keyboard_state()
+                if state == 2 or now - self.seq_pressed_at >= .5:
+                    self.physical(None)
+                    self.seq_released_at = now
+                    self.seq_stage = "idle"
+                    self.seq_deadline = now + .035
+                    if state != 2:
+                        self.post("status", "M4 debounce not confirmed for " +
+                                  self.sequence[0] + "; released safely")
+                else:
+                    self.seq_deadline = now + .035
+                return
+            if self.seq_stage == "idle":
+                state = self.original_m4_keyboard_state()
+                if state == 0:
+                    self.sequence.pop(0)
+                    self.seq_stage = "press" if self.sequence else None
+                    self.seq_deadline = now + .025
+                    if not self.sequence:
+                        self.seq_gated = False
+                        if self.mode == "menu" and not self.menu_seen:
+                            self.last_menu_keys_at = now
+                elif now - self.seq_released_at >= .75:
+                    # Do not send the next key while the original M4
+                    # still reports an unreleased previous contact.
+                    self.physical(None)
+                    self.sequence.clear()
+                    self.seq_gated = False
+                    self.seq_stage = None
+                    self.last_menu_keys_at = now
+                    self.post("status", "M4 keyboard release did not reach state 0;"
+                              " waiting for safe cold-boot retry")
+                else:
+                    self.seq_deadline = now + .035
+                return
+        # Ordinary manual single-key pulse: unchanged legacy behavior.
         if self.seq_stage == "press":
             code = int(self.sequence[0], 0)
             self.physical(code)
             self.seq_stage = "release"
-            self.seq_deadline = time.monotonic() + self.args.hold
+            self.seq_deadline = now + self.args.hold
         elif self.seq_stage == "release":
             self.physical(None)
             self.sequence.pop(0)
             self.seq_stage = "press" if self.sequence else None
-            self.seq_deadline = time.monotonic() + self.args.gap
+            self.seq_deadline = now + self.args.gap
             if not self.sequence and self.mode == "menu" and not self.menu_seen:
-                self.last_menu_keys_at = time.monotonic()
+                self.last_menu_keys_at = now
 
     def frame_step(self):
         if getattr(self.args, "no_screenshots", False):
@@ -392,10 +459,12 @@ class EmulatorWorker(threading.Thread):
             self.physical(None)
         elif what == "pulse" and self.proc and not self.sequence:
             self.sequence = [hex(value)]
+            self.seq_gated = False
             self.seq_stage = "press"
             self.seq_deadline = time.monotonic()
         elif what == "menu_keys" and self.proc and self.wait_seen and not self.sequence:
             self.sequence = list(KEYS)
+            self.seq_gated = getattr(self.args, "tcg_thread", "single") == "single"
             self.seq_stage = "press"
             self.seq_deadline = time.monotonic()
             self.post("status", "Sending 0x93 0x93 0x94 at the original event wait")
