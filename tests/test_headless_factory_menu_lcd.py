@@ -43,9 +43,9 @@ class NativeMenuLcdTests(unittest.TestCase):
             # Firmware inverts the header after selecting a row. This
             # must still count as a genuine sixteen-item TEST MENU.
             img = bytearray(p.read_bytes())
-            header = b"P6\\n864 480\\n255\\n"
+            header = b"P6\n864 480\n255\n"
             start = len(header) + 3 * 864 * 10
-            img[start:start + 3 * 864] = b"\\xff" * (3 * 864)
+            img[start:start + 3 * 864] = b"\xff" * (3 * 864)
             p.write_bytes(img)
             inverted = menu_lcd_state(p)
             self.assertIsNotNone(inverted)
