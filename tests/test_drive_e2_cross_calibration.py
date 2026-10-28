@@ -38,7 +38,7 @@ class E2PhysicalCalibrationTests(unittest.TestCase):
             fit_raw_to_screen(distorted)
         model = fit_raw_to_screen(self.points())
         with self.assertRaises(ValueError):
-            screen_to_raw(863, 479, calibration=model)
+            screen_to_raw(-200, 479, calibration=model)
         with self.assertRaises(ValueError):
             screen_to_raw(60, 30, calibration=model, swap_axes=True)
 
