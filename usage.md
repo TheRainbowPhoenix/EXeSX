@@ -50,11 +50,46 @@ Do not select **RESET**, **OS UPDATE**, **FLASH UTILITIES**, or **SD FORMAT/WRIT
 
 ## 4. Test the touchscreen
 
-The emulator can read a physical touch input file, but the original factory touchscreen **OK** result is not guaranteed. Do not treat a visible touch screen as a passed test.
+The emulator can read a physical touch input file. E2 has been confirmed to reach the original firmware's **OK** branch. Do not treat the visible cross alone as a passed test.
 
 The factory menus include **TOUCH PANEL PRESET** and **E2 PATTERN CHECK**. MANUAL CHECK also contains touch checks under INPUT MENU. Only run them when the correct row is highlighted. Touch-controller testing needs the BU21029 model and the `EXESX_BU21029_TOUCH_FILE` setting; see `docs/2026-10-28-corrected-lpit0-irq33-genuine-a7-touch-delivery.md` and `scripts/drive_e2_cross.py`.
 
-## 5. If it does not work
+## 5. Run the original E2 test
+
+First, make a private touch file. On Linux:
+
+```sh
+mkdir -p private/e2
+printf '0 0 0 800 1200\n' > private/e2/touch.txt
+export EXESX_BU21029_LPI2C_BUS=2
+export EXESX_BU21029_TOUCH_FILE="$PWD/private/e2/touch.txt"
+export EXESX_TRACE_E2_A7=1
+```
+
+On Windows, set the same three environment variables in PowerShell before starting QEMU. Use a full Windows path for the touch file.
+
+Start the GUI from section 2. Add `--output-dir private/e2` to the command.
+
+Open **TEST MENU**. Use UP and DOWN to select **13. E2 PATTERN CHECK**. Press ENTER. Wait until the full black border and X appear.
+
+Open a second terminal. Run:
+
+```sh
+python3 scripts/drive_e2_original_ok.py \
+  --touch-file private/e2/touch.txt \
+  --key-file private/e2/gui-contact.txt \
+  --lcd private/e2/gui-screen.ppm \
+  --trace private/e2/gui-execution-private.log \
+  --report private/e2/e2-result-private.json
+```
+
+On Windows, use `py -3` instead of `python3`. Run from the repository folder.
+
+The script checks the original E2 screen. It touches one black point using the real emulated BU21029. It then presses the physical 0x94 key. It says **OK** only if the original A7 runs its real E2 OK branch.
+
+Do not type or click other keys while this script runs. Keep the E2 report and original firmware files private.
+
+## 6. If it does not work
 
 - Use a **successful CI build** from this experiment branch.
 - Keep `--tcg-thread single` and `--release-at 4`.
