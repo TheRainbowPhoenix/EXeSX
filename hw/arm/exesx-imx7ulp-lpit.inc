@@ -4,7 +4,7 @@
  * SETTEN/CLRTEN +0x14/+0x18, TVAL/CVAL/TCTRL 0x20+0x10*n.
  * LPIT1 retains the existing 1MHz provisional tick. Opt-in M4 LPIT0
  * runs at the original firmware's effective 12MHz timer source. Its
- * genuine interrupt is routed to Cortex-M4 NVIC IRQ49 when enabled via
+ * genuine interrupt is routed to Cortex-M4 external NVIC IRQ33 (exception vector 49) when enabled via
  * EXESX_EXPERIMENTAL_M4_LPIT0_IRQ=1. LPIT1 continues to use GIC SPI25.
  * DMA outputs remain unimplemented.
  * Hidden per-channel timestamps are saved by board VMState regfile.
