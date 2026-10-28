@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""M4 LPIT0 IRQ49: real A7 ARM MMIO configuration, real M4 NVIC observation.
+"""M4 LPIT0 external IRQ33 (exception vector 49): real A7 ARM MMIO configuration, real M4 NVIC observation.
 
 The guest's ARM program enables LPIT0 and programs original-style CH1
 TVAL=12000 for 1ms at 12MHz, then idles. No IRQ/firmware/RTOS flag is
@@ -18,7 +18,7 @@ from drive_factory_menu import QMP, choose_port, connect
 from probe_postdma_handoff import RSP
 
 BASE, LPIT0 = 0x60000000, 0x4102D000
-IRQ49 = 1 << 17
+IRQ33 = 1 << 1
 
 
 def synthetic_elf(mask):
@@ -125,11 +125,11 @@ def main():
     for enabled, mask, expected in cases:
         msr, pending = probe(a.qemu, a.profile, enabled, mask)
         assert msr & 2, (enabled, mask, "LPIT0 CH1 did not expire", msr)
-        assert bool(pending & IRQ49) == expected, (
+        assert bool(pending & IRQ33) == expected, (
             enabled, mask, hex(pending), expected)
         print(f"PASS LPIT0 enabled={enabled}, MIER={mask}, "
-              f"MSR={msr:#x}, M4 IRQ49 pending={bool(pending & IRQ49)}")
-    print("PASS genuine LPIT0 timer->Cortex-M4 IRQ49; no synthetic IRQ or RTOS event")
+              f"MSR={msr:#x}, M4 IRQ33 pending={bool(pending & IRQ33)}")
+    print("PASS genuine LPIT0 timer->Cortex-M4 IRQ33; no synthetic IRQ or RTOS event")
 
 
 if __name__ == "__main__":
