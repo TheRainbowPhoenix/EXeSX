@@ -70,8 +70,14 @@ def menu_lcd_state(path):
     def black(x, y):
         offset = 3 * (864 * y + x)
         return pixels[offset] == pixels[offset + 1] == pixels[offset + 2] == 0
-    # Native TEST MENU has a solid header rule in this upper-right region.
-    if not all(black(x, 10) for x in (650, 740, 840)):
+    # Identify the genuine sixteen-row factory screen by its persistent
+    # row-13 and row-16 text. The header background *inverts* once a
+    # selection exists, so requiring black header pixels rejects genuine
+    # navigated frames. These text regions remain after DOWN.
+    def ink(y0, y1):
+        return sum(black(x, y) for y in range(y0, y1)
+                   for x in range(20, 270))
+    if ink(313, 335) < 100 or ink(388, 410) < 100:
         return None
     selected = []
     for y in range(25, 400):
@@ -107,6 +113,8 @@ def run(a):
     down_at = None
     selection_verified = False
     down_attempts = 0
+    down_pressed = False
+    last_release = None
     t0 = time.monotonic()
     try:
         while time.monotonic() - t0 < a.seconds:
@@ -135,23 +143,39 @@ def run(a):
                             latest_menu_frame = current
                             if stable_painted_frames >= 2:
                                 before_down = current
-                                actions.put(("safe_check", None))
+                                # Hold a real electrical contact until the
+                                # ORIGINAL A7 visibly accepts the selection.
+                                # Single-thread QEMU can need >300ms of M4
+                                # debounce; fixed 80ms pulses were dropped.
+                                actions.put(("press", 0x91))
                                 did_down = True
+                                down_pressed = True
                                 down_attempts = 1
                                 down_at = time.monotonic()
                         elif (down_at is not None and
-                              time.monotonic() - down_at >= .25 and
                               before_down is not None and
                               current["sha256"] != before_down["sha256"] and
                               current["selection_bands"] and
                               current["selection_bands"] != before_down["selection_bands"]):
+                            if down_pressed:
+                                actions.put(("release", None))
+                                down_pressed = False
                             selection_verified = True
-                        elif (not selection_verified and down_attempts < 3 and
-                              down_at is not None and time.monotonic()-down_at > 3):
-                            # Only another physical DOWN contact, never ENTER.
-                            actions.put(("safe_check", None))
+                        elif (not selection_verified and down_pressed and
+                              down_at is not None and time.monotonic()-down_at >= 4.5):
+                            # Release before another controlled attempt;
+                            # never leave a physical key permanently held.
+                            actions.put(("release", None))
+                            down_pressed = False
+                            last_release = time.monotonic()
+                        elif (not selection_verified and not down_pressed and
+                              last_release is not None and down_attempts < 3 and
+                              time.monotonic()-last_release >= .7):
+                            actions.put(("press", 0x91))
+                            down_pressed = True
                             down_attempts += 1
                             down_at = time.monotonic()
+                            last_release = None
                 elif kind == "ipc":
                     ipc = parse_ipc_dump(value)
                     print("ORIGINAL IPC:", ipc, flush=True)
@@ -214,7 +238,7 @@ def run(a):
                     time.monotonic() - menu_at >= a.post_menu_seconds):
                 break
             if painter_at is not None and (selection_verified or
-                    time.monotonic()-painter_at > 12):
+                    time.monotonic()-painter_at > 26):
                 break
 
         hits = set(observed)
@@ -260,6 +284,7 @@ def run(a):
             "lcd_after_down": final_frame,
             "verified_original_selection_change": selection_verified,
             "physical_down_attempts": down_attempts,
+            "original_down_released": not down_pressed,
             "qemu_running_during_check": bool(worker.proc and worker.proc.poll() is None),
             "checks": checks,
             "destructive_sd_tests_executed": False,
@@ -277,6 +302,8 @@ def run(a):
                        selection_verified) else
                 (3 if menu else 2))
     finally:
+        if down_pressed:
+            actions.put(("release", None))
         actions.put(("quit", None))
         worker.join(timeout=12)
 
