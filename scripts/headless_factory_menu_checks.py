@@ -53,6 +53,40 @@ def check(name, condition, blocked=None):
             "blocked_by": None if condition else blocked}
 
 
+def menu_lcd_state(path):
+    """Only compare fully rendered original 864x480 LCD frames.
+
+    A hash change alone can be the popup-to-menu redraw, so additionally
+    recognize the real menu title and an inverse-highlighted menu row.
+    This is read-only; no guest state or pixels are modified.
+    """
+    if not path.is_file():
+        return None
+    raw = path.read_bytes()
+    header = b"P6\\n864 480\\n255\\n"
+    if not raw.startswith(header) or len(raw) != len(header) + 864 * 480 * 3:
+        return None
+    pixels = memoryview(raw)[len(header):]
+    def black(x, y):
+        offset = 3 * (864 * y + x)
+        return pixels[offset] == pixels[offset + 1] == pixels[offset + 2] == 0
+    # Native TEST MENU has a solid header rule in this upper-right region.
+    if not all(black(x, 10) for x in (650, 740, 840)):
+        return None
+    selected = []
+    for y in range(25, 400):
+        if all(black(x, y) for x in (610, 720, 820, 850)):
+            selected.append(y)
+    bands = []
+    for y in selected:
+        if bands and y == bands[-1][-1] + 1:
+            bands[-1].append(y)
+        else:
+            bands.append([y])
+    return {"sha256": hashlib.sha256(raw).hexdigest(),
+            "selection_bands": [[b[0], b[-1]] for b in bands if len(b) >= 7]}
+
+
 def run(a):
     actions, updates = queue.Queue(), queue.Queue()
     worker = EmulatorWorker(a, actions, updates)
@@ -68,6 +102,10 @@ def run(a):
     last_flow_at = 0
     last_adc_at = 0
     before_down = None
+    latest_menu_frame = None
+    stable_painted_frames = 0
+    down_at = None
+    selection_verified = False
     t0 = time.monotonic()
     try:
         while time.monotonic() - t0 < a.seconds:
@@ -84,6 +122,28 @@ def run(a):
                         menu_at = time.monotonic()
                     if value == "Menu painter executed":
                         painter_at = time.monotonic()
+                elif kind == "frame" and painter_at is not None and not a.no_screenshots:
+                    current = menu_lcd_state(a.output_dir / "gui-screen.ppm")
+                    if current is not None:
+                        if not did_down:
+                            stable_painted_frames = (
+                                stable_painted_frames + 1
+                                if latest_menu_frame and
+                                current["sha256"] == latest_menu_frame["sha256"]
+                                else 1)
+                            latest_menu_frame = current
+                            if stable_painted_frames >= 2:
+                                before_down = current
+                                actions.put(("safe_check", None))
+                                did_down = True
+                                down_at = time.monotonic()
+                        elif (down_at is not None and
+                              time.monotonic() - down_at >= .25 and
+                              before_down is not None and
+                              current["sha256"] != before_down["sha256"] and
+                              current["selection_bands"] and
+                              current["selection_bands"] != before_down["selection_bands"]):
+                            selection_verified = True
                 elif kind == "ipc":
                     ipc = parse_ipc_dump(value)
                     print("ORIGINAL IPC:", ipc, flush=True)
@@ -142,25 +202,19 @@ def run(a):
                     time.monotonic() - last_adc_at >= 20):
                 last_adc_at = time.monotonic()
                 actions.put(("read_adc", None))
-            if painter_at is not None and not did_down and worker.frame_count:
-                frame = a.output_dir / "gui-screen.ppm"
-                before_down = (hashlib.sha256(frame.read_bytes()).hexdigest()
-                               if frame.is_file() else None)
-                # Physically close/release DOWN (ROM key 0x91). NEVER Enter.
-                actions.put(("safe_check", None))
-                did_down = True
             if (menu_at is not None and painter_at is None and
                     time.monotonic() - menu_at >= a.post_menu_seconds):
                 break
-            if painter_at is not None and did_down and time.monotonic()-painter_at > 4:
+            if painter_at is not None and (selection_verified or
+                    time.monotonic()-painter_at > 12):
                 break
 
         hits = set(observed)
         menu = "TEST MENU code entered" in hits
         painter = "Menu painter executed" in hits
         image = a.output_dir / "gui-screen.ppm"
-        final_sha = (hashlib.sha256(image.read_bytes()).hexdigest()
-                     if image.is_file() else None)
+        final_frame = menu_lcd_state(image) if not a.no_screenshots else None
+        final_sha = final_frame["sha256"] if final_frame else None
         checks = [
             check("version dialog reached", "Version popup entered" in hits),
             check("original A7 keyboard event wait", "Version popup event wait" in hits),
@@ -173,11 +227,11 @@ def run(a):
             check("original TEST MENU painter", painter,
                   "0x400B did not return" if menu else None),
             check("safe DOWN navigation", did_down,
-                  "no menu painter; unsafe to navigate blindly" if not painter else
-                  ("LCD intentionally disabled; no verified selection" if a.no_screenshots else None)),
-            check("selection changes real LCD", bool(before_down and final_sha != before_down),
+                  "no stable painted menu; unsafe to navigate blindly" if not did_down else None),
+            check("selection changes real LCD", selection_verified,
                   "LCD intentionally disabled for IPC soak" if a.no_screenshots else
-                  ("no painted menu to compare" if not did_down else None)),
+                  ("no stable painted menu before DOWN" if not did_down else
+                   "original DOWN key did not move a visible inverse-highlighted row")),
         ]
         a.output_dir.mkdir(parents=True, exist_ok=True)
         report = {
@@ -194,6 +248,9 @@ def run(a):
             "m4_original_post_menu_execution": m4_execution,
             "frames": worker.frame_count,
             "lcd_sha256": final_sha,
+            "lcd_before_down": before_down,
+            "lcd_after_down": final_frame,
+            "verified_original_selection_change": selection_verified,
             "qemu_running_during_check": bool(worker.proc and worker.proc.poll() is None),
             "checks": checks,
             "destructive_sd_tests_executed": False,
@@ -208,7 +265,7 @@ def run(a):
                 flush=True)
         print("PRIVATE REPORT:", outfile, flush=True)
         return (0 if (menu and painter and did_down and
-                       before_down and final_sha != before_down) else
+                       selection_verified) else
                 (3 if menu else 2))
     finally:
         actions.put(("quit", None))
