@@ -180,6 +180,7 @@ def run_phase(args, phase, qemu, elf, emmc, profile, output):
         "EXESX_EXPERIMENTAL_M4_BOOT": "1",
         "EXESX_EXPERIMENTAL_MU_IRQ": "1",
         "EXESX_EXPERIMENTAL_LPIT1_IRQ": "1",
+        "EXESX_EXPERIMENTAL_M4_LPIT0_IRQ": "1",
         "EXESX_EXPERIMENTAL_LPTMR_IRQ": "1",
         "EXESX_EXPERIMENTAL_LPTMR_PCS_CLOCKS": "1",
         "EXESX_EXPERIMENTAL_M4_PORT_IRQ": "1",
@@ -350,8 +351,8 @@ def main(argv=None):
     p.add_argument("--adc1-sample", type=lambda s: int(s, 0),
                    help="Optional SIMULATED 16-bit ADC1 power source (not a measurement)")
     p.add_argument("--release-at", type=float, default=1.2)
-    p.add_argument("--hold", type=float, default=.060)
-    p.add_argument("--gap", type=float, default=.025)
+    p.add_argument("--hold", type=float, default=.080)
+    p.add_argument("--gap", type=float, default=.060)
     p.add_argument("--post-menu-seconds", type=float, default=4)
     p.add_argument("--popup-settle-seconds", type=float, default=.6,
                    help="Host seconds after original A7 event wait to allow real dialog glyphs to paint")
