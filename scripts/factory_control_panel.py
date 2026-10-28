@@ -49,6 +49,10 @@ A7_MILESTONES = {
     0x60006240: "IPC 0x400B invoked",
     0x60006268: "IPC 0x400B returned",
     0x60057668: "Menu painter executed",
+    # Native factory handlers (A7 unchanged ROM). These are entry
+    # checkpoints, not touch-test OK verdicts.
+    0x600580dc: "TOUCH PANEL PRESET handler entered",
+    0x6005830c: "E2 PATTERN CHECK handler entered",
     # Original owner A7 FUN_6005C6BC: these are the actual E2 verdict
     # branches, not host-side guesses from a black/white framebuffer.
     0x6005cd08: "E2 original OK branch entered",
@@ -306,7 +310,8 @@ class EmulatorWorker(threading.Thread):
              "0x1ffe42bc+0x44,0x1ffe4438+0x12,0x1ffe4776+0x18,"
              "0x1ffd635c+0x8,0x1ffd6450+0x8"
              if getattr(args, "trace_m4_400b", False) else
-             "0x60010868+0x140,0x6003a878+0x500,0x60006240+0x60,0x60057668+0x30")
+             "0x60010868+0x140,0x6003a878+0x500,0x60006240+0x60,0x60057668+0x30,"
+             "0x600580dc+0x28,0x6005830c+0x30")
             + touch_trace + e2_a7_trace,
             "-D", str(trace),
         ]
