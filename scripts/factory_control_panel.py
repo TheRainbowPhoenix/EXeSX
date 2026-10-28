@@ -349,7 +349,7 @@ class EmulatorWorker(threading.Thread):
         if not self.qmp:
             return None
         reply = self.qmp.hmp("xp /1wx 0x1ffea320")
-        match = re.search(r":\\s+0x([0-9a-fA-F]+)", reply)
+        match = re.search(r":\s+0x([0-9a-fA-F]+)", reply)
         return int(match.group(1), 16) if match else None
 
     def sequence_step(self):
