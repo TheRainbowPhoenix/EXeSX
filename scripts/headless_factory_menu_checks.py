@@ -228,7 +228,7 @@ def main():
     p.add_argument("--post-menu-seconds", type=float, default=8)
     p.add_argument("--retries", type=int, default=3)
     p.add_argument("--retry-after", type=float, default=24)
-    p.add_argument("--release-at", type=float, default=1.2)
+    p.add_argument("--release-at", type=float, default=4.0)
     p.add_argument("--hold", type=float, default=.060)
     p.add_argument("--gap", type=float, default=.025)
     p.add_argument("--fps", type=float, default=2)
