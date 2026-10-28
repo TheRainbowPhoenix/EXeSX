@@ -605,8 +605,8 @@ def main():
                    help="Explicit 16-bit ADC1 result for opt-in original M4 IRQ experiment")
     p.add_argument("--trace-m4-400b", action="store_true",
                    help="Trace original M4 event7 semaphore wait and MU callback")
-    p.add_argument("--hold", type=float, default=.060)
-    p.add_argument("--gap", type=float, default=.025)
+    p.add_argument("--hold", type=float, default=.080)
+    p.add_argument("--gap", type=float, default=.060)
     p.add_argument("--release-at", type=float, default=1.2)
     p.add_argument("--retries", type=int, default=3, help="Fresh boot retries on missed original firmware checkpoints")
     p.add_argument("--retry-after", type=float, default=24, help="Host seconds allowed for the A7 version-event wait")
