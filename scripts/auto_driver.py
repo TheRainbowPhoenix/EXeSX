@@ -355,7 +355,7 @@ def main(argv=None):
                    help="Optional SIMULATED 16-bit ADC0 power source (not a measurement)")
     p.add_argument("--adc1-sample", type=lambda s: int(s, 0),
                    help="Optional SIMULATED 16-bit ADC1 power source (not a measurement)")
-    p.add_argument("--release-at", type=float, default=1.2)
+    p.add_argument("--release-at", type=float, default=4.0)
     p.add_argument("--hold", type=float, default=.080)
     p.add_argument("--gap", type=float, default=.060)
     p.add_argument("--post-menu-seconds", type=float, default=4)
