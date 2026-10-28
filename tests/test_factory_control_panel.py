@@ -90,7 +90,7 @@ class FloatingKeyboardTests(unittest.TestCase):
         self.assertFalse(inaccessible["accessible"])
         self.assertIsNone(inaccessible["bit0_or_bit2_blocks_event10"])
 
-    def test_single_tcg_factory_combo_waits_for_original_m4_state0(self):
+    def test_single_tcg_factory_combo_waits_for_original_m4_state1_then_state0(self):
         from types import SimpleNamespace
         from unittest.mock import patch
         import queue
@@ -108,15 +108,15 @@ class FloatingKeyboardTests(unittest.TestCase):
 
         class FakeQMP:
             def __init__(self):
-                self.states = iter([2, 0, 2, 0, 2, 0])
+                self.states = iter([2, 1, 0, 2, 1, 0, 2, 1, 0])
 
             def hmp(self, command):
                 assert command == "xp /1wx 0x1ffea320"
                 return "000000001ffea320: 0x{:08x}".format(next(self.states))
 
         worker.qmp = FakeQMP()
-        for t in (1, 1.08, 1.15, 1.20, 1.27, 1.35,
-                  1.40, 1.48, 1.56):
+        for t in (1, 1.08, 1.16, 1.24, 1.32, 1.40,
+                  1.48, 1.56, 1.64, 1.72, 1.80, 1.88):
             with patch.object(gui.time, "monotonic", return_value=t):
                 worker.sequence_step()
         self.assertEqual(contacts, [0x93, None, 0x93, None, 0x94, None])
@@ -142,10 +142,10 @@ class FloatingKeyboardTests(unittest.TestCase):
             def hmp(self, command):
                 return "000000001ffea320: 0x00000002"
         worker.qmp = StillHeld()
-        for t in (1.0, 1.08, 1.2, 1.96):
+        for t in (1.0, 1.08, 1.2, 4.61):
             with patch.object(gui.time, "monotonic", return_value=t):
                 worker.sequence_step()
-        self.assertEqual(contacts, [0x93, None, None])
+        self.assertEqual(contacts, [0x93, None])
         self.assertFalse(worker.sequence)
         self.assertFalse(worker.seq_gated)
 
