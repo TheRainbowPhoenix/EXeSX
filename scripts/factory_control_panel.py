@@ -373,7 +373,7 @@ class EmulatorWorker(threading.Thread):
         """Read only the unchanged M4 keyboard-debounce word in SRAM.
 
         Real original M4: 0x1FFEA320 state 0 = released/idle;
-        state 2 = debounce in progress; state 1 = genuine keydown queued.
+        state 2 = row selected and debounce in progress; state 1 = keydown queued.
         The host must not synthesize an A7 event or change guest SRAM.
         """
         if not self.qmp:
@@ -395,22 +395,25 @@ class EmulatorWorker(threading.Thread):
                 return
             if self.seq_stage == "debounce":
                 state = self.original_m4_keyboard_state()
-                # Original FUN_1FFD8088 state 2 is *still counting*
-                # TPM0 debounce. Only state 1 follows the genuine
-                # FUN_1FFD8200(1,key) queue insertion. Releasing on 2
-                # drops contacts and makes the later A7 sequence flaky.
-                if state == 1:
+                # Original state2 means the M4 has sampled this matrix
+                # contact but may still be debouncing it. On the verified
+                # single-TCG clock model, waiting for state1 on every key
+                # misses the A7 version-dialog timeout. Release once the
+                # M4 has selected the key (state2); the original A7's
+                # 0x60010930 branch is the separate, authoritative proof
+                # that all 3 keyboard messages were actually accepted.
+                if state in (1, 2):
                     self.physical(None)
                     self.seq_released_at = now
                     self.seq_stage = "idle"
                     self.seq_deadline = now + .035
-                elif now - self.seq_pressed_at >= 3.5:
+                elif now - self.seq_pressed_at >= .55:
                     self.physical(None)
                     self.sequence.clear()
                     self.seq_gated = False
                     self.seq_stage = None
                     self.last_menu_keys_at = now
-                    self.post("status", "M4 genuine keydown was not completed;"
+                    self.post("status", "M4 selected scan state never observed;"
                               " releasing contact and retrying cold boot")
                 else:
                     self.seq_deadline = now + .035
