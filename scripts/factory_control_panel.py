@@ -343,7 +343,7 @@ class EmulatorWorker(threading.Thread):
         """Read only the unchanged M4 keyboard-debounce word in SRAM.
 
         Real original M4: 0x1FFEA320 state 0 = released/idle;
-        state 2 = guest selected and debounced an electrical key.
+        state 2 = debounce in progress; state 1 = genuine keydown queued.
         The host must not synthesize an A7 event or change guest SRAM.
         """
         if not self.qmp:
@@ -365,14 +365,23 @@ class EmulatorWorker(threading.Thread):
                 return
             if self.seq_stage == "debounce":
                 state = self.original_m4_keyboard_state()
-                if state == 2 or now - self.seq_pressed_at >= .5:
+                # Original FUN_1FFD8088 state 2 is *still counting*
+                # TPM0 debounce. Only state 1 follows the genuine
+                # FUN_1FFD8200(1,key) queue insertion. Releasing on 2
+                # drops contacts and makes the later A7 sequence flaky.
+                if state == 1:
                     self.physical(None)
                     self.seq_released_at = now
                     self.seq_stage = "idle"
                     self.seq_deadline = now + .035
-                    if state != 2:
-                        self.post("status", "M4 debounce not confirmed for " +
-                                  self.sequence[0] + "; released safely")
+                elif now - self.seq_pressed_at >= 3.5:
+                    self.physical(None)
+                    self.sequence.clear()
+                    self.seq_gated = False
+                    self.seq_stage = None
+                    self.last_menu_keys_at = now
+                    self.post("status", "M4 genuine keydown was not completed;"
+                              " releasing contact and retrying cold boot")
                 else:
                     self.seq_deadline = now + .035
                 return
