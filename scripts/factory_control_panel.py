@@ -152,16 +152,9 @@ class EmulatorWorker(threading.Thread):
         self.boot_attempt += 1
         args = self.args
         self.chord_released = False
-        # A real BU21029 changes original M4 touch/keyboard init latency.
-        # Keep the simultaneous power-on matrix contacts longer only for
-        # this explicitly opted-in model; no IPC/key event is fabricated.
+        # Hold the genuine startup chord through the original M4/A7 CA05
+        # handshake; 1.2 s was flaky under single-thread TCG.
         self.boot_chord_seconds = args.release_at
-        if (os.environ.get("EXESX_BU21029_LPI2C_BUS") == "2" and
-                args.release_at == 1.2):
-            self.boot_chord_seconds = 4.0
-            self.post("status",
-                      "Opt-in BU21029: holding genuine power-on key chord"
-                      " for 4.0 s (override with --release-at)")
         self.menu_macro_fired = False
         self.last_menu_keys_at = None
         self.output = args.output_dir.resolve()
@@ -607,7 +600,7 @@ def main():
                    help="Trace original M4 event7 semaphore wait and MU callback")
     p.add_argument("--hold", type=float, default=.080)
     p.add_argument("--gap", type=float, default=.060)
-    p.add_argument("--release-at", type=float, default=1.2)
+    p.add_argument("--release-at", type=float, default=4.0)
     p.add_argument("--retries", type=int, default=3, help="Fresh boot retries on missed original firmware checkpoints")
     p.add_argument("--retry-after", type=float, default=24, help="Host seconds allowed for the A7 version-event wait")
     p.add_argument("--headless-check", action="store_true",
