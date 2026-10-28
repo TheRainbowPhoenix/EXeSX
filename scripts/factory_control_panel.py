@@ -94,7 +94,7 @@ def decode_original_factory_results(array, active, cursor):
     def words(dump):
         if "Cannot access memory" in dump:
             return []
-        return [int(x, 16) for x in re.findall(r"0x([0-9a-fA-F]{8})\\b", dump)]
+        return [int(x, 16) for x in re.findall(r"0x([0-9a-fA-F]{8})\b", dump)]
     vals, flags, index = words(array), words(active), words(cursor)
     if len(vals) != 16 or len(flags) != 1 or len(index) != 1:
         return {"accessible": False, "entries": [], "active": None}
