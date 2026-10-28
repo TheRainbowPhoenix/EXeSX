@@ -106,6 +106,7 @@ def run(a):
     stable_painted_frames = 0
     down_at = None
     selection_verified = False
+    down_attempts = 0
     t0 = time.monotonic()
     try:
         while time.monotonic() - t0 < a.seconds:
@@ -136,6 +137,7 @@ def run(a):
                                 before_down = current
                                 actions.put(("safe_check", None))
                                 did_down = True
+                                down_attempts = 1
                                 down_at = time.monotonic()
                         elif (down_at is not None and
                               time.monotonic() - down_at >= .25 and
@@ -144,6 +146,12 @@ def run(a):
                               current["selection_bands"] and
                               current["selection_bands"] != before_down["selection_bands"]):
                             selection_verified = True
+                        elif (not selection_verified and down_attempts < 3 and
+                              down_at is not None and time.monotonic()-down_at > 3):
+                            # Only another physical DOWN contact, never ENTER.
+                            actions.put(("safe_check", None))
+                            down_attempts += 1
+                            down_at = time.monotonic()
                 elif kind == "ipc":
                     ipc = parse_ipc_dump(value)
                     print("ORIGINAL IPC:", ipc, flush=True)
@@ -251,6 +259,7 @@ def run(a):
             "lcd_before_down": before_down,
             "lcd_after_down": final_frame,
             "verified_original_selection_change": selection_verified,
+            "physical_down_attempts": down_attempts,
             "qemu_running_during_check": bool(worker.proc and worker.proc.poll() is None),
             "checks": checks,
             "destructive_sd_tests_executed": False,
