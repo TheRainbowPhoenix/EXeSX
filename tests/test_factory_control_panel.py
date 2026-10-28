@@ -90,6 +90,65 @@ class FloatingKeyboardTests(unittest.TestCase):
         self.assertFalse(inaccessible["accessible"])
         self.assertIsNone(inaccessible["bit0_or_bit2_blocks_event10"])
 
+    def test_single_tcg_factory_combo_waits_for_original_m4_state0(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        import queue
+
+        actions, updates = queue.Queue(), queue.Queue()
+        args = SimpleNamespace(tcg_thread="single", hold=.08, gap=.06)
+        worker = gui.EmulatorWorker(args, actions, updates)
+        worker.mode = "menu"
+        worker.sequence = ["0x93", "0x93", "0x94"]
+        worker.seq_gated = True
+        worker.seq_stage = "press"
+        worker.seq_deadline = 0
+        contacts = []
+        worker.physical = lambda code: contacts.append(code)
+
+        class FakeQMP:
+            def __init__(self):
+                self.states = iter([2, 0, 2, 0, 2, 0])
+
+            def hmp(self, command):
+                assert command == "xp /1wx 0x1ffea320"
+                return "000000001ffea320: 0x{:08x}".format(next(self.states))
+
+        worker.qmp = FakeQMP()
+        for t in (1, 1.08, 1.15, 1.20, 1.27, 1.35,
+                  1.40, 1.48, 1.56):
+            with patch.object(gui.time, "monotonic", return_value=t):
+                worker.sequence_step()
+        self.assertEqual(contacts, [0x93, None, 0x93, None, 0x94, None])
+        self.assertEqual(worker.sequence, [])
+        self.assertFalse(worker.seq_gated)
+        self.assertIsNotNone(worker.last_menu_keys_at)
+
+    def test_factory_combo_does_not_send_next_key_without_release(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        import queue
+        worker = gui.EmulatorWorker(
+            SimpleNamespace(tcg_thread="single", hold=.08, gap=.06),
+            queue.Queue(), queue.Queue())
+        worker.mode = "menu"
+        worker.sequence = ["0x93", "0x93", "0x94"]
+        worker.seq_gated = True
+        worker.seq_stage = "press"
+        worker.seq_deadline = 0
+        contacts = []
+        worker.physical = lambda code: contacts.append(code)
+        class StillHeld:
+            def hmp(self, command):
+                return "000000001ffea320: 0x00000002"
+        worker.qmp = StillHeld()
+        for t in (1.0, 1.08, 1.2, 1.96):
+            with patch.object(gui.time, "monotonic", return_value=t):
+                worker.sequence_step()
+        self.assertEqual(contacts, [0x93, None, None])
+        self.assertFalse(worker.sequence)
+        self.assertFalse(worker.seq_gated)
+
     def test_raw_key_labels_are_not_guessed(self):
         self.assertIn(("DOWN",0x91), gui.KNOWN)
         self.assertIn(("BOOT",0x9c), gui.KNOWN)
