@@ -44,7 +44,7 @@ def main():
                    help="Opt-in SIMULATED 16-bit ADC0 value")
     p.add_argument("--adc1-sample", type=lambda s: int(s, 0),
                    help="Opt-in SIMULATED 16-bit ADC1 value")
-    p.add_argument("--release-at", type=float, default=1.2,
+    p.add_argument("--release-at", type=float, default=4.0,
                    help="Host seconds after boot; M4 chord must already have been read")
     p.add_argument("--hold", type=float, default=.080)
     p.add_argument("--gap", type=float, default=.060)
