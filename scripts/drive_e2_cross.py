@@ -36,9 +36,59 @@ def strokes(offset_step=8):
             yield ((x0+dx, y0+dy), (x1+dx, y1+dy))
 
 
-def screen_to_raw(x, y, flip_x=False, flip_y=False, swap_axes=False):
+def fit_raw_to_screen(samples):
+    """Fit each axis from locally measured original-ROM touch pixels.
+
+    Input is a private JSON list of {"raw":[x,y],"screen":[x,y]}.
+    The two axes must vary independently. More samples expose nonlinear
+    or misidentified touch coordinates rather than hiding a bad fit.
+    This is an approximation, not a factory calibration verdict.
+    """
+    if not isinstance(samples, list) or len(samples) < 2:
+        raise ValueError("Need at least two measured raw/screen point pairs")
+    models = []
+    for axis in range(2):
+        inp, out = [], []
+        for pair in samples:
+            try:
+                raw, screen = pair["raw"], pair["screen"]
+                x, y = float(raw[axis]), float(screen[axis])
+            except (KeyError, TypeError, ValueError, IndexError) as e:
+                raise ValueError("Each point needs raw[2] and screen[2]") from e
+            if not 0 <= x <= 4095 or not 0 <= y <= (863 if axis == 0 else 479):
+                raise ValueError("Measured raw or screen value is outside range")
+            inp.append(x)
+            out.append(y)
+        mx, my = sum(inp)/len(inp), sum(out)/len(out)
+        variance = sum((v - mx)**2 for v in inp)
+        if variance < 1:
+            raise ValueError("Calibration samples do not vary on both axes")
+        slope = sum((x-mx)*(y-my) for x, y in zip(inp, out)) / variance
+        if abs(slope) < 0.0001:
+            raise ValueError("Calibration scale is degenerate")
+        intercept = my - slope*mx
+        max_residual = max(abs(slope*x+intercept-y)
+                           for x, y in zip(inp, out))
+        if max_residual > 3:
+            raise ValueError("Measured touch mapping is not a stable linear fit")
+        models.append((slope, intercept))
+    return tuple(models)
+
+
+def screen_to_raw(x, y, flip_x=False, flip_y=False, swap_axes=False,
+                  calibration=None):
     # Only a configurable linear hypothesis until actual ROM calibration
     # is measured; 864x480 display != 4096x4096 ADC electrode coordinates.
+    if calibration is not None:
+        if flip_x or flip_y or swap_axes:
+            raise ValueError("Cannot combine measured calibration with axis flips")
+        values = []
+        for pixel, (slope, intercept) in zip((x, y), calibration):
+            result = round((pixel - intercept) / slope)
+            if not 0 <= result <= 4095:
+                raise ValueError("E2 target is outside measured raw touch range")
+            values.append(result)
+        return tuple(values)
     sx = max(0.0, min(1.0, x / 863.0))
     sy = max(0.0, min(1.0, y / 479.0))
     if flip_x:
@@ -87,6 +137,9 @@ def main():
     p.add_argument("--flip-x", action="store_true")
     p.add_argument("--flip-y", action="store_true")
     p.add_argument("--swap-axes", action="store_true")
+    p.add_argument("--calibration-json", type=Path,
+                   help="Private JSON array of measured original-ROM"
+                        " {raw:[x,y], screen:[x,y]} pairs; linear hypothesis")
     p.add_argument("--max-wait", type=float, default=210)
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--arm-original-a7", action="store_true",
@@ -107,8 +160,12 @@ def main():
         p.error("--arm-original-a7 requires --wait-log, --gdb-port and --hmp-port")
     if args.finish_key_file and not 10 <= args.finish_hold_ms <= 100:
         p.error("--finish-hold-ms must be 10..100")
+    calibration = None
+    if args.calibration_json:
+        calibration = fit_raw_to_screen(json.loads(
+            args.calibration_json.read_text(encoding="utf-8")))
     mapping = dict(flip_x=args.flip_x, flip_y=args.flip_y,
-                   swap_axes=args.swap_axes)
+                   swap_axes=args.swap_axes, calibration=calibration)
     paths = list(sample_lines(strokes(args.offset_step),
                               args.point_step, **mapping))
     samples = sum(len(points) for points in paths)
@@ -118,7 +175,10 @@ def main():
         "estimated_seconds": round(
             samples * args.period_ms / 1000 +
             2 * len(paths) * args.release_ms / 1000, 1),
-        "mapping": mapping,
+        "mapping": {"axis_flip_x": args.flip_x,
+                    "axis_flip_y": args.flip_y,
+                    "swap_axes": args.swap_axes,
+                    "private_measured_linear_fit": calibration},
     }), flush=True)
     if args.dry_run:
         return
