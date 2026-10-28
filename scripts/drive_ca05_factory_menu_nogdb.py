@@ -46,8 +46,8 @@ def main():
                    help="Opt-in SIMULATED 16-bit ADC1 value")
     p.add_argument("--release-at", type=float, default=1.2,
                    help="Host seconds after boot; M4 chord must already have been read")
-    p.add_argument("--hold", type=float, default=.060)
-    p.add_argument("--gap", type=float, default=.025)
+    p.add_argument("--hold", type=float, default=.080)
+    p.add_argument("--gap", type=float, default=.060)
     p.add_argument("--post-menu", type=float, default=0,
                    help="Additional guest running time to observe service/paint after menu entry")
     args = p.parse_args()
@@ -72,6 +72,7 @@ def main():
         "EXESX_EXPERIMENTAL_M4_BOOT": "1",
         "EXESX_EXPERIMENTAL_MU_IRQ": "1",
         "EXESX_EXPERIMENTAL_LPIT1_IRQ": "1",
+        "EXESX_EXPERIMENTAL_M4_LPIT0_IRQ": "1",
         "EXESX_EXPERIMENTAL_LPTMR_IRQ": "1",
         "EXESX_EXPERIMENTAL_LPTMR_PCS_CLOCKS": "1",
         "EXESX_EXPERIMENTAL_M4_PORT_IRQ": "1",
