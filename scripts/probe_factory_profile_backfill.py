@@ -39,9 +39,10 @@ def run():
     class StopAtStatus(Exception):
         pass
 
-    for bus, release, expected in ((None, 1.2, 1.2),
-                                   ("2", 1.2, 4.0),
-                                   ("2", 2.5, 2.5)):
+    for bus, release, expected in ((None, 4.0, 4.0),
+                                   ("2", 4.0, 4.0),
+                                   ("2", 2.5, 2.5),
+                                   (None, 1.2, 1.2)):
         with tempfile.TemporaryDirectory() as td:
             args = SimpleNamespace(release_at=release, output_dir=Path(td))
             worker = EmulatorWorker(args, queue.Queue(), queue.Queue())
@@ -62,7 +63,7 @@ def run():
             assert worker.boot_chord_seconds == expected, (
                 bus, release, worker.boot_chord_seconds, expected)
     print("PASS factory profile backfill: stale I2S0/I2S1 fixed, LCD preserved, idempotent")
-    print("PASS factory GUI: boot chord initialized before use; BU21029 default 4s / explicit override")
+    print("PASS factory GUI: four-second boot chord default, independent of touch device; explicit override")
 
 
 if __name__ == "__main__":
