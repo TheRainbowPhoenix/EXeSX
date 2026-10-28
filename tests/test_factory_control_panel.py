@@ -42,6 +42,29 @@ class FloatingKeyboardTests(unittest.TestCase):
         self.assertEqual(pixels[:6], b"\xff\x00\x00"*2)
         self.assertEqual(len(pixels),864*480*3)
 
+    def test_original_menu_highlight_survives_header_inversion(self):
+        white = bytearray(b"\xff" * (864 * 480 * 3))
+        self.assertIsNone(gui.original_menu_highlight(white))
+        for y in range(25, 49):
+            for x in (610, 720, 820, 850):
+                pos = 3 * (864*y + x)
+                white[pos:pos+3] = b"\x00\x00\x00"
+        self.assertEqual(gui.original_menu_highlight(white), 25)
+        # Header inversion must not make valid selected-row detection fail.
+        for x in range(864):
+            pos = 3 * (864*10 + x)
+            white[pos:pos+3] = b"\xff\xff\xff"
+        self.assertEqual(gui.original_menu_highlight(white), 25)
+        for y in range(25, 49):
+            for x in (610, 720, 820, 850):
+                pos = 3 * (864*y + x)
+                white[pos:pos+3] = b"\xff\xff\xff"
+        for y in range(72, 96):
+            for x in (610, 720, 820, 850):
+                pos = 3 * (864*y + x)
+                white[pos:pos+3] = b"\x00\x00\x00"
+        self.assertEqual(gui.original_menu_highlight(white), 72)
+
     def test_headless_factory_ipc_parser_and_blocked_semantics(self):
         from headless_factory_menu_checks import parse_ipc_dump, check
         payload = ("0x2f028000: 0xeeeeeeee 0x00000000 0x04010800 0x0001400b\n"
