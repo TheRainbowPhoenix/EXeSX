@@ -31,8 +31,11 @@ class E2OriginalPCVerificationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "lcd.ppm"
             rgb = bytearray(b"\xff" * (WIDTH * HEIGHT * 3))
+            # Put the synthetic black pixels *away* from CROSS_POINT,
+            # so adding the one E2 target pixel increases the count.
             for n in range(CROSS_BLACK - 1):
-                rgb[3*n:3*n + 3] = b"\x00\x00\x00"
+                off_bg = 3*(200000+n)
+                rgb[off_bg:off_bg + 3] = b"\x00\x00\x00"
             x, y = CROSS_POINT
             off = 3*(WIDTH*y+x)
             rgb[off:off+3] = b"\x00\x00\x00"
