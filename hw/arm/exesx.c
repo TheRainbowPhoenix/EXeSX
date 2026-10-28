@@ -772,11 +772,16 @@ static void exesx_init(MachineState *ms)
     sysbus_realize(SYS_BUS_DEVICE(&s->m4), &error_fatal);
     /* MCIMX7U5_cm4_COMMON.h: MU_A_IRQn = 22 (external NVIC line). */
     s->mu_a_irq = qdev_get_gpio_in(DEVICE(&s->m4), 22);
-    /* Original M4 FUN_1FFD684A enables LPIT0_IRQn=49 (0x31).
-     * Timer 2's 1ms callback drives the factory touch worker.
-     * No synthetic flag/event is posted: the guest must program and
-     * acknowledge LPIT0 and NVIC using its real instructions. */
-    s->lpit0_irq = qdev_get_gpio_in(DEVICE(&s->m4), 49);
+    /*
+     * IMPORTANT: Original M4 FUN_1FFD684A calls FUN_1FFD23AA(0x31).
+     * FUN_1FFD23AA takes an ARM exception/vector number, subtracts
+     * 0x10 (16 core exceptions), then writes M4 NVIC.ISER1 bit1.
+     * Vector 0x31=49 is therefore EXTERNAL IRQ33, NOT IRQ49.
+     * QEMU qdev_get_gpio_in(armv7m, N) expects external IRQ N.
+     * The old wiring at 49 raised ISPR1 bit17 while the guest enabled
+     * bit1, preventing the original 1ms touch timer interrupt.
+     */
+    s->lpit0_irq = qdev_get_gpio_in(DEVICE(&s->m4), 33);
     /* NXP i.MX7ULP NVIC: LPTMR0_IRQn=36, LPTMR1_IRQn=37. */
     s->lptmr0_irq = qdev_get_gpio_in(DEVICE(&s->m4), 36);
     s->lptmr1_irq = qdev_get_gpio_in(DEVICE(&s->m4), 37);
