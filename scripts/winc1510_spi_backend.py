@@ -184,7 +184,10 @@ class Winc1510SPI:
             self.pending.extend((cmd, 0))
         elif cmd in READ:
             self.pending.extend((cmd, 0, 0xf3))
-            self.pending.extend(self._read_reg(addr).to_bytes(4, "big"))
+            # Microchip nmspi.c spi_read_reg assembles b[0] as bits
+            # 7:0 and b[3] as bits 31:24. SPI command ADDRESS bytes
+            # are big endian but the four returned DATA bytes are LE.
+            self.pending.extend(self._read_reg(addr).to_bytes(4, "little"))
         elif cmd in WRITE:
             data = int.from_bytes(h[3:7] if internal else h[4:8], "big")
             self._write_reg(addr, data)
