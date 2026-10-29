@@ -28,12 +28,20 @@ MAX_FLASH = 1024 * 1024
 
 
 class Winc1510SPI:
-    def __init__(self, flash=None, chip_id=0x1002b0, crc=False):
+    def __init__(self, flash=None, chip_id=0x1002b0, crc=False,
+                 hif_mailbox=False):
         if flash is not None and len(flash) > MAX_FLASH:
             raise ValueError("WINC SPI flash image larger than documented 1 MiB")
         self.flash = bytes(flash) if flash is not None else None
         self.chip_id = chip_id
         self.crc = crc
+        # Explicit opt-in. This is the real HIF register handshake, not
+        # automatic Wi-Fi association, DHCP or firmware-version success.
+        self.hif_mailbox = hif_mailbox
+        self.hif_outbound_addr = 0x30000
+        self.hif_inbound_addr = 0x32000
+        self.hif_requests = []
+        self.hif_notifications = []
         self.registers = {0x1000: chip_id, 0x13f4: 3,
                           0x1070: 0, 0x1078: 0, 0x1084: 0,
                           0x108c: 0, 0x106c: 0, 0x150400: 0}
@@ -80,11 +88,73 @@ class Winc1510SPI:
         return self.memory.get(addr, 0)
 
     def _write_reg(self, addr, word):
+        if self.hif_mailbox:
+            if addr == 0x1078 and (word & 2):
+                # Actual original A7 FUN_601C0708 writes bit1, polls
+                # until cleared, then reads the WINC buffer pointer.
+                self.registers[0x150400] = self.hif_outbound_addr
+                self.registers[0x1078] = word & ~2
+                self.events.append(("hif-outbound-grant",
+                                    self.hif_outbound_addr))
+                return
+            if addr == 0x106c and (word & 2):
+                self._take_hif_request(word >> 2)
+            if addr == 0x1070:
+                # A7 acknowledges bit0 only after FUN_601C0970 sees
+                # a real HIF callback. Never generate one on W1C.
+                self.registers[0x1070] = word
+                return
         if addr == 0x1000:
             self.events.append(("blocked-chip-id-write", addr, word))
             return
         self.registers[addr] = word & 0xffffffff
         self.events.append(("register-write", addr, word & 0xffffffff))
+
+    def _take_hif_request(self, address):
+        # A7 original DMA/FUN_601C0E24 wrote the complete 8-byte
+        # request header into WINC RAM before writing 0x106C.
+        # Format from owner decomp FUN_601C0708, little-endian HIF len.
+        if not self.hif_mailbox or not 0x10000 <= address <= 0x7fff8:
+            self.events.append(("invalid-hif-notification", address))
+            return
+        header = self._dma_get(address, 8)
+        group, opcode = header[:2]
+        length = int.from_bytes(header[2:4], "little")
+        if not (8 <= length <= 0x63c and 0 < group <= 7):
+            self.events.append(("malformed-hif-request", address,
+                                header.hex()))
+            return
+        payload = self._dma_get(address + 8, length - 8)
+        request = {"group": group, "opcode": opcode,
+                   "length": length, "payload": payload,
+                   "ram": address}
+        self.hif_requests.append(request)
+        self.events.append(("hif-request", group, opcode, length))
+        # No callback fabricated here. The genuine device firmware or
+        # explicit emulated AP/socket fixture must produce a response.
+
+    def queue_hif_callback(self, group, opcode, payload=b""):
+        """Explicitly inject a *device-side* HIF callback for a fixture.
+
+        This is a Python-device test entry point, never a guest RAM
+        write or unsolicited host startup success. The original A7 still
+        must poll WINC SPI registers and dispatch the callback itself.
+        """
+        if not self.hif_mailbox or not 0 < group <= 7 or not 0 <= opcode <= 255:
+            raise ValueError("HIF mailbox not enabled or bad callback header")
+        if not isinstance(payload, bytes) or len(payload) + 8 > 0x63c:
+            raise ValueError("HIF callback body too large")
+        if self.registers.get(0x1070, 0) & 1:
+            raise RuntimeError("previous HIF callback not yet acknowledged")
+        raw = bytes((group, opcode)) + (len(payload)+8).to_bytes(2, "little")
+        raw += bytes(4) + payload
+        for i, byte in enumerate(raw):
+            self.memory[self.hif_inbound_addr + i] = byte
+        self.registers[0x1084] = self.hif_inbound_addr
+        self.registers[0x1070] = len(raw) << 2 | 1
+        self.hif_notifications.append((group, opcode, len(raw)))
+        self.events.append(("hif-device-callback", group, opcode,
+                            len(raw)))
 
     def _dma_get(self, addr, size):
         if size > MAX_FRAME:
@@ -223,11 +293,15 @@ def main():
                    help="owner original ROM accepts 0x1002B0 series; verify hardware revision")
     p.add_argument("--command-crc", action="store_true",
                    help="host transmits one extra CRC7 command byte")
+    p.add_argument("--hif-mailbox", action="store_true",
+                   help="implement original WINC HIF grant/notify and RAM;"
+                        " does NOT auto-ACK network or association commands")
     args=p.parse_args()
     if not 1024 <= args.port <= 65535:
         p.error("TCP port must be 1024..65535")
     flash = args.flash.read_bytes() if args.flash else None
-    chip = Winc1510SPI(flash, args.chip_id, args.command_crc)
+    chip = Winc1510SPI(flash, args.chip_id, args.command_crc,
+                       hif_mailbox=args.hif_mailbox)
     serve(args.listen, args.port, chip)
 
 
