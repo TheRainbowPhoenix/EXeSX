@@ -51,7 +51,7 @@ The original boot regression is opt-in only via maintainer-initiated GitHub Acti
 - `EXESX_PRIVATE_OSUP_SHA256`: exact owner firmware digest `d5791bec1c7739315fb6113b5d6890a21f6c454fcf7a05a0381cfaaa70808fb0`.
 - `EXESX_PRIVATE_ASSET_TOKEN`: optional read-only bearer token for the private URL.
 
-The CI script `scripts/ci_private_osup_regression.py` verifies bytes and digest before boot, starts the existing safe original TEST MENU/physical-DOWN runner in **single-thread TCG**, checks the original painter plus genuine LCD selection change, then deletes the private workdir. Any missing secrets cause a **SKIP**, not a fabricated PASS. This check is *not* enabled automatically on public PRs; doing so with owner-private firmware would risk leaking it to untrusted code.
+The CI script `scripts/ci_private_osup_regression.py` verifies bytes and digest before boot, starts the existing safe original TEST MENU/physical-DOWN runner in **single-thread TCG**, checks the original painter plus genuine LCD selection change, then deletes the private workdir. Any missing secrets cause a **SKIP**, not a fabricated PASS. **Once merged to main and the secrets are installed, it runs automatically on every trusted main push**, and may also be triggered via workflow_dispatch on the feature branch. This check is *not* enabled automatically on public PRs; doing so with owner-private firmware would risk leaking it to untrusted code.
 
 A private user-download ZIP named `EXeSX_owner_private_original_ROM_fixture_20261029.zip` can be built locally containing only user-provided OSUP/ELF/source-derived extents and reconstruction script. It is not a GitHub release asset.
 
