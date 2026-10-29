@@ -131,6 +131,26 @@ static uint32_t exesx_gpiob_external_input_mask(EXeSXState *board)
             levels |= UINT32_C(0x00004000);
         }
     }
+    /* WINC IRQ_N is a real active-low input. Opt-in mapping only:
+     * original DY357 physical IRQ pin needs a wiring trace. Without
+     * EXESX_WINC_IRQ_GPIOB_PIN, leave every GPIO level unchanged.
+     * The status bit was sampled from the external Python device on
+     * the last genuine SPI clock; do not synthesize an A7 callback. */
+    const char *irqpin = g_getenv("EXESX_WINC_IRQ_GPIOB_PIN");
+    if (irqpin && *irqpin && board && board->wlan_lpspi2) {
+        char *stop;
+        unsigned long pin = strtoul(irqpin, &stop, 0);
+        if (!*stop && pin < 32) {
+            uint32_t bit = UINT32_C(1) << pin;
+            uint32_t state =
+                board->wlan_lpspi2->regfile[EXESX_LPSPI_GPIO_STATE];
+            if (!(state & 1U) || (state & 2U)) {
+                levels |= bit; /* disconnected or idle: IRQ_N high */
+            } else {
+                levels &= ~bit; /* HIF callback awaiting guest ACK */
+            }
+        }
+    }
     return exesx_bu21029_gpio_b_levels(board, levels);
 }
 
