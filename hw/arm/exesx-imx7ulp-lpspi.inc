@@ -445,7 +445,11 @@ static void exesx_lpspi2_dma_kick(EXeSXProfileWindow *w)
             t[3] != 0 || t[6] != 0) {
             continue; /* never execute unsupported scatter/major links */
         }
+        /* Original DY357 FUN_601C2F04 configures DMAMUX1 source
+         * 0x1A for LPSPI2 TX and 0x19 for LPSPI2 RX. An unrelated
+         * enabled DMA channel must not clock the WINC card. */
         if (t[4] == UINT32_C(0x40290064) && soff == 4 && doff == 0 &&
+            (cfg & 0x7fU) == 0x1aU &&
             t[0] >= UINT32_C(0x60000000)) {
             if (tx < 0) {
                 tx = channel;
@@ -453,6 +457,7 @@ static void exesx_lpspi2_dma_kick(EXeSXProfileWindow *w)
             }
         } else if (t[0] == UINT32_C(0x40290074) &&
                    soff == 0 && doff == 4 &&
+                   (cfg & 0x7fU) == 0x19U &&
                    t[4] >= UINT32_C(0x60000000) && total == nbytes) {
             rx = channel;
         }
