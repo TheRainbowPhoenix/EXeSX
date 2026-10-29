@@ -47,7 +47,8 @@ def make_guest():
                   (24,0),(28,0x00010002)):
         li(1,v);st(1,0,off)
     li(0,MUX)
-    li(1,0x80000000);st(1,0,8);st(1,0,12)
+    li(1,0x8000001a);st(1,0,8)  # original TX source26
+    li(1,0x80000019);st(1,0,12) # original RX source25
     li(0,DMA)
     li(1,0xc);st(1,0,0xc)         # ERQ on channels 2 and 3
     li(0,SPI)
