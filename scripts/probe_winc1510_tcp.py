@@ -31,8 +31,8 @@ def elf():
     lit(7,OUT);lit(0,BASE)
     lit(1,3);st(1,0,0x24)               # MASTER mode
     lit(1,1);st(1,0,0x10)               # enabled
-    lit(1,0x02000057);st(1,0,0x60)    # 11 bytes, original WLAN PCS2
-    lit(1,0xca001000);st(1,0,0x64)     # WINC SINGLE_READ at 0x1000
+    lit(1,0x02400057);st(1,0,0x60)    # 11 bytes, original WLAN PCS2
+    lit(1,0x001000ca);st(1,0,0x64)     # WINC SINGLE_READ at 0x1000
     lit(1,0);st(1,0,0x64)              # 4 dummy clocks
     st(1,0,0x64)                       # 3 more clocks (last 24 bits)
     ld(2,0,0x74);st(2,7,0)
@@ -97,7 +97,7 @@ def run(qemu,profile):
                         q=QMP(sock);q.execute("cont")
                         time.sleep(.7)
                         words=[result_word(q,OUT+i*4) for i in range(4)]
-                        expected=[0xffffffff,0xca00f3b0,0x02100000,0]
+                        expected=[0xffffffff,0xb0f300ca,0x00100200,0]
                         assert words==expected, (list(map(hex,words)),
                                                  list(map(hex,expected)))
                         print("PASS genuine ARM WINC1510 SPI register read "
