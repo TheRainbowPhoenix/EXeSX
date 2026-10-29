@@ -458,8 +458,13 @@ static void exesx_lpspi2_dma_kick(EXeSXProfileWindow *w)
         } else if (t[0] == UINT32_C(0x40290074) &&
                    soff == 0 && doff == 4 &&
                    (cfg & 0x7fU) == 0x19U &&
-                   t[4] >= UINT32_C(0x60000000) && total == nbytes) {
-            rx = channel;
+                   t[4] >= UINT32_C(0x60000000)) {
+            /* RX can be the LOWER channel number. Do not compare its
+             * size to TX during discovery: the channel ordering is
+             * controlled by the original firmware, not the host. */
+            if (rx < 0) {
+                rx = channel;
+            }
         }
     }
     if (tx < 0 || rx < 0) {
