@@ -61,7 +61,7 @@ class WincGPIOTests(unittest.TestCase):
         self.assertTrue(chip.ap_connected)
         self.assertFalse(chip.irq_n)
         self.assertEqual(chip.hif_notifications[-1][:2], (1, 0x2c))
-        self.assertEqual(chip._dma_get(0x32000, 12)[8:], b"\\x01"+bytes(3))
+        self.assertEqual(chip._dma_get(0x32000, 12)[8:], b"\x01"+bytes(3))
         # Original guest may request AP info while connection IRQ remains
         # pending. A second callback must be FIFO queued, never overwrite.
         chip._dma_put(addr, bytes.fromhex("012f080000000000"))
@@ -118,9 +118,9 @@ class WincGPIOTests(unittest.TestCase):
                 self.assertEqual(recv_exact(sock, 8), bytes.fromhex("ca00f3b0021000") + b"\x01")
                 # Active reset pin: bus goes electrically absent.
                 sock.sendall(bytes((2, 0x12, 4, 0)) + bytes.fromhex("ca001000"))
-                self.assertEqual(sock.recv(5), b"\xff" * 4 + b"\x01")
+                self.assertEqual(recv_exact(sock, 5), b"\xff" * 4 + b"\x01")
                 sock.sendall(bytes((255, 0x20, 0, 0)))
-                self.assertEqual(sock.recv(1), b"\x01")
+                self.assertEqual(recv_exact(sock, 1), b"\x01")
         finally:
             p.terminate()
             try:
