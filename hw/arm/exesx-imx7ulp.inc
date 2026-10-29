@@ -30,6 +30,7 @@ static void exesx_lpspi2_dma_kick(EXeSXProfileWindow *w);
 #include "exesx-imx7ulp-usdhc.inc"
 #include "exesx-imx7ulp-dmamux.inc"
 #include "exesx-imx7ulp-lpspi.inc"
+#include "exesx-imx7ulp-usb.inc"
 #include "exesx-imx7ulp-sema42.inc"
 
 /* External GPIOB pins exist on real hardware; the default model has
@@ -226,6 +227,7 @@ static bool exesx_imx7ulp_kind(const char *kind)
            g_strcmp0(kind, "imx7ulp-usdhc1") == 0 ||
            g_strcmp0(kind, "imx7ulp-dmamux") == 0 ||
            g_strcmp0(kind, "imx7ulp-lpspi") == 0 ||
+           g_strcmp0(kind, "imx7ulp-usb") == 0 ||
            g_strcmp0(kind, "imx7ulp-sema42") == 0 ||
            g_strcmp0(kind, "imx7ulp-wdog") == 0 ||
            g_strcmp0(kind, "imx7ulp-tstmr") == 0;
@@ -444,6 +446,9 @@ static MemTxResult exesx_imx7ulp_read(EXeSXProfileWindow *w,
         *value = (off == 0) ? (uint32_t)ticks : (uint32_t)(ticks >> 32);
         return MEMTX_OK;
     }
+    if (!strcmp(w->kind, "imx7ulp-usb")) {
+        return exesx_usb_read(w, off, value, size);
+    }
     if (!strcmp(w->kind, "imx7ulp-gpio")) {
         switch (off) {
         case 0x00: /* PDOR */
@@ -551,6 +556,9 @@ static MemTxResult exesx_imx7ulp_write(EXeSXProfileWindow *w,
     }
     if (!strcmp(w->kind, "imx7ulp-lpspi")) {
         return exesx_lpspi2_write(w, off, value, size);
+    }
+    if (!strcmp(w->kind, "imx7ulp-usb")) {
+        return exesx_usb_write(w, off, value, size);
     }
     if (!strcmp(w->kind, "imx7ulp-lpi2c")) {
         return exesx_lpi2c_write(w, off, value, size);
