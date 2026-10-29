@@ -122,7 +122,7 @@ def run(qemu,profile):
                         assert word(q,RESULT+4)==0
                         assert word(q,DMA+0x105c)&0x80
                         assert word(q,DMA+0x107c)&0x80
-                        assert word(q,DMA+0x1056)&0xffff0000 == 0
+                        assert word(q,DMA+0x1054)&0xffff0000 == 0
                         print("PASS real A7 ARM eDMA1 paired RX/TX 12 SPI bytes"
                               " PCS2 Python WINC chip-ID and actual DONE/INT W1C",
                               flush=True)
