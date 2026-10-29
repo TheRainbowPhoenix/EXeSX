@@ -60,7 +60,7 @@ class SPIProtocolTests(unittest.TestCase):
         self.assertEqual(dev.hif_requests, [])
         self.assertEqual(dev._read_reg(0x1070), 0)
 
-        body = b"\x01\\x2b\\x0c\\x00" + bytes(4) + b"TEST"
+        body = b"\x01\x2b\x0c\x00" + bytes(4) + b"TEST"
         dev._dma_put(0x30000, body)
         # Genuine A7 sets request pointer<<2 | 2 after DMA payload.
         dev.shift(2, bytes.fromhex("c900106c000c0002"),
