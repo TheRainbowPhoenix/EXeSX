@@ -47,8 +47,45 @@ class Winc1510SPI:
                           0x108c: 0, 0x106c: 0, 0x150400: 0}
         self.memory = {}
         self.events = []
+        # Board control pins are electrical lines, not HIF "OK" events.
+        # Active-low RESET_N and WAKE_N; CHIP_EN is active high.
+        self.reset_n = True
+        self.wake_n = False
+        self.chip_enable = True
         self.selected_pcs = None
         self._reset_transaction()
+
+    def set_pins(self, reset_n=True, wake_n=False, chip_enable=True):
+        """Apply genuine board pins supplied by the QEMU GPIO bridge.
+
+        Reset erases volatile registers/RAM, never owner-supplied flash.
+        A disabled chip drives high MISO; no SPI/HIF events occur.
+        """
+        reset_n, wake_n, chip_enable = (
+            bool(reset_n), bool(wake_n), bool(chip_enable))
+        was_enabled = self.reset_n and self.chip_enable
+        will_enable = reset_n and chip_enable
+        if was_enabled and not will_enable:
+            self.end()
+            self.memory.clear()
+            self.hif_requests.clear()
+            self.hif_notifications.clear()
+            self.registers.clear()
+            self.registers.update({
+                0x1000: self.chip_id, 0x13f4: 3,
+                0x1070: 0, 0x1078: 0, 0x1084: 0, 0x108c: 0,
+                0x106c: 0, 0x150400: 0,
+            })
+            self.events.append(("hardware-reset-or-chip-disabled",))
+        self.reset_n = reset_n
+        self.wake_n = wake_n
+        self.chip_enable = chip_enable
+
+    @property
+    def irq_n(self):
+        """HIF pending interrupt drives IRQ_N low; never a fabricated OK."""
+        return not (self.reset_n and self.chip_enable and
+                    (self.registers.get(0x1070, 0) & 1))
 
     def _reset_transaction(self):
         self.header = bytearray()
@@ -235,6 +272,9 @@ class Winc1510SPI:
     def shift(self, pcs, tx, begin=False, end=False):
         if len(tx) > MAX_FRAME:
             raise ValueError("oversized SPI clock segment")
+        if not self.reset_n or not self.chip_enable:
+            self.end()
+            return bytes([0xff]) * len(tx)
         if begin:
             self.begin(pcs)
         if self.selected_pcs != pcs:
@@ -255,7 +295,7 @@ def recv_exact(sock, n):
     return bytes(data)
 
 
-def serve(host, port, chip):
+def serve(host, port, chip, gpio_status=False):
     if host != "127.0.0.1":
         raise ValueError("WINC backend intentionally binds localhost only")
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as srv:
@@ -276,12 +316,20 @@ def serve(host, port, chip):
                         while len(header) < 4:
                             header += recv_exact(conn, 4-len(header))
                         pcs, flags, count = struct.unpack("<BBH", header)
-                        if count > MAX_FRAME or flags & ~3:
+                        if count > MAX_FRAME or flags & ~(0x1f if gpio_status else 3):
                             raise ValueError("invalid QEMU SPI segment")
                         tx = recv_exact(conn, count)
+                        if gpio_status:
+                            chip.set_pins(reset_n=bool(flags & 4),
+                                          wake_n=bool(flags & 8),
+                                          chip_enable=bool(flags & 16))
                         rx = chip.shift(pcs, tx, bool(flags & 1),
                                         bool(flags & 2))
-                        conn.sendall(rx)
+                        # Opt-in byte appended to the *existing* response,
+                        # sampled by the GPIO bridge only: 1=IRQ_N high.
+                        # Legacy wire protocol remains strictly RX[n].
+                        conn.sendall(rx + (bytes([int(chip.irq_n)])
+                                           if gpio_status else b""))
                 except (ConnectionError, OSError, ValueError) as error:
                     print("WINC SPI disconnected:", error, flush=True)
                     chip.end()
@@ -296,6 +344,9 @@ def main():
                    help="owner original ROM accepts 0x1002B0 series; verify hardware revision")
     p.add_argument("--command-crc", action="store_true",
                    help="host transmits one extra CRC7 command byte")
+    p.add_argument("--gpio-status", action="store_true",
+                   help="extended bridge: RESET_N/WAKE_N/EN control flags and"
+                        " one sampled IRQ_N status byte after each SPI response")
     p.add_argument("--hif-mailbox", action="store_true",
                    help="implement original WINC HIF grant/notify and RAM;"
                         " does NOT auto-ACK network or association commands")
@@ -305,7 +356,7 @@ def main():
     flash = args.flash.read_bytes() if args.flash else None
     chip = Winc1510SPI(flash, args.chip_id, args.command_crc,
                        hif_mailbox=args.hif_mailbox)
-    serve(args.listen, args.port, chip)
+    serve(args.listen, args.port, chip, args.gpio_status)
 
 
 if __name__ == "__main__":
