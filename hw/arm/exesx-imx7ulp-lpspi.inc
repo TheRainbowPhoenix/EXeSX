@@ -70,10 +70,22 @@ static bool exesx_lpspi2_loopback_enabled(void)
  * Protocol frame: PCS (1), flags BEGIN=1/END=2 (1), nbytes LE (2),
  * nbytes MOSI, exactly nbytes MISO. The Python process is localhost.
  */
+/* Original DY357 TCR.BYSW swaps bytes inside each active FIFO word.
+ * NXP PERI_LPSPI: TX and RX both swap, including partial final words.
+ */
+static uint32_t exesx_lpspi2_reverse_bytes(uint32_t value, unsigned bytes)
+{
+    uint32_t out = 0;
+    for (unsigned i = 0; i < bytes; ++i) {
+        out = (out << 8) | ((value >> (8 * i)) & 0xff);
+    }
+    return out;
+}
+
 static bool exesx_lpspi2_tcp_exchange(EXeSXProfileWindow *w, uint32_t pcs,
                                      uint32_t nbits, uint32_t bits,
-                                     bool high_partial, bool begin, bool end,
-                                     uint32_t *response)
+                                     bool high_partial, bool byte_swap,
+                                     bool begin, bool end, uint32_t *response)
 {
     const char *portstr = g_getenv("EXESX_WINC1510_TCP_PORT");
     char *stop;
@@ -118,12 +130,12 @@ static bool exesx_lpspi2_tcp_exchange(EXeSXProfileWindow *w, uint32_t pcs,
     packet[1] = (begin ? 1 : 0) | (end ? 2 : 0);
     packet[2] = nbytes;
     packet[3] = 0;
+    /* 'bits' is the already-extracted active 1..4 bytes of TDR.
+     * Hardware BYSW reverses their order before clocking SPI. */
+    uint32_t wire = byte_swap ?
+                    exesx_lpspi2_reverse_bytes(bits, nbytes) : bits;
     for (int i = 0; i < nbytes; ++i) {
-        if (nbits == 32 || high_partial) {
-            packet[4+i] = bits >> (24 - 8*i);
-        } else {
-            packet[4+i] = bits >> (8*(nbytes - 1-i));
-        }
+        packet[4 + i] = wire >> (8 * (nbytes - 1 - i));
     }
     while (sent < (size_t)(4 + nbytes)) {
         int ret = send(w->lpspi_backend_fd,
@@ -144,6 +156,9 @@ static bool exesx_lpspi2_tcp_exchange(EXeSXProfileWindow *w, uint32_t pcs,
     *response = 0;
     for (int i = 0; i < nbytes; ++i) {
         *response = (*response << 8) | reply[i];
+    }
+    if (byte_swap) {
+        *response = exesx_lpspi2_reverse_bytes(*response, nbytes);
     }
     if (high_partial) {
         *response <<= 32 - nbits;
@@ -346,9 +361,10 @@ static MemTxResult exesx_lpspi2_write(EXeSXProfileWindow *w,
             uint32_t backend_rx;
             bool ending = left == nbits &&
                           !(w->regfile[0x60 / 4] & (1U << 21));
-            if (exesx_lpspi2_tcp_exchange(w, pcs, nbits, bits,
-                                         high_partial, beginning, ending,
-                                         &backend_rx)) {
+            if (exesx_lpspi2_tcp_exchange(
+                    w, pcs, nbits, shifted, high_partial,
+                    !!(w->regfile[0x60 / 4] & (1U << 22)),
+                    beginning, ending, &backend_rx)) {
                 rxword = backend_rx;
             } else {
                 /* A disconnected card cannot reply with a fabricated
