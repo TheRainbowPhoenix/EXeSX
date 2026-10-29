@@ -27,7 +27,7 @@ class BridgeTests(unittest.TestCase):
         received = []
         def bridge_stub():
             try:
-                for _ in range(16):
+                for _ in range(32):
                     try:
                         header = recv_exact(right, 4)
                     except ConnectionError:
