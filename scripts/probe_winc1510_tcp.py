@@ -31,7 +31,7 @@ def elf():
     lit(7,OUT);lit(0,BASE)
     lit(1,3);st(1,0,0x24)               # MASTER mode
     lit(1,1);st(1,0,0x10)               # enabled
-    lit(1,87);st(1,0,0x60)             # 11 bytes, CS0
+    lit(1,0x02000057);st(1,0,0x60)    # 11 bytes, original WLAN PCS2
     lit(1,0xca001000);st(1,0,0x64)     # WINC SINGLE_READ at 0x1000
     lit(1,0);st(1,0,0x64)              # 4 dummy clocks
     st(1,0,0x64)                       # 3 more clocks (last 24 bits)
@@ -101,7 +101,7 @@ def run(qemu,profile):
                         assert words==expected, (list(map(hex,words)),
                                                  list(map(hex,expected)))
                         print("PASS genuine ARM WINC1510 SPI register read "
-                              "via external Python TCP backend and PCS0",
+                              "via external Python TCP backend and original PCS2",
                               flush=True)
                 finally:
                     guest.terminate()
