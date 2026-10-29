@@ -11,6 +11,7 @@
  * and timer synchronization are not yet emulated.
  */
 #include "qemu/timer.h"
+#include "exesx-imx7ulp-touch.inc"
 #include "exesx-imx7ulp-scg.inc"
 #include "exesx-imx7ulp-tpm.inc"
 #include "exesx-imx7ulp-pmc.inc"
@@ -101,7 +102,7 @@ static uint32_t exesx_live_external_gpio_input_mask(const char *mask_env,
     return *cached;
 }
 
-static uint32_t exesx_gpiob_external_input_mask(void)
+static uint32_t exesx_gpiob_external_input_mask(EXeSXState *board)
 {
     static uint32_t cached;
     static int64_t next_read_ns;
@@ -127,7 +128,7 @@ static uint32_t exesx_gpiob_external_input_mask(void)
             levels |= UINT32_C(0x00004000);
         }
     }
-    return levels;
+    return exesx_bu21029_gpio_b_levels(board, levels);
 }
 
 static uint32_t exesx_gpioa_external_input_mask(void)
@@ -156,7 +157,7 @@ static void exesx_m4_port_tick(void *opaque)
     if (gpio) {
         external = port->base == 0x4103f000 ?
                    exesx_gpioa_external_input_mask() :
-                   exesx_gpiob_external_input_mask();
+                   exesx_gpiob_external_input_mask(b);
         external = exesx_m4_keyboard_column_levels(gpio, external);
         pddr = gpio->regfile[0x14 / 4];
         levels = (gpio->regfile[0] & pddr) | (external & ~pddr);
@@ -164,7 +165,8 @@ static void exesx_m4_port_tick(void *opaque)
     }
     timer_mod(port->m4_port_poll_timer,
               qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
-              (g_getenv("EXESX_M4_KEY_MATRIX_FILE") ?
+              ((g_getenv("EXESX_M4_KEY_MATRIX_FILE") ||
+                g_getenv("EXESX_BU21029_TOUCH_FILE")) ?
                INT64_C(1000000) : INT64_C(20000000)));
 }
 
@@ -430,7 +432,7 @@ static MemTxResult exesx_imx7ulp_read(EXeSXProfileWindow *w,
                 w->base == UINT64_C(0x4100f000) ?
                 exesx_gpioa_external_input_mask() :
                 w->base == UINT64_C(0x4100f040) ?
-                exesx_gpiob_external_input_mask() : 0;
+                exesx_gpiob_external_input_mask(w->board) : 0;
             if (w->base == UINT64_C(0x4100f000) ||
                 w->base == UINT64_C(0x4100f040)) {
                 external_inputs = exesx_m4_keyboard_column_levels(

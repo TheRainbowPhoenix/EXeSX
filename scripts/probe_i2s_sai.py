@@ -49,6 +49,9 @@ def make_elf():
         lit(1,0x02000000)                      # FR bit25 selfclear per NXP header
         store(1,0,0x88)
         load(2,0,0x88);store(2,7,bank*32+24)
+        lit(1,0x12345678)
+        store(1,0,0x20)                      # TDR: unmodeled transfer warning
+        load(2,0,0xa0);store(2,7,bank*32+28) # RDR: no invented RX sample
     emit(0xeafffffe)
     for pos,reg,value in literals:
         displacement=len(code)*4-pos*4-8
@@ -80,8 +83,10 @@ def run(qemu, profile, with_i2s=True):
         if lib.is_dir():
             env["LD_LIBRARY_PATH"]=str(lib)+os.pathsep+env.get("LD_LIBRARY_PATH","")
         port=choose_port()
+        trace=root/"sai-mmio.log"
         cmd=[str(qemu.resolve()),"-machine","exesx","-m","64M",
-             "-accel","tcg","-display","none","-serial","none","-monitor",
+             "-accel","tcg","-d","unimp,guest_errors","-D",str(trace),
+             "-display","none","-serial","none","-monitor",
              "none","-no-reboot","-S","-qmp",
              "tcp:127.0.0.1:{},server=on,wait=off".format(port),
              "-device","loader,file={},cpu-num=0".format(elf)]
@@ -104,14 +109,20 @@ def run(qemu, profile, with_i2s=True):
                         time.sleep(.7)
                         values=[]
                         for bank in range(2):
-                            for off in range(0,28,4):
+                            for off in range(0,32,4):
                                 addr=OUT+bank*32+off
                                 result=qmp.hmp("xp /1wx 0x{:x}".format(addr))
                                 m=re.search(r":\s+0x([0-9a-fA-F]+)",result)
                                 if not m: raise AssertionError(result)
                                 values.append(int(m.group(1),16))
-                        expect=[0,0x4009,0x80000100,0,0,0x200040,0]*2
+                        expect=[0,0x4009,0x80000100,0,0,0x200040,0,0]*2
                         assert values==expect, (list(map(hex,values)),list(map(hex,expect)))
+                        log=trace.read_text(encoding="utf-8",errors="replace")
+                        for evidence in ("TX enabled: audio clock/FIFO/DMA/IRQ not implemented",
+                                         "TX FIFO write not implemented",
+                                         "RX FIFO read not implemented",
+                                         "unimplemented/invalid imx7ulp-i2s MMIO READ"):
+                            assert evidence in log, (evidence, log[-2000:])
             finally:
                 proc.terminate()
                 try: proc.wait(timeout=4)

@@ -137,6 +137,18 @@ def prepare_media(args, output):
 
 def profile_with_lcd(path, output):
     text = path.read_text(encoding="utf-8")
+    # Owner test suites may retain a pre-I2S original-ROM profile. This is
+    # exactly the old 0x400B HardFault (CFSR=0x8200 BFAR=0x41037008):
+    # new QEMU code cannot register a missing MMIO window if it is absent
+    # from EXESX_MEMORY_PROFILE. Backfill both *hardware* SAI windows only
+    # for the factory helper, and report it instead of silently timing out.
+    for label, base in (("i2s0-m4", "0x41037000"),
+                        ("i2s1-m4", "0x410aa000")):
+        if base not in text.lower():
+            text += ("\n[" + label + "]\nkind=imx7ulp-i2s\n"
+                     "base=" + base + "\nsize=0x100\n")
+            print("EXeSX factory profile: restored missing " + label +
+                  " MMIO window " + base, flush=True)
     if "[diagnostic-flexbus-lcd]" not in text and "base=0xb0000000" not in text.lower():
         text += ("\n[diagnostic-flexbus-lcd]\nkind=exesx-lcd\n"
                  "base=0xb0000000\nsize=0x1000\n")
@@ -168,6 +180,7 @@ def run_phase(args, phase, qemu, elf, emmc, profile, output):
         "EXESX_EXPERIMENTAL_M4_BOOT": "1",
         "EXESX_EXPERIMENTAL_MU_IRQ": "1",
         "EXESX_EXPERIMENTAL_LPIT1_IRQ": "1",
+        "EXESX_EXPERIMENTAL_M4_LPIT0_IRQ": "1",
         "EXESX_EXPERIMENTAL_LPTMR_IRQ": "1",
         "EXESX_EXPERIMENTAL_LPTMR_PCS_CLOCKS": "1",
         "EXESX_EXPERIMENTAL_M4_PORT_IRQ": "1",
@@ -187,6 +200,13 @@ def run_phase(args, phase, qemu, elf, emmc, profile, output):
         "EXESX_GPIOB_INPUT_MASK": "0xc8",
         "EXESX_M4_KEY_MATRIX_FILE": str(contacts.resolve()),
     })
+    for bank in (0, 1):
+        raw = getattr(args, f"adc{bank}_sample", None)
+        name = f"EXESX_ADC{bank}_SAMPLE_RAW"
+        if raw is not None:
+            env[name] = hex(raw)
+        else:
+            env.pop(name, None)
     lib = qemu.parent / "lib"
     if lib.is_dir():
         env["LD_LIBRARY_PATH"] = str(lib) + os.pathsep + env.get("LD_LIBRARY_PATH", "")
@@ -195,7 +215,7 @@ def run_phase(args, phase, qemu, elf, emmc, profile, output):
     qmp_port = choose_port()
     command = [
         str(qemu), "-machine", "exesx", "-m", "64M",
-        "-accel", "tcg", "-display", "none", "-serial", "none",
+        "-accel", f"tcg,thread={args.tcg_thread}", "-display", "none", "-serial", "none",
         "-monitor", "none", "-no-reboot",
         "-S", "-qmp", "tcp:127.0.0.1:{},server=on,wait=off".format(qmp_port),
         "-drive", "if=none,id=exesx-emmc,file={},format=raw,snapshot=on".format(emmc),
@@ -218,6 +238,7 @@ def run_phase(args, phase, qemu, elf, emmc, profile, output):
     image_ready = False
     released = False
     menu_at = None
+    paint_at = None
     t0 = time.monotonic()
     print("START", phase, flush=True)
     with console.open("wb") as log:
@@ -255,6 +276,8 @@ def run_phase(args, phase, qemu, elf, emmc, profile, output):
                                 print(phase, label, round(elapsed, 2), flush=True)
                                 if label == "factory_menu":
                                     menu_at = time.monotonic()
+                                if label == "menu_painter":
+                                    paint_at = time.monotonic()
                     if (phase == "popup" and "event_wait" in first_seen and
                             elapsed - report["checkpoints_seconds"]["event_wait"] >= args.popup_settle_seconds and
                             not capture_issued):
@@ -281,8 +304,8 @@ def run_phase(args, phase, qemu, elf, emmc, profile, output):
                             report["physical_contacts"].append(["release", key,
                                                                  round(time.monotonic()-t0, 3)])
                             time.sleep(args.gap)
-                    if phase == "menu" and menu_at is not None:
-                        if time.monotonic() - menu_at >= args.post_menu_seconds and not capture_issued:
+                    if phase == "menu" and paint_at is not None:
+                        if time.monotonic() - paint_at >= args.post_menu_seconds and not capture_issued:
                             capture_frame(qmp, raw_frame, screenshot)
                             capture_issued = True
                         if image_ready:
@@ -290,7 +313,9 @@ def run_phase(args, phase, qemu, elf, emmc, profile, output):
                             break
                     time.sleep(.02)
                 else:
-                    report["reason"] = "bounded timeout"
+                    report["reason"] = ("menu IPC 0x400B still pending; painter not observed"
+                                        if phase == "menu" and menu_at is not None and paint_at is None
+                                        else "bounded timeout")
         finally:
             if qmp_sock is not None:
                 qmp_sock.close()
@@ -323,9 +348,16 @@ def main(argv=None):
     p.add_argument("--output-dir", type=Path, default=Path("private/factory-auto"))
     p.add_argument("--seconds", type=float, default=50,
                    help="Maximum wall seconds PER cold boot pass")
-    p.add_argument("--release-at", type=float, default=1.2)
-    p.add_argument("--hold", type=float, default=.060)
-    p.add_argument("--gap", type=float, default=.025)
+    p.add_argument("--tcg-thread", choices=("single", "multi"),
+                   default="single",
+                   help="Single-thread TCG avoids unstable A7/M4 startup timing")
+    p.add_argument("--adc0-sample", type=lambda s: int(s, 0),
+                   help="Optional SIMULATED 16-bit ADC0 power source (not a measurement)")
+    p.add_argument("--adc1-sample", type=lambda s: int(s, 0),
+                   help="Optional SIMULATED 16-bit ADC1 power source (not a measurement)")
+    p.add_argument("--release-at", type=float, default=4.0)
+    p.add_argument("--hold", type=float, default=.080)
+    p.add_argument("--gap", type=float, default=.060)
     p.add_argument("--post-menu-seconds", type=float, default=4)
     p.add_argument("--popup-settle-seconds", type=float, default=.6,
                    help="Host seconds after original A7 event wait to allow real dialog glyphs to paint")
@@ -337,6 +369,12 @@ def main(argv=None):
     p.add_argument("--attempts", type=int, default=3,
                    help="Fresh-boot retries per phase (timing-sensitive original firmware)")
     args = p.parse_args(argv)
+    if any(v is not None and not 0 <= v <= 0xffff for v in
+           (args.adc0_sample, args.adc1_sample)):
+        p.error("Simulated ADC source must be a 16-bit unsigned raw value")
+    if args.adc0_sample is not None or args.adc1_sample is not None:
+        print("SIMULATED virtual ADC source(s); not actual battery measurements",
+              flush=True)
     if args.attempts <= 0:
         p.error("--attempts must be positive")
     if args.seconds <= 0 or args.hold <= 0 or args.gap < 0 or args.release_at < 0 or args.post_menu_seconds < 0 or args.popup_settle_seconds < 0:

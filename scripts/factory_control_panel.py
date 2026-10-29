@@ -49,7 +49,64 @@ A7_MILESTONES = {
     0x60006240: "IPC 0x400B invoked",
     0x60006268: "IPC 0x400B returned",
     0x60057668: "Menu painter executed",
+    # Native factory handlers (A7 unchanged ROM). These are entry
+    # checkpoints, not touch-test OK verdicts.
+    0x600580dc: "TOUCH PANEL PRESET handler entered",
+    0x6005830c: "E2 PATTERN CHECK handler entered",
+    # Original owner A7 FUN_6005C6BC: these are the actual E2 verdict
+    # branches, not host-side guesses from a black/white framebuffer.
+    0x6005cd08: "E2 original OK branch entered",
+    0x6005cd30: "E2 original NG branch entered",
 }
+
+
+def original_menu_highlight(rgb):
+    """Find original full-width inverse-highlight bar, or None.
+
+    Works on both TEST MENU and its 14-row MANUAL MENU; does not depend
+    on the title header color (the original menu inverts that header).
+    Reads only exported RGB pixels, never guest MMIO or RAM.
+    """
+    if len(rgb) != 864 * 480 * 3:
+        return None
+    run_start, run_len = None, 0
+    for y in range(25, 410):
+        black = True
+        for x in (610, 720, 820, 850):
+            i = (864 * y + x) * 3
+            if rgb[i:i+3] != b"\x00\x00\x00":
+                black = False
+                break
+        if black:
+            if run_start is None:
+                run_start = y
+            run_len += 1
+            if run_len >= 12:
+                return run_start
+        else:
+            run_start, run_len = None, 0
+    return None
+
+
+def decode_original_factory_results(array, active, cursor):
+    """Read-only original A7 FUN_60048470 factory verdict array.
+
+    Each word at 0x62344EF0 is written by the unchanged BIOS: 1=OK,
+    -1=NG, -2=SKIPPED. Active state and cursor are also original RAM.
+    Never infer a test result from an unwritten zero slot.
+    """
+    def words(dump):
+        if "Cannot access memory" in dump:
+            return []
+        return [int(x, 16) for x in re.findall(r"0x([0-9a-fA-F]{8})\b", dump)]
+    vals, flags, index = words(array), words(active), words(cursor)
+    if len(vals) != 16 or len(flags) != 1 or len(index) != 1:
+        return {"accessible": False, "entries": [], "active": None}
+    labels = {1: "OK", 0xffffffff: "NG", 0xfffffffe: "SKIPPED"}
+    return {"accessible": True, "active": flags[0] != 0,
+            "cursor": (index[0] >> 24) & 255,
+            "entries": [{"slot": i + 1, "value": v, "status": labels[v]}
+                        for i, v in enumerate(vals) if v in labels]}
 
 
 def pure_rgb565_lcd(mm):
@@ -57,6 +114,37 @@ def pure_rgb565_lcd(mm):
     if len(mm) != 864 * 480 * 2:
         raise ValueError("bad shared frame length")
     return rgb565_to_rgb888(mm[:])
+
+
+def e2_debug_options(environment):
+    """Explicit loopback-only guest debugging; completely disabled normally.
+
+    The original-A7 diagnostic needs two independent connections so the
+    factory worker can retain its QMP monitor and LCD frame thread.
+    """
+    ports = []
+    for name in ("EXESX_E2_HMP_PORT", "EXESX_E2_GDB_PORT"):
+        raw = environment.get(name, "")
+        if not raw:
+            ports.append(None)
+            continue
+        if not raw.isascii() or not raw.isdecimal():
+            raise ValueError(name + " must be a decimal TCP port")
+        port = int(raw)
+        if not 1 <= port <= 65535:
+            raise ValueError(name + " outside TCP port range")
+        ports.append(port)
+    hmp_port, gdb_port = ports
+    if hmp_port is not None and hmp_port == gdb_port:
+        raise ValueError("E2 GDB and HMP ports must differ")
+    hmp = ("tcp:127.0.0.1:{},server=on,wait=off".format(hmp_port)
+           if hmp_port else "none")
+    gdb = (["-gdb", "tcp:127.0.0.1:{}".format(gdb_port)]
+           if gdb_port else [])
+    trace = ("exec,guest_errors,unimp"
+             if environment.get("EXESX_E2_TRACE_I2C", "") == "1"
+             else "exec")
+    return hmp, gdb, trace
 
 
 class EmulatorWorker(threading.Thread):
@@ -74,6 +162,9 @@ class EmulatorWorker(threading.Thread):
         self.sequence = []
         self.seq_stage = None
         self.seq_deadline = 0
+        self.seq_gated = False
+        self.seq_pressed_at = 0
+        self.seq_released_at = 0
         self.next_capture = 0
         self.frame_count = 0
         self.stopping = False
@@ -81,6 +172,10 @@ class EmulatorWorker(threading.Thread):
         self.last_menu_keys_at = None
         self.prepared_inputs = None
         self.last_heartbeat = 0
+        self.safe_down_held = False
+        self.safe_down_since = None
+        self.safe_down_before = None
+        self.last_frame_selection = None
 
     def post(self, *items):
         self.updates.put(items)
@@ -119,10 +214,17 @@ class EmulatorWorker(threading.Thread):
     def start_vm(self, mode):
         self.stop_vm()
         self.boot_attempt += 1
+        args = self.args
         self.chord_released = False
+        self.safe_down_held = False
+        self.safe_down_since = None
+        self.safe_down_before = None
+        self.last_frame_selection = None
+        # Hold the genuine startup chord through the original M4/A7 CA05
+        # handshake; 1.2 s was flaky under single-thread TCG.
+        self.boot_chord_seconds = args.release_at
         self.menu_macro_fired = False
         self.last_menu_keys_at = None
-        args = self.args
         self.output = args.output_dir.resolve()
         self.output.mkdir(parents=True, exist_ok=True)
         if self.prepared_inputs is None:
@@ -141,6 +243,10 @@ class EmulatorWorker(threading.Thread):
             EXESX_EXPERIMENTAL_M4_BOOT="1",
             EXESX_EXPERIMENTAL_MU_IRQ="1",
             EXESX_EXPERIMENTAL_LPIT1_IRQ="1",
+            # M4 LPIT0 external IRQ33 (exception 49): original 1ms touch timer.
+            # Guest firmware still programs LPIT0/NVIC and posts RTOS
+            # events itself. No synthetic touch messages are generated.
+            EXESX_EXPERIMENTAL_M4_LPIT0_IRQ="1",
             EXESX_EXPERIMENTAL_LPTMR_IRQ="1",
             EXESX_EXPERIMENTAL_LPTMR_PCS_CLOCKS="1",
             EXESX_EXPERIMENTAL_M4_PORT_IRQ="1",
@@ -172,22 +278,44 @@ class EmulatorWorker(threading.Thread):
         if lib.is_dir():
             env["LD_LIBRARY_PATH"] = str(lib) + os.pathsep + env.get("LD_LIBRARY_PATH", "")
         port = choose_port()
+        monitor_spec, gdb_options, qemu_log_categories = e2_debug_options(env)
+        # Passive guest-TB checkpoints for original M4 touch acquisition.
+        # No CPU breakpoints, IRQ injections, RAM patches or touch events.
+        # Keep OFF by default: logging changes TCG wall-time behavior.
+        # Opt-in, read-only E2 A7 translated-block trace. This is
+        # cheaper than a full firmware trace and does NOT generate any
+        # keyboard/touch events or alter original guest code.
+        e2_a7_trace = (",0x6005c6bc+0x780"
+                        if env.get("EXESX_TRACE_E2_A7") == "1" else "")
+        touch_trace = (
+            ",0x1ffdba48+0x10,0x1ffdbcde+0x10,0x1ffdc2be+0x10"
+            ",0x1ffdff08+0x10,0x1ffdff2e+0x10,0x1ffdfeea+0x10"
+            ",0x1ffdbfb4+0x20,0x1ffdbfd6+0x58"
+            ",0x1ffd53ba+0x20,0x1ffd6bac+0x10"
+            ",0x1ffe02a0+0x10,0x1ffdc1c6+0x10"
+            ",0x1ffd684a+0x4a,0x1ffd6988+0x55"
+            ",0x1ffd69f2+0x40"
+            if env.get("EXESX_TRACE_TOUCH_WORKER") == "1" else ""
+        )
         command = [
             str(args.qemu.resolve()), "-machine", "exesx", "-m", "64M",
-            "-accel", "tcg,thread={}".format(getattr(args, "tcg_thread", "multi")), "-display", "none", "-serial", "none",
-            "-monitor", "none", "-no-reboot",
+            "-accel", "tcg,thread={}".format(getattr(args, "tcg_thread", "single")), "-display", "none", "-serial", "none",
+            "-monitor", monitor_spec, "-no-reboot",
             "-S", "-qmp", "tcp:127.0.0.1:{},server=on,wait=off".format(port),
             "-drive", "if=none,id=exesx-emmc,file={},format=raw,snapshot=on".format(emmc),
             "-device", "loader,file={},cpu-num=0".format(elf),
-            "-d", "exec", "-dfilter",
+            "-d", qemu_log_categories, "-dfilter",
             ("0x60010868+0x140,0x6003a878+0x500,0x60006240+0x60,0x60057668+0x30,"
              "0x1ffe3e1e+0x24,0x1ffe4126+0x24,0x1ffe4174+0x18,"
              "0x1ffe42bc+0x44,0x1ffe4438+0x12,0x1ffe4776+0x18,"
              "0x1ffd635c+0x8,0x1ffd6450+0x8"
              if getattr(args, "trace_m4_400b", False) else
-             "0x60010868+0x140,0x6003a878+0x500,0x60006240+0x60,0x60057668+0x30"),
+             "0x60010868+0x140,0x6003a878+0x500,0x60006240+0x60,0x60057668+0x30,"
+             "0x600580dc+0x28,0x6005830c+0x30")
+            + touch_trace + e2_a7_trace,
             "-D", str(trace),
         ]
+        command += gdb_options
         if args.sd:
             command += ["-drive", "if=none,id=exesx-sd,file={},format=raw,snapshot=on".format(args.sd)]
         self.console = (self.output / "gui-console-private.log").open("wb")
@@ -208,6 +336,9 @@ class EmulatorWorker(threading.Thread):
         self.hit.clear()
         self.sequence.clear()
         self.seq_stage = None
+        self.seq_gated = False
+        self.seq_pressed_at = 0
+        self.seq_released_at = 0
         self.pressed = None
         self.next_capture = time.monotonic() + .5
         self.post("status", "Booting {} attempt {}/{} — QEMU PID {} (headless, LCD shown here)".format(
@@ -236,25 +367,98 @@ class EmulatorWorker(threading.Thread):
         if self.mode == "menu" and self.wait_seen and not self.sequence and not self.menu_seen and not getattr(self, "menu_macro_fired", False):
             self.menu_macro_fired = True
             self.sequence = list(KEYS)
+            self.seq_gated = getattr(self.args, "tcg_thread", "single") == "single"
             self.seq_stage = "press"
             self.seq_deadline = time.monotonic()
-            self.post("status", "Sending genuine 0x93 -> 0x93 -> 0x94")
+            self.post("status", "Sending genuine 0x93 -> 0x93 -> 0x94"
+                      + (" with original M4 debounce/release gates"
+                         if self.seq_gated else ""))
+
+    def original_m4_keyboard_state(self):
+        """Read only the unchanged M4 keyboard-debounce word in SRAM.
+
+        Real original M4: 0x1FFEA320 state 0 = released/idle;
+        state 2 = row selected and debounce in progress; state 1 = keydown queued.
+        The host must not synthesize an A7 event or change guest SRAM.
+        """
+        if not self.qmp:
+            return None
+        reply = self.qmp.hmp("xp /1wx 0x1ffea320")
+        match = re.search(r":\s+0x([0-9a-fA-F]+)", reply)
+        return int(match.group(1), 16) if match else None
 
     def sequence_step(self):
         if not self.sequence or time.monotonic() < self.seq_deadline:
             return
+        now = time.monotonic()
+        if self.seq_gated:
+            if self.seq_stage == "press":
+                self.physical(int(self.sequence[0], 0))
+                self.seq_pressed_at = now
+                self.seq_stage = "debounce"
+                self.seq_deadline = now + .035
+                return
+            if self.seq_stage == "debounce":
+                state = self.original_m4_keyboard_state()
+                # Original state2 means the M4 has sampled this matrix
+                # contact but may still be debouncing it. On the verified
+                # single-TCG clock model, waiting for state1 on every key
+                # misses the A7 version-dialog timeout. Release once the
+                # M4 has selected the key (state2); the original A7's
+                # 0x60010930 branch is the separate, authoritative proof
+                # that all 3 keyboard messages were actually accepted.
+                if state in (1, 2):
+                    self.physical(None)
+                    self.seq_released_at = now
+                    self.seq_stage = "idle"
+                    self.seq_deadline = now + .035
+                elif now - self.seq_pressed_at >= .55:
+                    self.physical(None)
+                    self.sequence.clear()
+                    self.seq_gated = False
+                    self.seq_stage = None
+                    self.last_menu_keys_at = now
+                    self.post("status", "M4 selected scan state never observed;"
+                              " releasing contact and retrying cold boot")
+                else:
+                    self.seq_deadline = now + .035
+                return
+            if self.seq_stage == "idle":
+                state = self.original_m4_keyboard_state()
+                if state == 0:
+                    self.sequence.pop(0)
+                    self.seq_stage = "press" if self.sequence else None
+                    self.seq_deadline = now + .025
+                    if not self.sequence:
+                        self.seq_gated = False
+                        if self.mode == "menu" and not self.menu_seen:
+                            self.last_menu_keys_at = now
+                elif now - self.seq_released_at >= .75:
+                    # Do not send the next key while the original M4
+                    # still reports an unreleased previous contact.
+                    self.physical(None)
+                    self.sequence.clear()
+                    self.seq_gated = False
+                    self.seq_stage = None
+                    self.last_menu_keys_at = now
+                    self.post("status", "M4 keyboard release did not reach state 0;"
+                              " waiting for safe cold-boot retry")
+                else:
+                    self.seq_deadline = now + .035
+                return
+        # Ordinary manual single-key pulse: unchanged legacy behavior.
         if self.seq_stage == "press":
             code = int(self.sequence[0], 0)
             self.physical(code)
             self.seq_stage = "release"
-            self.seq_deadline = time.monotonic() + self.args.hold
+            self.seq_deadline = now + self.args.hold
         elif self.seq_stage == "release":
             self.physical(None)
             self.sequence.pop(0)
             self.seq_stage = "press" if self.sequence else None
-            self.seq_deadline = time.monotonic() + self.args.gap
+            self.seq_deadline = now + self.args.gap
             if not self.sequence and self.mode == "menu" and not self.menu_seen:
-                self.last_menu_keys_at = time.monotonic()
+                self.last_menu_keys_at = now
 
     def frame_step(self):
         if getattr(self.args, "no_screenshots", False):
@@ -271,6 +475,15 @@ class EmulatorWorker(threading.Thread):
         with self.framefile.open("rb") as f:
             with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as memory:
                 rgb = pure_rgb565_lcd(memory)
+        self.last_frame_selection = original_menu_highlight(rgb)
+        if (self.safe_down_held and self.last_frame_selection is not None and
+                self.last_frame_selection != self.safe_down_before):
+            self.physical(None)
+            self.safe_down_held = False
+            self.safe_down_since = None
+            self.post("status", "Original menu navigation confirmed: "
+                      "physical DOWN moved the inverse-highlighted row "
+                      "to LCD y={}".format(self.last_frame_selection))
         ppm = self.output / "gui-screen.ppm"
         staging = ppm.with_suffix(".ppm.tmp")
         staging.write_bytes(b"P6\n864 480\n255\n" + rgb)
@@ -293,13 +506,23 @@ class EmulatorWorker(threading.Thread):
             self.physical(None)
         elif what == "pulse" and self.proc and not self.sequence:
             self.sequence = [hex(value)]
+            self.seq_gated = False
             self.seq_stage = "press"
             self.seq_deadline = time.monotonic()
         elif what == "menu_keys" and self.proc and self.wait_seen and not self.sequence:
             self.sequence = list(KEYS)
+            self.seq_gated = getattr(self.args, "tcg_thread", "single") == "single"
             self.seq_stage = "press"
             self.seq_deadline = time.monotonic()
             self.post("status", "Sending 0x93 0x93 0x94 at the original event wait")
+        elif what == "read_e2_results" and self.proc and self.qmp:
+            # Only read unchanged A7 memory; no guest result is written.
+            result = decode_original_factory_results(
+                self.qmp.hmp("xp /16wx 0x62344ef0"),
+                self.qmp.hmp("xp /1wx 0x62344eec"),
+                self.qmp.hmp("xp /1wx 0x62413258"))
+            self.post("factory_results", result)
+            self.post("status", "Original factory result array: {}".format(result))
         elif what == "read_ipc" and self.proc and self.qmp:
             # Read original shared control request on the sole QMP owner thread.
             self.post("ipc", self.qmp.hmp("xp /12wx 0x2f028000"))
@@ -337,13 +560,19 @@ class EmulatorWorker(threading.Thread):
         elif what == "safe_check" and self.proc:
             if 0x60057668 not in self.hit:
                 self.post("status", "SAFE CHECK BLOCKED: TEST MENU painter has not executed; IPC 0x400B still pending")
-            elif not self.sequence:
-                # Navigation only: original M4 code 0x91 is DOWN.
-                # No SD read/write/FORMAT option is activated automatically.
-                self.sequence = ["0x91"]
-                self.seq_stage = "press"
-                self.seq_deadline = time.monotonic()
-                self.post("status", "Safe navigation: DOWN key only")
+            elif not self.sequence and not self.safe_down_held:
+                # A short synthetic pulse was too fast under single-thread
+                # TCG. Hold REAL M4 electrical contact until the firmware
+                # paints a different selected row, then release in frame_step.
+                if self.frame_count == 0 or getattr(self.args, "no_screenshots", False):
+                    self.post("status", "Safe navigation requires a painted LCD frame")
+                else:
+                    self.safe_down_before = self.last_frame_selection
+                    self.safe_down_held = True
+                    self.safe_down_since = time.monotonic()
+                    self.physical(0x91)
+                    self.post("status", "Safe navigation: holding genuine M4 DOWN "
+                              "until LCD selection moves (bounded 4.5s)")
         elif what == "screenshot" and self.proc:
             frame = self.output / "gui-screen.ppm"
             if frame.exists():
@@ -374,12 +603,19 @@ class EmulatorWorker(threading.Thread):
                         self.post("status", "QEMU PID {} alive ({} s); {}. {} frames.".format(
                             self.proc.pid, age, step, self.frame_count))
                     if (self.mode in ("popup","menu") and not self.chord_released
-                            and time.monotonic() - self.start_time >= self.args.release_at):
+                            and time.monotonic() - self.start_time >= self.boot_chord_seconds):
                         self.physical(None)
                         self.chord_released = True
                     self.trace_step()
                     self.sequence_step()
                     self.frame_step()
+                    if (self.safe_down_held and self.safe_down_since is not None and
+                            time.monotonic() - self.safe_down_since > 4.5):
+                        self.physical(None)
+                        self.safe_down_held = False
+                        self.safe_down_since = None
+                        self.post("status", "Original DOWN timed out without a "
+                                  "confirmed selected-row change")
                     if (self.mode in ("popup", "menu") and
                             ((not self.wait_seen and
                               time.monotonic() - self.start_time > self.args.retry_after) or
@@ -457,6 +693,7 @@ def show_window(args):
     ttk.Button(controls, text="AUTO TEST MENU [93 93 94]", command=lambda:cmd("menu")).pack(side="left")
     ttk.Button(controls, text="Manual 93→93→94", command=lambda:actions.put(("menu_keys",None))).pack(side="left")
     ttk.Button(controls, text="Safe DOWN check", command=lambda:actions.put(("safe_check",None))).pack(side="left")
+    ttk.Button(controls, text="Read factory results", command=lambda:actions.put(("read_e2_results",None))).pack(side="left")
     ttk.Button(controls, text="Save screenshot", command=lambda:actions.put(("screenshot", None))).pack(side="left")
     ttk.Button(controls, text="Stop", command=lambda:actions.put(("shutdown", None))).pack(side="left")
     status = tk.StringVar(value="Choose a boot macro. All key contacts are original ROM codes.")
@@ -536,7 +773,7 @@ def main():
     p.add_argument("--fps", type=float, default=2., help="Host LCD refresh limit, 0.1-4 advised")
     p.add_argument("--no-screenshots", action="store_true",
                    help="Disable all QMP framebuffer reads and image generation during boot")
-    p.add_argument("--tcg-thread", choices=("single", "multi"), default="multi",
+    p.add_argument("--tcg-thread", choices=("single", "multi"), default="single",
                    help="Compare A7/M4 interprocessor scheduling without guest patching")
     p.add_argument("--adc0-sample", type=lambda s:int(s,0), default=None,
                    help="Explicit 16-bit ADC0 result for opt-in original M4 IRQ experiment")
@@ -544,9 +781,9 @@ def main():
                    help="Explicit 16-bit ADC1 result for opt-in original M4 IRQ experiment")
     p.add_argument("--trace-m4-400b", action="store_true",
                    help="Trace original M4 event7 semaphore wait and MU callback")
-    p.add_argument("--hold", type=float, default=.060)
-    p.add_argument("--gap", type=float, default=.025)
-    p.add_argument("--release-at", type=float, default=1.2)
+    p.add_argument("--hold", type=float, default=.080)
+    p.add_argument("--gap", type=float, default=.060)
+    p.add_argument("--release-at", type=float, default=4.0)
     p.add_argument("--retries", type=int, default=3, help="Fresh boot retries on missed original firmware checkpoints")
     p.add_argument("--retry-after", type=float, default=24, help="Host seconds allowed for the A7 version-event wait")
     p.add_argument("--headless-check", action="store_true",

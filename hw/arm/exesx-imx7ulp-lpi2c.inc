@@ -61,7 +61,324 @@ static bool exesx_lpi2c_active_mirror(EXeSXProfileWindow *w)
 {
     unsigned addr = w->regfile[0x1c0 / 4] & 0xfe;
     return (addr == 0x96 && exesx_lpi2c_register_mirror(w)) ||
-           (addr == 0x80 && exesx_lpi2c_register_mirror40(w));
+           (addr == 0x80 && exesx_lpi2c_register_mirror40(w) &&
+            !exesx_bu21029_enabled(w->base));
+}
+
+
+/* Opt-in ROHM BU26154 touch digital interface (DY890 board candidate).
+ * Not assigned to DY357: EXESX_BU26154_LPI2C_BUS=0..3 explicitly selects
+ * M4 I2C port. Address 0x1a is the documented ROHM 2-wire slave.
+ * MAPCON switch: read=0x1c, write=0x1d, select map0/1/2.
+ * Touch controller registers are ONLY on MAP1; on MAP0 0x0c/0x0d
+ * is clock enable, where TCLKEN bit7 must be asserted for conversion.
+ * MAP1: TCHCTRL read=0x60 write=0x61; 12-bit ADC=0x62/0x64.
+ * Touch input file "down x y" provides 12-bit RAW 0..4095 samples;
+ * default disconnected. Pen IRQ/codec/pressure/clock NOT emulated.
+ */
+static bool exesx_bu26154_present(EXeSXProfileWindow *w)
+{
+    const char *bus = g_getenv("EXESX_BU26154_LPI2C_BUS");
+    return bus && bus[0] >= '0' && bus[0] <= '3' && !bus[1] &&
+           w->base == UINT64_C(0x41033000) + (bus[0] - '0') * 0x1000;
+}
+static bool exesx_bu26154_active(EXeSXProfileWindow *w)
+{
+    return exesx_bu26154_present(w) &&
+           (w->regfile[0x1c0 / 4] & 0xfe) == 0x34;
+}
+static uint32_t exesx_bu26154_map(EXeSXProfileWindow *w)
+{
+    return w->regfile[0x1ec / 4] & 3;
+}
+static uint32_t exesx_bu26154_touch_clock(EXeSXProfileWindow *w)
+{
+    return w->regfile[0x1f0 / 4] & 0x80;
+}
+static uint32_t exesx_bu26154_ctrl(EXeSXProfileWindow *w)
+{
+    return w->regfile[0x1e4 / 4] ? w->regfile[0x1e0 / 4] : 0x78;
+}
+static uint16_t exesx_bu26154_adc(EXeSXProfileWindow *w)
+{
+    const char *path = g_getenv("EXESX_BU26154_TOUCH_FILE");
+    gchar *src = NULL;
+    unsigned down, x, y;
+    uint32_t ctrl = exesx_bu26154_ctrl(w);
+    uint16_t result = 0;
+    if (!(ctrl & 0x80) || !exesx_bu26154_touch_clock(w) || !path || !*path ||
+        !g_file_get_contents(path, &src, NULL, NULL)) {
+        return 0;
+    }
+    if (sscanf(src, "%u %u %u", &down, &x, &y) == 3 &&
+        down == 1 && x <= 4095 && y <= 4095) {
+        switch ((ctrl >> 4) & 3) {
+        case 0: result = x; break;
+        case 1: result = y; break;
+        default:
+            qemu_log_mask(LOG_UNIMP,
+                          "EXeSX BU26154 pressure conversion not implemented\n");
+        }
+    }
+    g_free(src);
+    return result;
+}
+static uint32_t exesx_bu26154_read_byte(EXeSXProfileWindow *w)
+{
+    uint32_t reg = w->regfile[0x1e8 / 4] & 255;
+    uint32_t bank = exesx_bu26154_map(w), value = 0;
+    if (reg == 0x1c) {
+        value = bank;
+    } else if (bank == 0 && reg == 0x0c) {
+        value = w->regfile[0x1f0 / 4];
+    } else if (bank == 1 && reg == 0x60) {
+        value = exesx_bu26154_ctrl(w);
+    } else if (bank == 1 && (reg == 0x62 || reg == 0x64)) {
+        value = reg == 0x62 ? exesx_bu26154_adc(w) >> 4 :
+                              exesx_bu26154_adc(w) & 15;
+    } else {
+        qemu_log_mask(LOG_UNIMP,
+                      "EXeSX BU26154 unsupported read MAP%u reg 0x%02x\n",
+                      bank, reg);
+    }
+    w->regfile[0x1e8 / 4] = (reg + 2) & 255;
+    return value;
+}
+static void exesx_bu26154_tx_byte(EXeSXProfileWindow *w,
+                                 unsigned index, uint32_t data)
+{
+    uint32_t reg;
+    if (!index) {
+        w->regfile[0x1e8 / 4] = data & 255;
+        return;
+    }
+    reg = w->regfile[0x1e8 / 4] & 255;
+    uint32_t bank = exesx_bu26154_map(w);
+    if (reg == 0x1d && (data & 255) < 3) {
+        /* MAPCON is the actual ROHM register-bank selector. */
+        w->regfile[0x1ec / 4] = data & 255;
+    } else if (bank == 0 && reg == 0x0d) {
+        /* Preserve CLK.EN bits while gating touch ADC on TCLKEN. */
+        w->regfile[0x1f0 / 4] = data & 255;
+    } else if (bank == 1 && reg == 0x61) {
+        w->regfile[0x1e0 / 4] = data & 255;
+        w->regfile[0x1e4 / 4] = 1;
+        qemu_log_mask(LOG_UNIMP,
+                      "EXeSX BU26154 MAP1 touch control=0x%02x"
+                      " pen IRQ/analog conversion timing not implemented\n",
+                      data & 255);
+    } else {
+        qemu_log_mask(LOG_UNIMP,
+                      "EXeSX BU26154 unsupported MAP%u write"
+                      " reg=0x%02x data=0x%02x\n",
+                      bank, reg, data & 255);
+    }
+    w->regfile[0x1e8 / 4] = (reg + 2) & 255;
+}
+
+/*
+ * ROHM BU21029 4-wire resistive touchscreen (not BU26154 CODEC).
+ * Original M4 calls 0x1ffdb9dc, 0x1ffdba12 and reads PORTB3 low.
+ * I2C slave 0x40: register command byte (index << 3 | bank << 2),
+ * then data; conversion commands 0x84/0x8d and 14-byte report.
+ * All mutable state below is in the existing VMState-backed regfile.
+ */
+static bool exesx_bu21029_active(EXeSXProfileWindow *w)
+{
+    return exesx_bu21029_enabled(w->base) &&
+           (w->regfile[0x1c0 / 4] & 0xfe) == 0x80;
+}
+
+static uint8_t exesx_bu21029_read_byte(EXeSXProfileWindow *w)
+{
+    unsigned cmd = w->regfile[0x1f4 / 4] & 0xff;
+    unsigned pos = w->regfile[0x1c8 / 4]++;
+    uint16_t x = 0, y = 0, z1 = 0, z2 = 0;
+    bool down = exesx_bu21029_contact(w->board, &x, &y, &z1, &z2);
+    unsigned reg, bank;
+    if (cmd & 0x80) {
+        /* M4 FUN_1FFDba12 decodes seven big-endian 16-bit words.
+         * First two are raw 12-bit coordinates shifted left by four.
+         * Other slots are Z readings / optional dual-touch metadata;
+         * never report a second contact without a second host input. */
+        /*
+         * Original M4 FUN_1ffdba48: raw word0 (local_4c) becomes
+         * *param_2, raw word1 (local_4a) becomes *param_1.
+         * So BU21029 first ADC word is Y; second is X. Keep host
+         * coordinates named X/Y in screen/electrode order, swap only
+         * at the actual serialized controller report boundary.
+         */
+        uint16_t words[7] = {
+            (uint16_t)(y << 4), (uint16_t)(x << 4),
+            (uint16_t)(z1 << 4), (uint16_t)(z2 << 4),
+            /*
+             * ROHM 14-byte layout ends with PX, PY and GH dual-finger
+             * parameters, NOT another pressure sample. An unchanged
+             * single finger must report all three as zero. Injecting
+             * Z1 here falsely describes a two-point X separation.
+             */
+            0, 0, 0
+        };
+        uint16_t v = (down && pos < 14) ? words[pos / 2] : 0;
+        uint8_t byte = (pos & 1) ? (v & 0xff) : (v >> 8);
+        /*
+         * The real BU21029 deasserts active-low INT when the host
+         * consumes a completed coordinate report, then scans again
+         * after INTVL_TIME. This is independent of the M4 PORTB ISR
+         * acknowledgement, which remains the original firmware's job.
+         * The model does not generate fake 0x6000 A7 events.
+         */
+        if ((cmd & 0xfc) == 0x84 &&
+            w->regfile[0x1c4 / 4] == 1 &&
+            (w->regfile[0x240 / 4] & 2)) {
+            if (!g_strcmp0(g_getenv("EXESX_TRACE_BU21029"), "1")) {
+                qemu_log("EXeSX BU21029 report consumed, INT released pos=%u x=%u y=%u z1=%u z2=%u\n",
+                         pos, x, y, z1, z2);
+            }
+            uint32_t now_us =
+                (uint32_t)(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) / 1000);
+            w->regfile[0x240 / 4] = 5; /* active; waiting between scans */
+            w->regfile[0x244 / 4] = now_us +
+                exesx_bu21029_interval_us(w) +
+                exesx_bu21029_conversion_us(w);
+        }
+        return byte;
+    }
+    reg = (cmd >> 3) & 15;
+    bank = (cmd >> 2) & 1;
+    if (bank == 0 && reg == 0x0d) {
+        /*
+         * Original M4 FUN_1ffdbe18 issues calibration CF=5 (0xa8)
+         * and polls STATUS.CALIB_DONE bit1. Real ROHM STATUS:
+         * D6 AUTO, D5 PDM, D3 BUSY, D2 ACTIVE, D1 CALIB_DONE,
+         * D0 TOUCH. Do not leave CALIB_DONE permanently clear.
+         * Model completed conversion at the transaction boundary;
+         * analog startup and sampling delays remain unimplemented.
+         */
+        /*
+         * BU21029 conversions complete autonomously. The original M4
+         * can poll STATUS with PORTB.PCR3 intentionally disabled (raw
+         * A/D diagnostics); do not make BUSY completion depend on a
+         * separate GPIOB input sample. This advances only physical
+         * scan time/state, never firmware interrupt flags or IPC.
+         */
+        exesx_bu21029_pen_irq_asserted(w->board);
+        unsigned status = w->regfile[0x1f8 / 4] & 2;
+        unsigned conversion = w->regfile[0x1fc / 4] & 0xff;
+        if (conversion & 0x02) {
+            status |= 0x20; /* PDM mirrors the last conversion command */
+        }
+        if ((conversion & 0xfc) == 0x80) {
+            /* CF=0: autoscan mode. With the pen released, the analog
+             * converter is asleep: no first-coordinate conversion is
+             * running and neither BUSY nor ACTIVE may be asserted.
+             * See ROHM BU21029 STATUS D3/D2 and autoscan semantics. */
+            status |= 0x40;
+            if (down) {
+                uint32_t scan = w->regfile[0x240 / 4];
+                status |= 0x04; /* ACTIVE: analog circuit powered */
+                if ((scan & 7) == 1) {
+                    /* A pen conversion is in progress, not merely a
+                     * subsequent interval or a pending unread report. */
+                    status |= 0x08;
+                }
+            }
+        }
+        status |= down ? 1U : 0U;
+        if (!g_strcmp0(g_getenv("EXESX_TRACE_BU21029"), "1") &&
+            w->regfile[0x248 / 4] != (status | UINT32_C(0x100))) {
+            qemu_log("EXeSX BU21029 STATUS=0x%02x pen=%u "
+                     "scan=%u conversion=0x%02x\n",
+                     status, down, w->regfile[0x240 / 4],
+                     conversion);
+        }
+        w->regfile[0x248 / 4] = status | UINT32_C(0x100);
+        return status;
+    }
+    if (bank == 0 && reg == 0x0e) {
+        return 0x02; /* ROHM silicon ID 0x0229 */
+    }
+    if (bank == 0 && reg == 0x0f) {
+        return 0x29;
+    }
+    /*
+     * Power-on defaults from the public BU21029 register definition.
+     * An explicit firmware write (even zero) takes priority. Prior to
+     * this, the synthetic device incorrectly returned 0 for CFR3
+     * reset=0x72, corrupting the real M4 init read-modify-write.
+     */
+    if (!(w->regfile[0x204 / 4 + bank] & (1U << reg)) && bank == 0) {
+        switch (reg) {
+        case 0x00: return 0x20; /* CFR0 */
+        case 0x01: return 0xa6; /* CFR1 */
+        case 0x02: return 0x04; /* CFR2 */
+        case 0x0b: return 0x72; /* CFR3 */
+        default: break;
+        }
+    }
+    return w->regfile[0x300 / 4 + bank * 16 + reg] & 0xff;
+}
+
+static void exesx_bu21029_write_byte(EXeSXProfileWindow *w,
+                                    unsigned index, uint32_t data)
+{
+    if (index == 0) {
+        w->regfile[0x1f4 / 4] = data & 0xff; /* command/address */
+        if ((data & 0x80) &&
+            !g_strcmp0(g_getenv("EXESX_TRACE_BU21029"), "1")) {
+            qemu_log("EXeSX BU21029 command=0x%02x contact_down=%u\n",
+                     (unsigned)(data & 0xff),
+                     exesx_bu21029_contact(w->board, NULL, NULL, NULL, NULL));
+        }
+        if ((data & 0x80) &&
+            (!(data & 0x04) || (data & 0x01))) {
+            /*
+             * CMSK=1 selects conversion result for I2C read; this does
+             * not turn off an existing CF=0 autoscan! STPCF=1, however,
+             * explicitly aborts the conversion and powers down.
+             */
+            w->regfile[0x1fc / 4] = data & 0xff;
+            if ((data & 0xfc) == 0x80) {
+                w->regfile[0x200 / 4] =
+                    (uint32_t)(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) / 1000);
+            }
+        }
+        if ((data & 0xfc) == 0xa8) {
+            /* Calibration CF=5 completes and latches STATUS bit1. */
+            w->regfile[0x1f8 / 4] |= 2;
+            qemu_log_mask(LOG_UNIMP,
+                          "EXeSX BU21029 calibration completion is immediate;"
+                          " conversion delay not implemented\n");
+        }
+        if ((data & 0x80) && data != 0x80 && data != 0x84 &&
+            data != 0x8d && data != 0xa8) {
+            qemu_log_mask(LOG_UNIMP,
+                          "EXeSX BU21029 unimplemented command 0x%02x\n",
+                          data & 0xff);
+        }
+        return;
+    }
+    if (index == 1) {
+        unsigned cmd = w->regfile[0x1f4 / 4] & 0xff;
+        unsigned reg = (cmd >> 3) & 15;
+        unsigned bank = (cmd >> 2) & 1;
+        if (cmd & 0x80) {
+            qemu_log_mask(LOG_UNIMP,
+                          "EXeSX BU21029 unexpected data after command"
+                          " 0x%02x\n", cmd);
+        } else if (bank == 0 && (reg == 0x0d || reg == 0x0e || reg == 0x0f)) {
+            qemu_log_mask(LOG_UNIMP,
+                          "EXeSX BU21029 read-only register write 0x%02x\n",
+                          reg);
+        } else {
+            w->regfile[0x300 / 4 + bank * 16 + reg] = data & 0xff;
+            w->regfile[0x204 / 4 + bank] |= 1U << reg;
+        }
+    } else {
+        qemu_log_mask(LOG_UNIMP,
+                      "EXeSX BU21029 unsupported %u-byte control write\n",
+                      index + 1);
+    }
 }
 
 static bool exesx_lpi2c_valid_base(uint64_t base)
@@ -102,17 +419,27 @@ static MemTxResult exesx_lpi2c_read(EXeSXProfileWindow *w, hwaddr off,
     case 0x14: /* MSR: TDF/RDF plus sticky errors */
         *value = w->regfile[0x14 / 4] |
                  ((w->regfile[0x10 / 4] & 1) ? 1U : 0U) |
-                 ((w->regfile[0x1c4 / 4] && (exesx_lpi2c_probe_reply(w) || exesx_lpi2c_active_mirror(w)))
+                 ((w->regfile[0x1c4 / 4] && (exesx_lpi2c_probe_reply(w) || exesx_lpi2c_active_mirror(w) ||
+                   exesx_bu26154_active(w) ||
+                   exesx_bu21029_active(w)))
                   ? 2U : 0U);
         return MEMTX_OK;
     case 0x5c: /* MFSR RXCOUNT [18:16] */
         *value = (w->regfile[0x1c4 / 4] &&
-                  (exesx_lpi2c_probe_reply(w) || exesx_lpi2c_active_mirror(w))) ? (1U << 16) : 0;
+                  (exesx_lpi2c_probe_reply(w) || exesx_lpi2c_active_mirror(w) ||
+                   exesx_bu26154_active(w) ||
+                   exesx_bu21029_active(w))) ? (1U << 16) : 0;
         return MEMTX_OK;
     case 0x70: { /* MRDR; RXEMPTY if no byte pending */
         const char *hex = exesx_lpi2c_probe_reply(w);
         uint32_t remaining = w->regfile[0x1c4 / 4];
-        if (exesx_lpi2c_active_mirror(w) && remaining) {
+        if (exesx_bu21029_active(w) && remaining) {
+            *value = exesx_bu21029_read_byte(w);
+            w->regfile[0x1c4 / 4] = remaining - 1;
+        } else if (exesx_bu26154_active(w) && remaining) {
+            *value = exesx_bu26154_read_byte(w);
+            w->regfile[0x1c4 / 4] = remaining - 1;
+        } else if (exesx_lpi2c_active_mirror(w) && remaining) {
             unsigned ptr = w->regfile[0x1d8 / 4] & 0xff;
             unsigned addr = w->regfile[0x1c0 / 4] & 0xfe;
             unsigned bank = addr == 0x80 ? 0x2000 / 4 : 0x1000 / 4;
@@ -134,7 +461,7 @@ static MemTxResult exesx_lpi2c_read(EXeSXProfileWindow *w, hwaddr off,
             *value = (hi << 4) | lo;
             qemu_log_mask(LOG_GUEST_ERROR,
                           "EXeSX DIAGNOSTIC I2C4B READ byte=0x%02x"
-                          " remaining=%u\\n",
+                          " remaining=%u\n",
                           (unsigned)*value, remaining - 1);
         } else {
             *value = 0x4000;
@@ -178,7 +505,11 @@ static MemTxResult exesx_lpi2c_write(EXeSXProfileWindow *w, hwaddr off,
                             (address_byte == 0x96 || address_byte == 0x97);
             bool accept40 = exesx_lpi2c_register_mirror40(w) &&
                             (address_byte == 0x80 || address_byte == 0x81);
-            if (accept4b || accept40) {
+            bool accept_ts = exesx_bu21029_enabled(w->base) &&
+                             (address_byte == 0x80 || address_byte == 0x81);
+            bool accept_bu = exesx_bu26154_present(w) &&
+                             (address_byte == 0x34 || address_byte == 0x35);
+            if (accept4b || accept40 || accept_bu || accept_ts) {
                 w->regfile[0x1c0 / 4] = address_byte; /* active */
                 w->regfile[0x1c4 / 4] = 0; /* pending RX */
                 w->regfile[0x1c8 / 4] = 0; /* read cursor */
@@ -187,34 +518,54 @@ static MemTxResult exesx_lpi2c_write(EXeSXProfileWindow *w, hwaddr off,
                 }
                 qemu_log_mask(LOG_GUEST_ERROR,
                               "EXeSX DIAGNOSTIC %s ACK @0x%"
-                              HWADDR_PRIx " rw=%s (not chip-validated)\\n",
-                              accept40 ? "I2C40" : "I2C4B",
+                              HWADDR_PRIx " rw=%s (not chip-validated)\n",
+                              accept_ts ? "BU21029" :
+                              (accept_bu ? "BU26154" :
+                              (accept40 ? "I2C40" : "I2C4B")),
                               w->base, (address_byte & 1) ? "read" : "write");
             } else {
                 w->regfile[0x14 / 4] |= 0x400; /* NDF, no slave */
                 qemu_log_mask(LOG_GUEST_ERROR,
                               "EXeSX LPI2C @0x%" HWADDR_PRIx
-                              " address=0x%02x: NACK (no slave attached)\\n",
+                              " address=0x%02x: NACK (no slave attached)\n",
                               w->base, address_byte);
             }
         } else if (cmd == 1 &&
                    (exesx_lpi2c_probe_reply(w) ||
-                    exesx_lpi2c_active_mirror(w)) &&
+                    exesx_lpi2c_active_mirror(w) ||
+                    exesx_bu26154_active(w) ||
+                    exesx_bu21029_active(w)) &&
                    (w->regfile[0x1c0 / 4] == 0x97 ||
-                    w->regfile[0x1c0 / 4] == 0x81)) {
+                    w->regfile[0x1c0 / 4] == 0x81 ||
+                    w->regfile[0x1c0 / 4] == 0x35)) {
             w->regfile[0x1c4 / 4] = (bits & 0xff) + 1;
             w->regfile[0x1c8 / 4] = 0;
+            if (exesx_bu21029_active(w) &&
+                !g_strcmp0(g_getenv("EXESX_TRACE_BU21029"), "1")) {
+                qemu_log("EXeSX BU21029 RX_REQUEST count=%u command=0x%02x\n",
+                         (unsigned)((bits & 0xff) + 1),
+                         w->regfile[0x1f4 / 4] & 0xff);
+            }
             qemu_log_mask(LOG_GUEST_ERROR,
-                          "EXeSX DIAGNOSTIC %s RX_REQUEST count=%u\\n",
-                          w->regfile[0x1c0 / 4] == 0x81 ? "I2C40" : "I2C4B",
+                          "EXeSX DIAGNOSTIC %s RX_REQUEST count=%u\n",
+                          exesx_bu21029_active(w) ? "BU21029" :
+                          (w->regfile[0x1c0 / 4] == 0x35 ? "BU26154" :
+                          (w->regfile[0x1c0 / 4] == 0x81 ? "I2C40" : "I2C4B")),
                           (unsigned)((bits & 0xff) + 1));
         } else if (cmd == 0 &&
                    (exesx_lpi2c_probe_reply(w) ||
-                    exesx_lpi2c_active_mirror(w)) &&
+                    exesx_lpi2c_active_mirror(w) ||
+                    exesx_bu26154_active(w) ||
+                    exesx_bu21029_active(w)) &&
                    (w->regfile[0x1c0 / 4] == 0x96 ||
-                    w->regfile[0x1c0 / 4] == 0x80)) {
+                    w->regfile[0x1c0 / 4] == 0x80 ||
+                    w->regfile[0x1c0 / 4] == 0x34)) {
             unsigned index = w->regfile[0x1cc / 4]++;
-            if (exesx_lpi2c_active_mirror(w)) {
+            if (exesx_bu21029_active(w)) {
+                exesx_bu21029_write_byte(w, index, bits & 255);
+            } else if (exesx_bu26154_active(w)) {
+                exesx_bu26154_tx_byte(w, index, bits & 255);
+            } else if (exesx_lpi2c_active_mirror(w)) {
                 if (index == 0) {
                     w->regfile[0x1d8 / 4] = bits & 0xff;
                 } else {
@@ -236,7 +587,7 @@ static MemTxResult exesx_lpi2c_write(EXeSXProfileWindow *w, hwaddr off,
                                    ((bits & 0xff) << 8);
                     qemu_log_mask(LOG_GUEST_ERROR,
                                   "EXeSX DIAGNOSTIC I2C4B pointer=0x%04x"
-                                  " (unidentified slave)\\n", ptr);
+                                  " (unidentified slave)\n", ptr);
                 }
             }
         } else if (cmd == 2) {

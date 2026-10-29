@@ -137,6 +137,8 @@ jobs:
         run: python3 scripts/probe_factory_snapshot.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
       - name: Verify synthetic ARM DMA1 actual 32-byte copy and disabled negative control
         run: python3 scripts/probe_dma1_memcpy.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
+      - name: Verify M4 LPIT0 external IRQ33 (exception 49) from 12MHz CH1
+        run: python3 scripts/probe_m4_lpit0_irq.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
       - name: Verify actual A7 LPIT1 GIC25 IRQ with real ARM negative/positive controls
         run: |
           python3 scripts/probe_lpit1_irq.py --qemu build/qemu-system-arm \
@@ -178,6 +180,12 @@ jobs:
           python3 scripts/probe_lcd_qmp.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
           python3 scripts/probe_adc_conversion.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
           python3 scripts/probe_i2s_sai.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
+          python3 scripts/probe_bu26154_touch.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
+          python3 scripts/probe_bu21029_touch.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
+          python3 scripts/probe_factory_profile_backfill.py
+          python3 scripts/probe_e2_cross_geometry.py
+          python3 scripts/probe_e2_touch_ipc.py
+          python3 scripts/check_original_touch_dispatch.py
       - name: Bundle tested native emulator
         run: |
           mkdir -p dist/exesx-qemu-linux-x86_64

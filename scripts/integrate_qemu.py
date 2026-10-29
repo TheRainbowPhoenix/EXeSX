@@ -71,6 +71,11 @@ lpi2c_target = qemu / 'hw/arm/exesx-imx7ulp-lpi2c.inc'
 if lpi2c_target.exists() and lpi2c_target.read_bytes() != lpi2c_module.read_bytes():
     raise SystemExit('Refusing to overwrite changed upstream exesx-imx7ulp-lpi2c.inc')
 lpi2c_target.write_bytes(lpi2c_module.read_bytes())
+touch_module = root / 'hw/arm/exesx-imx7ulp-touch.inc'
+touch_target = qemu / 'hw/arm/exesx-imx7ulp-touch.inc'
+if touch_target.exists() and touch_target.read_bytes() != touch_module.read_bytes():
+    raise SystemExit('Refusing to overwrite changed upstream exesx-imx7ulp-touch.inc')
+touch_target.write_bytes(touch_module.read_bytes())
 adc_module = root / 'hw/arm/exesx-imx7ulp-adc.inc'
 adc_target = qemu / 'hw/arm/exesx-imx7ulp-adc.inc'
 if adc_target.exists() and adc_target.read_bytes() != adc_module.read_bytes():

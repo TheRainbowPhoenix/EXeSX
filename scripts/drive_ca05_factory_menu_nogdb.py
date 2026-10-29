@@ -38,15 +38,24 @@ def main():
         p.add_argument("--" + name, required=True, type=Path)
     p.add_argument("--sd", type=Path, help="Optional disposable >=2GiB raw SD; snapshot=on")
     p.add_argument("--seconds", type=float, default=35)
-    p.add_argument("--release-at", type=float, default=1.2,
+    p.add_argument("--tcg-thread", choices=("single", "multi"),
+                   default="single", help="A7/M4 deterministic scheduler control")
+    p.add_argument("--adc0-sample", type=lambda s: int(s, 0),
+                   help="Opt-in SIMULATED 16-bit ADC0 value")
+    p.add_argument("--adc1-sample", type=lambda s: int(s, 0),
+                   help="Opt-in SIMULATED 16-bit ADC1 value")
+    p.add_argument("--release-at", type=float, default=4.0,
                    help="Host seconds after boot; M4 chord must already have been read")
-    p.add_argument("--hold", type=float, default=.060)
-    p.add_argument("--gap", type=float, default=.025)
+    p.add_argument("--hold", type=float, default=.080)
+    p.add_argument("--gap", type=float, default=.060)
     p.add_argument("--post-menu", type=float, default=0,
                    help="Additional guest running time to observe service/paint after menu entry")
     args = p.parse_args()
     if args.seconds <= 0 or args.release_at < 0 or args.hold <= 0 or args.gap < 0 or args.post_menu < 0:
         p.error("Invalid timing")
+    if any(v is not None and not 0 <= v <= 0xffff for v in
+           (args.adc0_sample, args.adc1_sample)):
+        p.error("Simulated ADC values must be unsigned 16-bit")
     required = [args.qemu, args.elf, args.emmc, args.profile] + ([args.sd] if args.sd else [])
     for path in required:
         if not path.is_file():
@@ -63,6 +72,7 @@ def main():
         "EXESX_EXPERIMENTAL_M4_BOOT": "1",
         "EXESX_EXPERIMENTAL_MU_IRQ": "1",
         "EXESX_EXPERIMENTAL_LPIT1_IRQ": "1",
+        "EXESX_EXPERIMENTAL_M4_LPIT0_IRQ": "1",
         "EXESX_EXPERIMENTAL_LPTMR_IRQ": "1",
         "EXESX_EXPERIMENTAL_LPTMR_PCS_CLOCKS": "1",
         "EXESX_EXPERIMENTAL_M4_PORT_IRQ": "1",
@@ -81,13 +91,21 @@ def main():
         "EXESX_GPIOB_INPUT_MASK": "0xc8",
         "EXESX_M4_KEY_MATRIX_FILE": str(keyfile),
     })
+    for bank in (0, 1):
+        val = getattr(args, f"adc{bank}_sample")
+        name = f"EXESX_ADC{bank}_SAMPLE_RAW"
+        if val is None:
+            env.pop(name, None)
+        else:
+            env[name] = hex(val)
+            print(f"{name}={hex(val)} SIMULATED, not device-measured", flush=True)
     lib = args.qemu.resolve().parent / "lib"
     if lib.is_dir():
         env["LD_LIBRARY_PATH"] = str(lib) + os.pathsep + env.get("LD_LIBRARY_PATH", "")
     trace = out / "original-execution-private.log"
     command = [
         str(args.qemu.resolve()), "-machine", "exesx", "-m", "64M",
-        "-accel", "tcg", "-display", "none", "-serial", "none",
+        "-accel", f"tcg,thread={args.tcg_thread}", "-display", "none", "-serial", "none",
         "-monitor", "none", "-no-reboot",
         "-drive", f"if=none,id=exesx-emmc,file={args.emmc.resolve()},format=raw,snapshot=on",
         "-device", f"loader,file={args.elf.resolve()},cpu-num=0",

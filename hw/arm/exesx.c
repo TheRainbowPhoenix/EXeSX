@@ -35,15 +35,21 @@ typedef struct EXeSXState {
     Clock *m4cpuclk, *m4refclk;
     ARMCPU *a7cpu;
     EXeSXProfileWindow *mu_a, *mu_b, *lcd, *dmamux1, *m4_gpio_a, *m4_gpio_b;
-    EXeSXProfileWindow *m4_port_a, *m4_port_b, *m4_iomuxc0;
+    EXeSXProfileWindow *m4_port_a, *m4_port_b, *m4_iomuxc0, *m4_lpi2c2;
     uint64_t m4_keyboard_code;
     int m4_keyboard_row;
     int64_t m4_keyboard_next_poll_ns;
+    /* Host touch electrodes are sampled once per 5ms guest virtual time,
+     * never on each hot MMIO GPIO/I2C read. External host data is
+     * deliberately resampled after loadvm, not a fabricated guest event. */
+    int64_t m4_touch_next_poll_ns;
+    bool m4_touch_down;
+    uint16_t m4_touch_x, m4_touch_y, m4_touch_z1, m4_touch_z2;
     uint64_t cp15_dacr_s_saved;
     uint64_t cp15_ttbr1_s_saved;
     bool m4_released;
     /* MU_A input is M4 NVIC IRQ22; MU_B is GIC SPI19 on A7. */
-    qemu_irq mu_a_irq, mu_b_irq, lpit1_irq, lptmr0_irq, lptmr1_irq, tpm0_irq, m4_porta_irq, m4_portb_irq, adc0_irq, adc1_irq;
+    qemu_irq mu_a_irq, mu_b_irq, lpit0_irq, lpit1_irq, lptmr0_irq, lptmr1_irq, tpm0_irq, m4_porta_irq, m4_portb_irq, adc0_irq, adc1_irq;
     MemoryRegion firmware, vectors, sram, ipc, provisional_writable, lcd_export;
 } EXeSXState;
 
@@ -221,7 +227,15 @@ static MemTxResult exesx_reg_read(void *opaque, hwaddr offset, uint64_t *data,
         return MEMTX_ERROR;
     }
     if (exesx_imx7ulp_kind(w->kind)) {
-        return exesx_imx7ulp_read(w, offset, data, size);
+        MemTxResult status = exesx_imx7ulp_read(w, offset, data, size);
+        if (status != MEMTX_OK) {
+            /* Preserve the bus fault: never invent an MMIO read value. */
+            qemu_log_mask(LOG_GUEST_ERROR | LOG_UNIMP,
+                          "EXeSX unimplemented/invalid %s MMIO READ"
+                          " @0x%" HWADDR_PRIx " size=%u: BUS FAULT\n",
+                          w->kind, w->base + offset, size);
+        }
+        return status;
     }
     if (size == 4 && !(offset & 3) && offset <= UINT32_MAX - 1) {
         v = g_hash_table_lookup(w->registers,
@@ -250,7 +264,16 @@ static MemTxResult exesx_reg_write(void *opaque, hwaddr offset, uint64_t data,
         return exesx_lcd_write(w, offset, data, size);
     }
     if (exesx_imx7ulp_kind(w->kind)) {
-        return exesx_imx7ulp_write(w, offset, data, size);
+        MemTxResult status = exesx_imx7ulp_write(w, offset, data, size);
+        if (status != MEMTX_OK) {
+            /* Keep strict invalid/reserved accesses faulting the guest. */
+            qemu_log_mask(LOG_GUEST_ERROR | LOG_UNIMP,
+                          "EXeSX unimplemented/invalid %s MMIO WRITE"
+                          " @0x%" HWADDR_PRIx " size=%u data=0x%" PRIx64
+                          ": BUS FAULT\n",
+                          w->kind, w->base + offset, size, data);
+        }
+        return status;
     }
     if (size == 4 && !(offset & 3) && offset <= UINT32_MAX - 1) {
         v = g_hash_table_lookup(w->registers,
@@ -408,6 +431,13 @@ static void exesx_load_profile(MemoryRegion *sysmem, EXeSXState *board)
                               qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 20000000);
                 }
             }
+            /* The BU21029 pen voltage is driven by actual I2C autoscan
+             * state, not by a host contact file alone. The GPIOB input
+             * sampler needs the exact LPI2C2 register window. */
+            if (!strcmp(kind, "imx7ulp-lpi2c") &&
+                w->base == UINT64_C(0x41035000)) {
+                board->m4_lpi2c2 = w;
+            }
             if (!strcmp(kind, "imx7ulp-gpio")) {
                 if (w->base == 0x4100f000) {
                     board->m4_gpio_a = w;
@@ -448,8 +478,10 @@ static void exesx_load_profile(MemoryRegion *sysmem, EXeSXState *board)
                 w->regfile[0x200 / 4] = 1; /* SIRCEN */
                 w->regfile[0x300 / 4] = 1; /* FIRCEN */
             }
-            if (w->base == 0x40270000 &&
-                !g_strcmp0(g_getenv("EXESX_EXPERIMENTAL_LPIT1_IRQ"), "1")) {
+            if ((w->base == 0x40270000 &&
+                 !g_strcmp0(g_getenv("EXESX_EXPERIMENTAL_LPIT1_IRQ"), "1")) ||
+                (w->base == 0x4102d000 &&
+                 !g_strcmp0(g_getenv("EXESX_EXPERIMENTAL_M4_LPIT0_IRQ"), "1"))) {
                 w->lpit_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
                                              exesx_lpit_timer_tick, w);
             }
@@ -740,6 +772,16 @@ static void exesx_init(MachineState *ms)
     sysbus_realize(SYS_BUS_DEVICE(&s->m4), &error_fatal);
     /* MCIMX7U5_cm4_COMMON.h: MU_A_IRQn = 22 (external NVIC line). */
     s->mu_a_irq = qdev_get_gpio_in(DEVICE(&s->m4), 22);
+    /*
+     * IMPORTANT: Original M4 FUN_1FFD684A calls FUN_1FFD23AA(0x31).
+     * FUN_1FFD23AA takes an ARM exception/vector number, subtracts
+     * 0x10 (16 core exceptions), then writes M4 NVIC.ISER1 bit1.
+     * Vector 0x31=49 is therefore EXTERNAL IRQ33, NOT IRQ49.
+     * QEMU qdev_get_gpio_in(armv7m, N) expects external IRQ N.
+     * The old wiring at 49 raised ISPR1 bit17 while the guest enabled
+     * bit1, preventing the original 1ms touch timer interrupt.
+     */
+    s->lpit0_irq = qdev_get_gpio_in(DEVICE(&s->m4), 33);
     /* NXP i.MX7ULP NVIC: LPTMR0_IRQn=36, LPTMR1_IRQn=37. */
     s->lptmr0_irq = qdev_get_gpio_in(DEVICE(&s->m4), 36);
     s->lptmr1_irq = qdev_get_gpio_in(DEVICE(&s->m4), 37);
