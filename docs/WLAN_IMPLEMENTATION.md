@@ -2,6 +2,11 @@
 
 This is an **in-progress hardware investigation**, not proof that the original WLAN test passes.
 
+**Owner-confirmed card identity:** DY357 uses the same Microchip ATWINC1510 as DY890. The original DY357 A7 WLAN driver's accesses to LPSPI2 are independently confirmed by the supplied decompilation; individual board PCS/IRQ/RESET pins still need tracing.
+
+**New detailed source analysis:** [WLAN reply/USB fixture contract](WLAN_PROTOCOL_AND_USB_FIXTURE.md). This identifies original factory USB commands 1–6, separate WLAN HIF callbacks, real 32-bit packed LPSPI2 and DMA requirements, and the potential `\\data0\\sys_bin\\ota.bin` update image.
+
+
 ## What the original owner A7 code actually calls
 
 From the owner-local `XD-SX9850.0.c` decompilation (the proprietary file is **not** committed):
@@ -25,7 +30,7 @@ The owner's original A7 decompilation includes `FUN_1FFEA5E4`, a bootloader func
 
 ## What is known about the candidate module
 
-The earlier photographed **PWB-DY890-1** board has an **ATWINC1510-MR210PB**. The supplied OSUP is the **DY357** image. Physical placement and PCB routing may differ. Neither an A7-to-LPSPI2 bus address nor CS/IRQ/RESET wiring for DY357 has been observed yet.
+The user confirms the same **ATWINC1510** module family is used by **DY357 and DY890**. Physical CS/IRQ/RESET routing still needs measurement. The original WLAN software directly programs LPSPI2 at `0x40290000`. Neither an A7-to-LPSPI2 bus address nor CS/IRQ/RESET wiring for DY357 has been observed yet.
 
 Official Microchip WINC15x0 documentation:
 
