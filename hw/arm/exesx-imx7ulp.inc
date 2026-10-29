@@ -177,6 +177,11 @@ static void exesx_m4_port_tick(void *opaque)
     EXeSXProfileWindow *gpio = port->base == 0x4103f000 ?
                                b->m4_gpio_a : b->m4_gpio_b;
     uint32_t external, levels, pddr;
+    if (port->base == 0x41040000 &&
+        g_getenv("EXESX_WINC_IRQ_GPIOB_PIN") &&
+        b && b->wlan_lpspi2) {
+        exesx_lpspi2_poll_gpio_irq(b->wlan_lpspi2);
+    }
     if (gpio) {
         external = port->base == 0x4103f000 ?
                    exesx_gpioa_external_input_mask() :
@@ -189,7 +194,8 @@ static void exesx_m4_port_tick(void *opaque)
     timer_mod(port->m4_port_poll_timer,
               qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
               ((g_getenv("EXESX_M4_KEY_MATRIX_FILE") ||
-                g_getenv("EXESX_BU21029_TOUCH_FILE")) ?
+                g_getenv("EXESX_BU21029_TOUCH_FILE") ||
+                g_getenv("EXESX_WINC_IRQ_GPIOB_PIN")) ?
                INT64_C(1000000) : INT64_C(20000000)));
 }
 
