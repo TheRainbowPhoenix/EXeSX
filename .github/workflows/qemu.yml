@@ -190,6 +190,23 @@ jobs:
           python3 scripts/probe_e2_cross_geometry.py
           python3 scripts/probe_e2_touch_ipc.py
           python3 scripts/check_original_touch_dispatch.py
+      # Never expose owner binaries, URLs, MAC addresses or media to a
+      # public PR runner. Only a maintainer-triggered dispatch with
+      # access-controlled secrets can exercise unchanged owner firmware.
+      - name: Original OSUP TEST MENU regression (maintainer private fixture)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          EXESX_PRIVATE_OSUP_URL: ${{ secrets.EXESX_PRIVATE_OSUP_URL }}
+          EXESX_PRIVATE_OSUP_SHA256: ${{ secrets.EXESX_PRIVATE_OSUP_SHA256 }}
+          EXESX_PRIVATE_ASSET_TOKEN: ${{ secrets.EXESX_PRIVATE_ASSET_TOKEN }}
+        run: |
+          if test -n "$EXESX_PRIVATE_OSUP_URL" && test -n "$EXESX_PRIVATE_OSUP_SHA256"; then
+            python3 scripts/ci_private_osup_regression.py \
+              --qemu build/qemu-system-arm \
+              --profile profiles/imx7ulp-early-boot.ini
+          else
+            echo 'SKIP original ROM: configure private fixture URL and SHA-256 secrets'
+          fi
       - name: Bundle tested native emulator
         run: |
           mkdir -p dist/exesx-qemu-linux-x86_64
