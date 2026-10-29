@@ -36,6 +36,10 @@ typedef struct EXeSXState {
     ARMCPU *a7cpu;
     EXeSXProfileWindow *mu_a, *mu_b, *lcd, *dmamux1, *m4_gpio_a, *m4_gpio_b;
     EXeSXProfileWindow *m4_port_a, *m4_port_b, *m4_iomuxc0, *m4_lpi2c2;
+    EXeSXProfileWindow *wlan_lpspi2, *wlan_dma1;
+    /* Actual i.MX7ULP eDMA1 grouped channel interrupts are GIC SPIs
+     * 0..15 (channels n and n+16 share an IRQ), see imx7ulp.dtsi. */
+    qemu_irq dma1_group_irqs[16];
     uint64_t m4_keyboard_code;
     int m4_keyboard_row;
     int64_t m4_keyboard_next_poll_ns;
@@ -412,6 +416,14 @@ static void exesx_load_profile(MemoryRegion *sysmem, EXeSXState *board)
             if (g_strcmp0(kind, "imx7ulp-dmamux") == 0 && w->base == 0x40210000) {
                 board->dmamux1 = w;
             }
+            if (g_strcmp0(kind, "imx7ulp-lpspi") == 0 &&
+                w->base == UINT64_C(0x40290000)) {
+                board->wlan_lpspi2 = w;
+            }
+            if (g_strcmp0(kind, "imx7ulp-dma") == 0 &&
+                w->base == UINT64_C(0x40080000)) {
+                board->wlan_dma1 = w;
+            }
             if (!strcmp(kind, "imx7ulp-pctl") && w->base == 0x4103d000) {
                 /* Original M4 FUN_1FFD8412 selects the active keyboard
                  * matrix row through IOMUXC0 before driving GPIO low. */
@@ -619,6 +631,9 @@ static void exesx_init(MachineState *ms)
                            qdev_get_gpio_in(DEVICE(a7), ARM_CPU_FIQ));
         /* GIC qdev input indices are 0-based SPIs (GIC ID=32+index). */
         s->mu_b_irq = qdev_get_gpio_in(gic, 19);
+        for (unsigned ch = 0; ch < 16; ++ch) {
+            s->dma1_group_irqs[ch] = qdev_get_gpio_in(gic, ch);
+        }
         /* NXP i.MX7ULP A7 GIC SPI 25 = LPIT1. */
         s->lpit1_irq = qdev_get_gpio_in(gic, 25);
 
