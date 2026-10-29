@@ -43,6 +43,18 @@ The candidate is 2.4 GHz 802.11 b/g/n; signals are SPI_SSN, MOSI, MISO, SCK plus
 3. Add opt-in original guest trace `EXESX_TRACE_WLAN_A7=1` in the factory GUI worker to watch the authentic WLAN auto and service entry paths without injecting data or altering A7/M4 registers.
 4. Keep private original firmware and MMIO logs local.
 
+## Original-ROM single-threaded factory WLAN test (local negative control)
+
+A new bounded original-OSUP run on the owner-private emulator, with `-accel tcg,thread=single` and source-derived eMMC plus a disposable SD card both opened snapshot-protected, reached the authentic factory menu and sent only M4 physical key contacts:
+
+- The A7 accepted the `0x93,0x93,0x94` entry sequence at original PC `0x60010930`; `0x400B(2)` returned and the authentic menu painter executed.
+- Real physical DOWN navigation visibly selected row 8, **WLAN AUTO TEST**, with the full-width inverse bar.
+- Real physical ENTER opened the original heading `##### WIFI AUTO TEST #####` in the genuine LCD. A read-only 864x480 pixel screenshot was captured locally.
+- During the bounded observation, the screen had the heading only. **No original OK, Wi-Fi association, WLAN firmware reply, link status, MAC query, or passing factory result** was observed.
+- The native QEMU build used for this run predates the new LPSPI2 PIO code; the comparison is a **baseline**, not a claim that the new opt-in SPI host already fixes WLAN. The private screenshot and runtime logs remain outside Git.
+
+This confirms real guest dispatch to the factory test and provides a negative baseline for future original-OSUP experiments. It does **not** establish DY357 radio wiring or an external USB fixture.
+
 ## Required evidence before calling the original WLAN test PASS
 
 - Confirm whether DY357 actually uses ATWINC1510, and trace which original guest SPI controller, chip select, IRQ and reset GPIO it touches. Do not infer DY357 wiring from the different DY890 photograph.
