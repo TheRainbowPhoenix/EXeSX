@@ -229,6 +229,45 @@ failed:
     return false;
 }
 
+/*
+ * Read the WINC's *physical* IRQ_N state when M4 PORTB is polled.
+ * A zero-clock special RPC keeps CS untouched and does not fabricate
+ * any SPI response, HIF callback, A7 interrupt, or guest RAM data.
+ * The RPC is opt-in to prevent latency/regressions on normal boots.
+ * A bounded select() avoids a permanently wedged Python backend.
+ */
+static void exesx_lpspi2_poll_gpio_irq(EXeSXProfileWindow *w)
+{
+    uint8_t request[4] = { 0xff, 0x20, 0, 0 };
+    uint8_t status = 1;
+    fd_set readfds;
+    struct timeval deadline = { 0, 20000 };
+    if (!w || w->lpspi_backend_fd < 0 ||
+        g_strcmp0(g_getenv("EXESX_WINC1510_GPIO_PROTOCOL"), "1")) {
+        return;
+    }
+    int fd = w->lpspi_backend_fd;
+    int sent = send(fd, (const char *)request, sizeof(request), 0);
+    if (sent != sizeof(request)) {
+        goto disconnected;
+    }
+    FD_ZERO(&readfds);
+    FD_SET(fd, &readfds);
+    if (select(fd + 1, &readfds, NULL, NULL, &deadline) <= 0 ||
+        recv(fd, (char *)&status, 1, 0) != 1) {
+        goto disconnected;
+    }
+    w->regfile[EXESX_LPSPI_GPIO_STATE] =
+        1U | ((status & 1U) << 1);
+    return;
+disconnected:
+    closesocket(fd);
+    w->lpspi_backend_fd = -1;
+    w->regfile[EXESX_LPSPI_GPIO_STATE] = 0;
+    qemu_log_mask(LOG_GUEST_ERROR,
+                  "EXeSX WINC1510 IRQ_N backend poll unavailable\\n");
+}
+
 static uint32_t exesx_lpspi2_rx_count(EXeSXProfileWindow *w)
 {
     return w->regfile[EXESX_LPSPI_RX_COUNT];
