@@ -11,14 +11,47 @@
  * synthetic; never interpret it as radio/association or factory success.
  *
  * Guest-visible FIFO data/state lives in VMState serialized regfile.
- * This is an eight-bit, immediate PIO-transfer subset; real shift timing,
- * DMA requests, IRQ routing and larger frame modes are not yet modeled.
+ * Multiword frames are shifted as little-endian RX FIFO *words*. The
+ * selected PCS is derived from TCR, not guessed from a Wi-Fi command.
+ * DMA0 peripheral requests, interrupt routing, and real shift timing
+ * still require independent validation against original guest traces.
  */
 
-#define EXESX_LPSPI_RX_HEAD    (0x300 / 4)
-#define EXESX_LPSPI_RX_COUNT   (0x304 / 4)
-#define EXESX_LPSPI_RX_DATA    (0x310 / 4)
-#define EXESX_LPSPI_RX_DEPTH   4
+#define EXESX_LPSPI_RX_HEAD     (0x300 / 4)
+#define EXESX_LPSPI_RX_COUNT    (0x304 / 4)
+#define EXESX_LPSPI_RX_DATA     (0x340 / 4)
+#define EXESX_LPSPI_RX_DEPTH    16
+#define EXESX_LPSPI_FRAME_LEFT  (0x310 / 4)
+#define EXESX_LPSPI_ACTIVE_PCS  (0x314 / 4)
+#define EXESX_LPSPI_PCS_ASSERT  (0x318 / 4)
+#define EXESX_LPSPI_FRAME_COUNT (0x31c / 4)
+
+static void exesx_lpspi2_deassert_pcs(EXeSXProfileWindow *w)
+{
+    if (w->regfile[EXESX_LPSPI_PCS_ASSERT] &&
+        !g_strcmp0(g_getenv("EXESX_TRACE_WLAN_SPI"), "1")) {
+        qemu_log("EXeSX LPSPI2 PCS%u deassert after genuine frame\n",
+                 w->regfile[EXESX_LPSPI_ACTIVE_PCS]);
+    }
+    w->regfile[EXESX_LPSPI_PCS_ASSERT] = 0;
+    w->regfile[EXESX_LPSPI_FRAME_LEFT] = 0;
+}
+
+static void exesx_lpspi2_assert_pcs(EXeSXProfileWindow *w, unsigned pcs)
+{
+    if (w->regfile[EXESX_LPSPI_PCS_ASSERT] &&
+        w->regfile[EXESX_LPSPI_ACTIVE_PCS] != pcs) {
+        exesx_lpspi2_deassert_pcs(w);
+    }
+    if (!w->regfile[EXESX_LPSPI_PCS_ASSERT]) {
+        w->regfile[EXESX_LPSPI_ACTIVE_PCS] = pcs;
+        w->regfile[EXESX_LPSPI_PCS_ASSERT] = 1;
+        if (!g_strcmp0(g_getenv("EXESX_TRACE_WLAN_SPI"), "1")) {
+            qemu_log("EXeSX LPSPI2 PCS%u assert (hardware host)\n", pcs);
+        }
+    }
+}
+
 
 static bool exesx_lpspi2_pio_enabled(void)
 {
@@ -39,11 +72,14 @@ static void exesx_lpspi2_rx_reset(EXeSXProfileWindow *w)
 {
     w->regfile[EXESX_LPSPI_RX_HEAD] = 0;
     w->regfile[EXESX_LPSPI_RX_COUNT] = 0;
+    for (unsigned i = 0; i < EXESX_LPSPI_RX_DEPTH; ++i) {
+        w->regfile[EXESX_LPSPI_RX_DATA + i] = 0;
+    }
 }
 
 static uint32_t exesx_lpspi2_status(EXeSXProfileWindow *w)
 {
-    uint32_t bits = w->regfile[0x14 / 4] | 1U; /* TDF, empty TX FIFO */
+    uint32_t bits = w->regfile[0x14 / 4] | 1U; /* TDF: TX shifter idle */
     uint32_t water = (w->regfile[0x58 / 4] >> 16) & 3;
     if (exesx_lpspi2_rx_count(w) > water) {
         bits |= 2U; /* RDF RX watermark reached */
@@ -70,7 +106,7 @@ static MemTxResult exesx_lpspi2_read(EXeSXProfileWindow *w,
     }
     switch (off) {
     case 0x00: *value = 0x01000003; return MEMTX_OK; /* VERID */
-    case 0x04: *value = 0x00000202; return MEMTX_OK; /* PARAM: 4-word FIFOs */
+    case 0x04: *value = 0x00000404; return MEMTX_OK; /* PARAM: 16 words */
     case 0x10: case 0x18: case 0x1c: case 0x20:
     case 0x24: case 0x30: case 0x34: case 0x40:
     case 0x58: case 0x60:
@@ -128,6 +164,9 @@ static MemTxResult exesx_lpspi2_write(EXeSXProfileWindow *w,
 
     switch (off) {
     case 0x10: /* CR: RST, RTF, RRF are self-clearing */
+        if (!(bits & 1U) || (bits & 2U)) {
+            exesx_lpspi2_deassert_pcs(w);
+        }
         if (bits & (2U | 0x100U | 0x200U)) {
             if (bits & (2U | 0x200U)) {
                 exesx_lpspi2_rx_reset(w);
@@ -143,46 +182,77 @@ static MemTxResult exesx_lpspi2_write(EXeSXProfileWindow *w,
         return MEMTX_OK;
     case 0x18: case 0x1c: case 0x20: case 0x24:
     case 0x30: case 0x34: case 0x40: case 0x58:
-    case 0x60:
         w->regfile[off / 4] = bits;
         return MEMTX_OK;
-    case 0x64: /* PIO TX data: shift a single 8-bit frame */
+    case 0x60: { /* TCR: PCS bits 24-25, FRAMESZ bits 0-11 */
+        uint32_t old = w->regfile[0x60 / 4];
+        if ((w->regfile[EXESX_LPSPI_PCS_ASSERT] != 0) &&
+            !(old & (1U << 21))) {
+            exesx_lpspi2_deassert_pcs(w);
+        }
+        w->regfile[0x60 / 4] = bits;
+        w->regfile[EXESX_LPSPI_FRAME_LEFT] = (bits & 0xfffU) + 1;
+        w->regfile[EXESX_LPSPI_FRAME_COUNT]++;
+        w->regfile[0x14 / 4] &= ~((1U << 10) | (1U << 9));
+        return MEMTX_OK;
+    }
+    case 0x64: { /* TDR shifts 1..32 bits from each packed 32-bit word */
+        uint32_t left, nbits, shifted, rxword;
         if (!(w->regfile[0x10 / 4] & 1) ||
             !(w->regfile[0x24 / 4] & 1)) {
             qemu_log_mask(LOG_GUEST_ERROR,
                           "EXeSX LPSPI2 TDR without enabled host\n");
             return MEMTX_OK; /* no clock edges without MEN+MASTER */
         }
-        if ((w->regfile[0x60 / 4] & 0xfff) != 7) {
-            qemu_log_mask(LOG_UNIMP,
-                          "EXeSX LPSPI2 unsupported frame width=%u "
-                          "(only 8-bit PIO modeled)\n",
-                          (w->regfile[0x60 / 4] & 0xfff) + 1);
+        left = w->regfile[EXESX_LPSPI_FRAME_LEFT];
+        if (!left) {
+            qemu_log_mask(LOG_GUEST_ERROR,
+                          "EXeSX LPSPI2 TDR outside a programmed frame\n");
             return MEMTX_OK;
         }
+        nbits = MIN(left, 32U);
+        shifted = bits;
+        if (nbits < 32U) {
+            shifted &= (1U << nbits) - 1U;
+        }
+        exesx_lpspi2_assert_pcs(w, (w->regfile[0x60 / 4] >> 24) & 3);
         /*
-         * No confirmed slave wired on this original DY357 bus.
-         * Open MISO is not assumed to be a WINC chip ID. Only an
-         * EXPLICIT opt-in diagnostic physical loopback returns MOSI.
-         * Without it RX data is 0xff (pulled-up disconnected line).
+         * Disconnected MISO uses pulled-up all-one bits. A *synthetic*
+         * loopback returns shifted MOSI, never a guessed Wi-Fi ID.
+         * The native firmware writes full words then drains RX words.
+         * For a shorter terminal word, unused bits are zero-filled.
          */
+        rxword = exesx_lpspi2_loopback_enabled() ? shifted :
+                 (nbits == 32U ? UINT32_MAX : ((1U << nbits) - 1));
         count = exesx_lpspi2_rx_count(w);
-        if (count < EXESX_LPSPI_RX_DEPTH &&
-            !(w->regfile[0x60 / 4] & (1U << 19))) {
+        if (count >= EXESX_LPSPI_RX_DEPTH) {
+            qemu_log_mask(LOG_GUEST_ERROR,
+                          "EXeSX LPSPI2 RX FIFO overrun; no fake success\n");
+            w->regfile[0x14 / 4] |= (1U << 11); /* REF */
+            return MEMTX_OK;
+        }
+        if (!(w->regfile[0x60 / 4] & (1U << 19))) {
             uint32_t tail =
                 (w->regfile[EXESX_LPSPI_RX_HEAD] + count) %
                 EXESX_LPSPI_RX_DEPTH;
-            w->regfile[EXESX_LPSPI_RX_DATA + tail] =
-                exesx_lpspi2_loopback_enabled() ? (bits & 0xffU) : 0xffU;
+            w->regfile[EXESX_LPSPI_RX_DATA + tail] = rxword;
             w->regfile[EXESX_LPSPI_RX_COUNT] = count + 1;
-        } else if (count >= EXESX_LPSPI_RX_DEPTH) {
-            qemu_log_mask(LOG_UNIMP,
-                          "EXeSX LPSPI2 RX overrun; cannot drop FIFO "
-                          "frames silently\n");
         }
-        /* Hardware transfer-complete status; no IRQ/DMA routed yet. */
-        w->regfile[0x14 / 4] |= (1U << 10) | (1U << 9);
+        if (!g_strcmp0(g_getenv("EXESX_TRACE_WLAN_SPI"), "1")) {
+            qemu_log("EXeSX LPSPI2 PIO PCS%u shift %u bits"
+                     " MOSI=0x%08x MISO=0x%08x left=%u\n",
+                     w->regfile[EXESX_LPSPI_ACTIVE_PCS], nbits,
+                     shifted, rxword, left - nbits);
+        }
+        w->regfile[EXESX_LPSPI_FRAME_LEFT] = left - nbits;
+        if (left == nbits) {
+            w->regfile[0x14 / 4] |= (1U << 10) | (1U << 9);
+            if (!(w->regfile[0x60 / 4] & (1U << 21))) {
+                exesx_lpspi2_deassert_pcs(w);
+            }
+        }
         return MEMTX_OK;
+    }
     default:
         return MEMTX_ERROR;
     }
