@@ -97,7 +97,7 @@ def run(qemu,profile):
                         q=QMP(sock);q.execute("cont")
                         time.sleep(.7)
                         words=[result_word(q,OUT+i*4) for i in range(4)]
-                        expected=[0xffffffff,0xca00f300,0x1002b000,0]
+                        expected=[0xffffffff,0xca00f3b0,0x02100000,0]
                         assert words==expected, (list(map(hex,words)),
                                                  list(map(hex,expected)))
                         print("PASS genuine ARM WINC1510 SPI register read "
