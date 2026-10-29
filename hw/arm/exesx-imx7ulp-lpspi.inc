@@ -63,6 +63,101 @@ static bool exesx_lpspi2_loopback_enabled(void)
     return !g_strcmp0(g_getenv("EXESX_DIAGNOSTIC_LPSPI2_LOOPBACK"), "1");
 }
 
+/*
+ * Strict, loopback-only TCP transport for Python WINC1510 SPI slave.
+ * No QEMU guest memory writes, no fake WLAN callbacks: electrical
+ * transactions are derived exclusively from original TCR/TDR and PCS.
+ * Protocol frame: PCS (1), flags BEGIN=1/END=2 (1), nbytes LE (2),
+ * nbytes MOSI, exactly nbytes MISO. The Python process is localhost.
+ */
+static bool exesx_lpspi2_tcp_exchange(EXeSXProfileWindow *w, uint32_t pcs,
+                                     uint32_t nbits, uint32_t bits,
+                                     bool high_partial, bool begin, bool end,
+                                     uint32_t *response)
+{
+    const char *portstr = g_getenv("EXESX_WINC1510_TCP_PORT");
+    char *stop;
+    long port;
+    uint8_t packet[8] = {0}, reply[4] = {0};
+    int fd, nbytes;
+    size_t sent = 0, received = 0;
+    if (!portstr || !*portstr) {
+        return false;
+    }
+    port = strtol(portstr, &stop, 10);
+    if (*stop || port < 1024 || port > 65535) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "EXeSX WINC1510 invalid loopback port; not connected\n");
+        return false;
+    }
+    nbytes = (nbits + 7) / 8;
+    if ((nbits & 7) || nbytes < 1 || nbytes > 4) {
+        qemu_log_mask(LOG_UNIMP,
+                      "EXeSX WINC1510 unsupported partial-byte SPI clocks\n");
+        return false;
+    }
+    if (w->lpspi_backend_fd < 0) {
+        struct sockaddr_in address = {0};
+        fd = qemu_socket(AF_INET, SOCK_STREAM, 0);
+        if (fd < 0) {
+            return false;
+        }
+        address.sin_family = AF_INET;
+        address.sin_port = htons((uint16_t)port);
+        address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        if (connect(fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
+            closesocket(fd);
+            qemu_log_mask(LOG_GUEST_ERROR,
+                          "EXeSX WINC1510 Python backend absent on localhost\n");
+            return false;
+        }
+        w->lpspi_backend_fd = fd;
+        begin = true; /* snapshot/reconnect must start a fresh CS */
+    }
+    packet[0] = pcs;
+    packet[1] = (begin ? 1 : 0) | (end ? 2 : 0);
+    packet[2] = nbytes;
+    packet[3] = 0;
+    for (int i = 0; i < nbytes; ++i) {
+        if (nbits == 32 || high_partial) {
+            packet[4+i] = bits >> (24 - 8*i);
+        } else {
+            packet[4+i] = bits >> (8*(nbytes - 1-i));
+        }
+    }
+    while (sent < (size_t)(4 + nbytes)) {
+        int ret = send(w->lpspi_backend_fd,
+                       (const char *)packet + sent, 4 + nbytes - sent, 0);
+        if (ret <= 0) {
+            goto failed;
+        }
+        sent += ret;
+    }
+    while (received < (size_t)nbytes) {
+        int ret = recv(w->lpspi_backend_fd,
+                       (char *)reply + received, nbytes - received, 0);
+        if (ret <= 0) {
+            goto failed;
+        }
+        received += ret;
+    }
+    *response = 0;
+    for (int i = 0; i < nbytes; ++i) {
+        *response = (*response << 8) | reply[i];
+    }
+    if (high_partial) {
+        *response <<= 32 - nbits;
+    }
+    return true;
+
+failed:
+    closesocket(w->lpspi_backend_fd);
+    w->lpspi_backend_fd = -1;
+    qemu_log_mask(LOG_GUEST_ERROR,
+                  "EXeSX WINC1510 backend dropped SPI segment; not ACKed\n");
+    return false;
+}
+
 static uint32_t exesx_lpspi2_rx_count(EXeSXProfileWindow *w)
 {
     return w->regfile[EXESX_LPSPI_RX_COUNT];
@@ -234,7 +329,9 @@ static MemTxResult exesx_lpspi2_write(EXeSXProfileWindow *w,
                         (1U << nbits) - 1U;
         shifted = high_partial ? (bits >> (32U - nbits)) & mask :
                    bits & mask;
-        exesx_lpspi2_assert_pcs(w, (w->regfile[0x60 / 4] >> 24) & 3);
+        bool beginning = !w->regfile[EXESX_LPSPI_PCS_ASSERT];
+        unsigned pcs = (w->regfile[0x60 / 4] >> 24) & 3U;
+        exesx_lpspi2_assert_pcs(w, pcs);
         /*
          * Disconnected MISO uses pulled-up all-one bits. A *synthetic*
          * loopback returns shifted MOSI, never a guessed Wi-Fi ID.
@@ -244,6 +341,20 @@ static MemTxResult exesx_lpspi2_write(EXeSXProfileWindow *w,
         rxword = exesx_lpspi2_loopback_enabled() ? shifted : mask;
         if (high_partial) {
             rxword <<= (32U - nbits);
+        }
+        if (g_getenv("EXESX_WINC1510_TCP_PORT")) {
+            uint32_t backend_rx;
+            bool ending = left == nbits &&
+                          !(w->regfile[0x60 / 4] & (1U << 21));
+            if (exesx_lpspi2_tcp_exchange(w, pcs, nbits, bits,
+                                         high_partial, beginning, ending,
+                                         &backend_rx)) {
+                rxword = backend_rx;
+            } else {
+                /* A disconnected card cannot reply with a fabricated
+                 * chip ID, ACK, HIF response or WLAN success value. */
+                rxword = high_partial ? mask << (32U - nbits) : mask;
+            }
         }
         count = exesx_lpspi2_rx_count(w);
         if (count >= EXESX_LPSPI_RX_DEPTH) {
