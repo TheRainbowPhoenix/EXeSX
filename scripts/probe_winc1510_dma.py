@@ -32,7 +32,7 @@ def make_guest():
     def st(r,b,o=0):emit(0xe5800000|(b<<16)|(r<<12)|o)
     def ld(r,b,o=0):emit(0xe5900000|(b<<16)|(r<<12)|o)
     li(6,TX);li(7,RESULT)
-    for i,v in enumerate((0xca001000,0,0)):
+    for i,v in enumerate((0x001000ca,0,0)):
         li(1,v);st(1,6,4*i)
     # Synthetic standalone TX eDMA channel 2.
     li(0,DMA+0x1040)
@@ -53,7 +53,7 @@ def make_guest():
     li(0,SPI)
     li(1,3);st(1,0,0x24)         # MASTER
     li(1,1);st(1,0,0x10)         # MEN
-    li(1,0x0200005f);st(1,0,0x60) # 96-bit/12 bytes, original PCS2
+    li(1,0x0240005f);st(1,0,0x60) # 96-bit/12 bytes, original PCS2
     li(1,3);st(1,0,0x1c)         # TDDE/RDDE: REAL eDMA trigger
     li(0,DMA)
     ld(2,0,0x24);st(2,7,0)       # actual INTMAJOR pending 0xC
@@ -116,7 +116,7 @@ def run(qemu,profile):
                         q=QMP(sock);q.execute("cont")
                         time.sleep(.9)
                         got=[word(q,RX+4*i) for i in range(3)]
-                        wanted=[0xffffffff,0xca00f3b0,0x021000ff]
+                        wanted=[0xffffffff,0xb0f300ca,0xff001002]
                         assert got==wanted,(list(map(hex,got)),list(map(hex,wanted)))
                         assert word(q,RESULT)==0xc
                         assert word(q,RESULT+4)==0
