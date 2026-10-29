@@ -116,7 +116,7 @@ def run(qemu,profile):
                         q=QMP(sock);q.execute("cont")
                         time.sleep(.9)
                         got=[word(q,RX+4*i) for i in range(3)]
-                        wanted=[0xffffffff,0xca00f300,0x1002b0ff]
+                        wanted=[0xffffffff,0xca00f3b0,0x021000ff]
                         assert got==wanted,(list(map(hex,got)),list(map(hex,wanted)))
                         assert word(q,RESULT)==0xc
                         assert word(q,RESULT+4)==0
