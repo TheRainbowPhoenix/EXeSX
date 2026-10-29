@@ -47,6 +47,55 @@ class SPIProtocolTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             Winc1510SPI(bytes(1024*1024+1))
 
+    def test_original_hif_dma_mailbox_and_explicit_device_callback(self):
+        from winc1510_spi_backend import Winc1510SPI
+        dev = Winc1510SPI(hif_mailbox=True)
+        # Original FUN_601C0708 writes 2 to this WINC *internal*
+        # register via a real SPI write. Only the hardware mailbox
+        # grant is automatic; no WLAN success/HIF reply is fabricated.
+        dev.shift(2, bytes.fromhex("c900107800000002"),
+                  begin=True, end=True)
+        self.assertEqual(dev._read_reg(0x1078) & 2, 0)
+        self.assertEqual(dev._read_reg(0x150400), 0x30000)
+        self.assertEqual(dev.hif_requests, [])
+        self.assertEqual(dev._read_reg(0x1070), 0)
+
+        body = b"\x01\\x2b\\x0c\\x00" + bytes(4) + b"TEST"
+        dev._dma_put(0x30000, body)
+        # Genuine A7 sets request pointer<<2 | 2 after DMA payload.
+        dev.shift(2, bytes.fromhex("c900106c000c0002"),
+                  begin=True, end=True)
+        self.assertEqual(len(dev.hif_requests), 1)
+        self.assertEqual(dev.hif_requests[0]["group"], 1)
+        self.assertEqual(dev.hif_requests[0]["opcode"], 0x2b)
+        self.assertEqual(dev.hif_requests[0]["payload"], b"TEST")
+        self.assertEqual(dev._read_reg(0x1070), 0)
+
+        # A device/fixture may later explicitly post a HIF response;
+        # it is not posted merely because the host asked to connect.
+        dev.queue_hif_callback(1, 0x2c, b"\x01" + bytes(3))
+        self.assertEqual(dev._read_reg(0x1070), (12<<2)|1)
+        self.assertEqual(dev._read_reg(0x1084), 0x32000)
+        self.assertEqual(dev._dma_get(0x32000, 12),
+                         bytes.fromhex("012c0c000000000001000000"))
+        with self.assertRaises(RuntimeError):
+            dev.queue_hif_callback(1, 0x2c, b"\x00")
+        dev._write_reg(0x1070, dev._read_reg(0x1070) & ~1)
+        self.assertEqual(dev._read_reg(0x1070) & 1, 0)
+
+    def test_hif_malformed_notification_does_not_send_success(self):
+        from winc1510_spi_backend import Winc1510SPI
+        dev = Winc1510SPI(hif_mailbox=True)
+        dev._write_reg(0x106c, 0x400 << 2 | 2)
+        self.assertEqual(dev.hif_requests, [])
+        self.assertEqual(dev._read_reg(0x1070), 0)
+        with self.assertRaises(ValueError):
+            dev.queue_hif_callback(1, 0x2c, bytes(0x63c))
+        legacy = Winc1510SPI(hif_mailbox=False)
+        legacy._write_reg(0x1078, 2)
+        self.assertEqual(legacy._read_reg(0x1078), 2)
+        self.assertEqual(legacy._read_reg(0x150400), 0)
+
     def test_optional_crc_extra_command_byte(self):
         dev=Winc1510SPI(crc=True)
         dev.shift(0,bytes.fromhex("ca0010005a"),begin=True)
