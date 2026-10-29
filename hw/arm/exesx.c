@@ -23,6 +23,7 @@
 #include "qemu/module.h"
 #include "qemu/log.h"
 #include "qemu/timer.h"
+#include "qemu/sockets.h"
 #include "migration/vmstate.h"
 #include <inttypes.h>
 
@@ -85,6 +86,8 @@ struct EXeSXProfileWindow {
     GHashTable *registers;
     char *kind;
     EXeSXState *board;
+    /* Host-only TCP socket is NEVER snapshotted as guest hardware state. */
+    int lpspi_backend_fd;
     QEMUTimer *lpit_timer, *lptmr_timer, *tpm0_timer, *lcd_screenshot_timer, *m4_port_poll_timer;
     uint32_t m4_port_previous;
     bool m4_port_sampled;
@@ -149,6 +152,10 @@ static void exesx_m4_rom_handoff(EXeSXState *s, uint32_t entry)
 static int exesx_registers_post_load(void *opaque, int version_id)
 {
     EXeSXProfileWindow *w = opaque;
+    if (w->lpspi_backend_fd >= 0 && w->base == UINT64_C(0x40290000)) {
+        closesocket(w->lpspi_backend_fd);
+        w->lpspi_backend_fd = -1;
+    }
     if (w->lptmr_timer) {
         /* Device flags/epoch are saved in regfile; rearm this
          * host QEMU timer after loading a private VM checkpoint. */
@@ -352,6 +359,7 @@ static void exesx_load_profile(MemoryRegion *sysmem, EXeSXState *board)
         const char *group = groups[k];
         g_autofree char *kind = g_key_file_get_string(cfg, group, "kind", NULL);
         EXeSXProfileWindow *w = g_new0(EXeSXProfileWindow, 1);
+        w->lpspi_backend_fd = -1;
         gsize nkeys;
         g_auto(GStrv) keys = NULL;
         gsize i;
