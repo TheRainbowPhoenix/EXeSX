@@ -25,6 +25,8 @@
 #define EXESX_LPSPI_ACTIVE_PCS  (0x314 / 4)
 #define EXESX_LPSPI_PCS_ASSERT  (0x318 / 4)
 #define EXESX_LPSPI_FRAME_COUNT (0x31c / 4)
+#define EXESX_LPSPI_GPIO_STATE   (0x320 / 4) /* bit0 valid, bit1 IRQ_N */
+
 
 static void exesx_lpspi2_deassert_pcs(EXeSXProfileWindow *w)
 {
@@ -82,6 +84,31 @@ static uint32_t exesx_lpspi2_reverse_bytes(uint32_t value, unsigned bytes)
     return out;
 }
 
+static bool exesx_winc_gpio_pin_high(EXeSXProfileWindow *w,
+                                       const char *env_name,
+                                       bool default_high)
+{
+    const char *p = g_getenv(env_name);
+    EXeSXProfileWindow *gpio = w->board ? w->board->m4_gpio_b : NULL;
+    char *end;
+    unsigned long bit;
+    if (!p || !*p || !gpio) {
+        return default_high;
+    }
+    bit = strtoul(p, &end, 0);
+    if (*end || bit > 31) {
+        qemu_log_mask(LOG_GUEST_ERROR, "EXeSX invalid WINC GPIOB pin %s\\n",
+                      env_name);
+        return default_high;
+    }
+    uint32_t mask = UINT32_C(1) << bit;
+    if (!(gpio->regfile[0x14 / 4] & mask)) {
+        /* Never override unconfigured direction or invent an output. */
+        return default_high;
+    }
+    return !!(gpio->regfile[0] & mask);
+}
+
 static bool exesx_lpspi2_tcp_exchange(EXeSXProfileWindow *w, uint32_t pcs,
                                      uint32_t nbits, uint32_t bits,
                                      bool high_partial, bool byte_swap,
@@ -90,7 +117,9 @@ static bool exesx_lpspi2_tcp_exchange(EXeSXProfileWindow *w, uint32_t pcs,
     const char *portstr = g_getenv("EXESX_WINC1510_TCP_PORT");
     char *stop;
     long port;
-    uint8_t packet[8] = {0}, reply[4] = {0};
+    uint8_t packet[8] = {0}, reply[5] = {0};
+    bool gpio_proto = !g_strcmp0(
+        g_getenv("EXESX_WINC1510_GPIO_PROTOCOL"), "1");
     int fd, nbytes;
     size_t sent = 0, received = 0;
     if (!portstr || !*portstr) {
@@ -128,6 +157,21 @@ static bool exesx_lpspi2_tcp_exchange(EXeSXProfileWindow *w, uint32_t pcs,
     }
     packet[0] = pcs;
     packet[1] = (begin ? 1 : 0) | (end ? 2 : 0);
+    if (gpio_proto) {
+        /* Pins are actual original M4 GPIOB output latches, if a
+         * researcher has explicitly mapped their pin numbers.
+         * Default disconnected/unmapped control lines are deasserted.
+         * RESET_N active high, WAKE_N active low, CHIP_EN active high. */
+        if (exesx_winc_gpio_pin_high(w, "EXESX_WINC_RESET_GPIOB_PIN", true)) {
+            packet[1] |= 4;
+        }
+        if (exesx_winc_gpio_pin_high(w, "EXESX_WINC_WAKE_GPIOB_PIN", false)) {
+            packet[1] |= 8;
+        }
+        if (exesx_winc_gpio_pin_high(w, "EXESX_WINC_ENABLE_GPIOB_PIN", true)) {
+            packet[1] |= 16;
+        }
+    }
     packet[2] = nbytes;
     packet[3] = 0;
     /* 'bits' is the already-extracted active 1..4 bytes of TDR.
@@ -145,13 +189,22 @@ static bool exesx_lpspi2_tcp_exchange(EXeSXProfileWindow *w, uint32_t pcs,
         }
         sent += ret;
     }
-    while (received < (size_t)nbytes) {
+    /* Extended socket mode adds one sampled IRQ_N byte after MISO.
+     * Legacy backend remains byte-for-byte compatible. */
+    size_t reply_len = nbytes + (gpio_proto ? 1 : 0);
+    while (received < reply_len) {
         int ret = recv(w->lpspi_backend_fd,
-                       (char *)reply + received, nbytes - received, 0);
+                       (char *)reply + received, reply_len - received, 0);
         if (ret <= 0) {
             goto failed;
         }
         received += ret;
+    }
+    if (gpio_proto) {
+        /* 1 = IRQ_N high/idle; 0 = interrupt pending, active low.
+         * Drives only the modeled electrical input; no guest event. */
+        w->regfile[EXESX_LPSPI_GPIO_STATE] =
+            1U | ((reply[nbytes] & 1U) << 1);
     }
     *response = 0;
     for (int i = 0; i < nbytes; ++i) {
@@ -166,6 +219,9 @@ static bool exesx_lpspi2_tcp_exchange(EXeSXProfileWindow *w, uint32_t pcs,
     return true;
 
 failed:
+    /* Disconnected backend electrically deasserts IRQ_N, never leaves
+     * a stale pending interrupt or fake WLAN completion behind. */
+    w->regfile[EXESX_LPSPI_GPIO_STATE] = 0;
     closesocket(w->lpspi_backend_fd);
     w->lpspi_backend_fd = -1;
     qemu_log_mask(LOG_GUEST_ERROR,
