@@ -316,8 +316,14 @@ def serve(host, port, chip, gpio_status=False):
                         while len(header) < 4:
                             header += recv_exact(conn, 4-len(header))
                         pcs, flags, count = struct.unpack("<BBH", header)
-                        if count > MAX_FRAME or flags & ~(0x1f if gpio_status else 3):
+                        if count > MAX_FRAME or flags & ~(0x3f if gpio_status else 3):
                             raise ValueError("invalid QEMU SPI segment")
+                        # Host can query the asynchronous IRQ_N line
+                        # without clocking SPI or changing PCS. This is a
+                        # real electrical status query, never a guest event.
+                        if gpio_status and flags == 0x20 and count == 0:
+                            conn.sendall(bytes([int(chip.irq_n)]))
+                            continue
                         tx = recv_exact(conn, count)
                         if gpio_status:
                             chip.set_pins(reset_n=bool(flags & 4),
