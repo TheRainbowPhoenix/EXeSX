@@ -211,10 +211,18 @@ static MemTxResult exesx_lpspi2_write(EXeSXProfileWindow *w,
             return MEMTX_OK;
         }
         nbits = MIN(left, 32U);
-        shifted = bits;
-        if (nbits < 32U) {
-            shifted &= (1U << nbits) - 1U;
-        }
+        /*
+         * Full 32-bit words retain their byte order. In the original
+         * driver a *terminal partial word* of a multiword transfer is
+         * placed in the upper byte lanes (FUN_601c2580), whereas a
+         * standalone 8-bit LPSPI frame uses low lane 0 as normal.
+         */
+        bool high_partial = nbits < 32U &&
+                            ((w->regfile[0x60 / 4] & 0xfffU) + 1U) > 32U;
+        uint32_t mask = nbits == 32U ? UINT32_MAX :
+                        (1U << nbits) - 1U;
+        shifted = high_partial ? (bits >> (32U - nbits)) & mask :
+                   bits & mask;
         exesx_lpspi2_assert_pcs(w, (w->regfile[0x60 / 4] >> 24) & 3);
         /*
          * Disconnected MISO uses pulled-up all-one bits. A *synthetic*
@@ -222,8 +230,10 @@ static MemTxResult exesx_lpspi2_write(EXeSXProfileWindow *w,
          * The native firmware writes full words then drains RX words.
          * For a shorter terminal word, unused bits are zero-filled.
          */
-        rxword = exesx_lpspi2_loopback_enabled() ? shifted :
-                 (nbits == 32U ? UINT32_MAX : ((1U << nbits) - 1));
+        rxword = exesx_lpspi2_loopback_enabled() ? shifted : mask;
+        if (high_partial) {
+            rxword <<= (32U - nbits);
+        }
         count = exesx_lpspi2_rx_count(w);
         if (count >= EXESX_LPSPI_RX_DEPTH) {
             qemu_log_mask(LOG_GUEST_ERROR,
