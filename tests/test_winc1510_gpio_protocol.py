@@ -49,6 +49,43 @@ class WincGPIOTests(unittest.TestCase):
         self.assertEqual(chip._read_reg(0x1000), 0x1002b0)
         self.assertTrue(chip.irq_n)
 
+    def test_opt_in_ap_fixture_only_answers_original_hif_request(self):
+        chip = Winc1510SPI(hif_mailbox=True, fixture_ssid="PRIVATE_SIM_AP")
+        self.assertTrue(chip.irq_n)
+        self.assertFalse(chip.ap_connected)
+        self.assertEqual(chip.hif_notifications, [])
+        addr = 0x30000
+        # Real HIF header (group 1, connect opcode 0x10, 8-byte total).
+        chip._dma_put(addr, bytes.fromhex("0110080000000000"))
+        chip._write_reg(0x106c, (addr << 2) | 2)
+        self.assertTrue(chip.ap_connected)
+        self.assertFalse(chip.irq_n)
+        self.assertEqual(chip.hif_notifications[-1][:2], (1, 0x2c))
+        self.assertEqual(chip._dma_get(0x32000, 12)[8:], b"\\x01"+bytes(3))
+        # Original guest may request AP info while connection IRQ remains
+        # pending. A second callback must be FIFO queued, never overwrite.
+        chip._dma_put(addr, bytes.fromhex("012f080000000000"))
+        chip._write_reg(0x106c, (addr << 2) | 2)
+        self.assertEqual(len(chip.deferred_callbacks), 1)
+        chip._write_reg(0x1070, chip._read_reg(0x1070) & ~1)
+        self.assertFalse(chip.irq_n)
+        self.assertEqual(chip.hif_notifications[-1][:2], (1, 0x2f))
+        info = chip._dma_get(0x32000 + 8, 100)
+        self.assertEqual(info[0], len(b"PRIVATE_SIM_AP"))
+        self.assertEqual(info[1], 1)
+        self.assertEqual(info[2:16], b"PRIVATE_SIM_AP")
+        chip._write_reg(0x1070, chip._read_reg(0x1070) & ~1)
+        self.assertTrue(chip.irq_n)
+        # Disconnect request and real device callback.
+        chip._dma_put(addr, bytes.fromhex("0103080000000000"))
+        chip._write_reg(0x106c, (addr << 2) | 2)
+        self.assertFalse(chip.ap_connected)
+        self.assertFalse(chip.irq_n)
+        self.assertEqual(chip._dma_get(0x32000, 12)[8:], bytes(4))
+        with self.assertRaises(ValueError):
+            Winc1510SPI(fixture_ssid="AP")
+        self.assertEqual(Winc1510SPI(hif_mailbox=True).hif_notifications, [])
+
     def test_extended_socket_irq_poll_and_legacy_byte_clock(self):
         # Stand-alone device loopback only, no QEMU or original ROM.
         with socket.socket() as probe:
