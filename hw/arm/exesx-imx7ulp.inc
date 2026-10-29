@@ -23,6 +23,9 @@
 #include "exesx-imx7ulp-lpi2c.inc"
 #include "exesx-imx7ulp-adc.inc"
 #include "exesx-imx7ulp-i2s.inc"
+/* The DMA1 SERQ path can trigger the already configured LPSPI2
+ * peripheral. The actual implementation follows this include. */
+static void exesx_lpspi2_dma_kick(EXeSXProfileWindow *w);
 #include "exesx-imx7ulp-dma.inc"
 #include "exesx-imx7ulp-usdhc.inc"
 #include "exesx-imx7ulp-dmamux.inc"
