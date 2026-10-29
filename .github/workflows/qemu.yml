@@ -182,6 +182,7 @@ jobs:
           python3 scripts/probe_i2s_sai.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
           python3 scripts/probe_bu26154_touch.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
           python3 scripts/probe_bu21029_touch.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
+          python3 scripts/probe_wlan_lpspi.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
           python3 scripts/probe_factory_profile_backfill.py
           python3 scripts/probe_e2_cross_geometry.py
           python3 scripts/probe_e2_touch_ipc.py
