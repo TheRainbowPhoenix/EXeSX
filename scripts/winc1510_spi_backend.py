@@ -29,7 +29,7 @@ MAX_FLASH = 1024 * 1024
 
 class Winc1510SPI:
     def __init__(self, flash=None, chip_id=0x1002b0, crc=False,
-                 hif_mailbox=False):
+                 hif_mailbox=False, fixture_ssid=None):
         if flash is not None and len(flash) > MAX_FLASH:
             raise ValueError("WINC SPI flash image larger than documented 1 MiB")
         self.flash = bytes(flash) if flash is not None else None
@@ -38,6 +38,15 @@ class Winc1510SPI:
         # Explicit opt-in. This is the real HIF register handshake, not
         # automatic Wi-Fi association, DHCP or firmware-version success.
         self.hif_mailbox = hif_mailbox
+        if fixture_ssid is not None:
+            if not hif_mailbox or not isinstance(fixture_ssid, str) or (
+                    not 1 <= len(fixture_ssid.encode("utf-8")) <= 32):
+                raise ValueError("AP fixture requires HIF and a 1..32-byte SSID")
+        # Deliberately deterministic AP fixture: no RF and no TCP/IP.
+        # An unconfigured card must NOT auto-report a connection.
+        self.fixture_ssid = fixture_ssid
+        self.ap_connected = False
+        self.deferred_callbacks = deque()
         self.hif_outbound_addr = 0x30000
         self.hif_inbound_addr = 0x32000
         self.hif_requests = []
@@ -70,6 +79,8 @@ class Winc1510SPI:
             self.memory.clear()
             self.hif_requests.clear()
             self.hif_notifications.clear()
+            self.ap_connected = False
+            self.deferred_callbacks.clear()
             self.registers.clear()
             self.registers.update({
                 0x1000: self.chip_id, 0x13f4: 3,
@@ -138,8 +149,12 @@ class Winc1510SPI:
                 self._take_hif_request(word >> 2)
             if addr == 0x1070:
                 # A7 acknowledges bit0 only after FUN_601C0970 sees
-                # a real HIF callback. Never generate one on W1C.
+                # the original device-side HIF callback.
+                old_pending = bool(self.registers.get(0x1070, 0) & 1)
                 self.registers[0x1070] = word
+                if old_pending and not (word & 1) and self.deferred_callbacks:
+                    group, opcode, payload = self.deferred_callbacks.popleft()
+                    self.queue_hif_callback(group, opcode, payload)
                 return
         if addr == 0x1000:
             self.events.append(("blocked-chip-id-write", addr, word))
@@ -167,8 +182,30 @@ class Winc1510SPI:
                    "ram": address}
         self.hif_requests.append(request)
         self.events.append(("hif-request", group, opcode, length))
-        # No callback fabricated here. The genuine device firmware or
-        # explicit emulated AP/socket fixture must produce a response.
+        # The device-side simulated radio reacts only to real original
+        # A7 HIF commands, and only with an explicit configured AP.
+        # The A7 must fetch it through WINC SPI, handle IRQ_N and
+        # build its OWN application event. There is no guest SRAM write.
+        if self.fixture_ssid is not None and group == 1:
+            if opcode == 0x10:  # original FUN_601C3E90 connect
+                self.ap_connected = True
+                self._defer_hif_callback(1, 0x2c, b"\x01" + bytes(3))
+            elif opcode == 3:  # original FUN_601C3F6C disconnect
+                self.ap_connected = False
+                self._defer_hif_callback(1, 0x2c, bytes(4))
+            elif opcode == 0x2f and self.ap_connected:
+                # Original FUN_601C3030 expects 100 bytes for AP info.
+                # Offset0 SSID length, offset1 channel, 2.. SSID.
+                ssid = self.fixture_ssid.encode("utf-8")
+                info = bytes((len(ssid), 1)) + ssid.ljust(33, b"\0")
+                info += bytes(100 - len(info))
+                self._defer_hif_callback(1, 0x2f, info)
+
+    def _defer_hif_callback(self, group, opcode, payload):
+        if self.registers.get(0x1070, 0) & 1:
+            self.deferred_callbacks.append((group, opcode, payload))
+        else:
+            self.queue_hif_callback(group, opcode, payload)
 
     def queue_hif_callback(self, group, opcode, payload=b""):
         """Explicitly inject a *device-side* HIF callback for a fixture.
@@ -353,6 +390,9 @@ def main():
     p.add_argument("--gpio-status", action="store_true",
                    help="extended bridge: RESET_N/WAKE_N/EN control flags and"
                         " one sampled IRQ_N status byte after each SPI response")
+    p.add_argument("--fixture-ssid", type=str,
+                   help="opt-in deterministic simulated AP name (NO real radio,"
+                        " internet proxy, DHCP or socket semantics)")
     p.add_argument("--hif-mailbox", action="store_true",
                    help="implement original WINC HIF grant/notify and RAM;"
                         " does NOT auto-ACK network or association commands")
@@ -361,7 +401,8 @@ def main():
         p.error("TCP port must be 1024..65535")
     flash = args.flash.read_bytes() if args.flash else None
     chip = Winc1510SPI(flash, args.chip_id, args.command_crc,
-                       hif_mailbox=args.hif_mailbox)
+                       hif_mailbox=args.hif_mailbox,
+                       fixture_ssid=args.fixture_ssid)
     serve(args.listen, args.port, chip, args.gpio_status)
 
 
