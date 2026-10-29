@@ -12,7 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
-from winc1510_spi_backend import Winc1510SPI
+from winc1510_spi_backend import Winc1510SPI, recv_exact
 
 
 class WincGPIOTests(unittest.TestCase):
@@ -72,13 +72,13 @@ class WincGPIOTests(unittest.TestCase):
             with connection as sock:
                 sock.settimeout(2)
                 sock.sendall(bytes((255, 0x20, 0, 0)))
-                self.assertEqual(sock.recv(1), b"\x01")
+                self.assertEqual(recv_exact(sock, 1), b"\x01")
                 # Enabled RESET_N=1, CHIP_EN=1, CS BEGIN=1.
                 sock.sendall(bytes((2, 0x15, 4, 0)) + bytes.fromhex("ca001000"))
-                self.assertEqual(sock.recv(5), b"\xff" * 4 + b"\x01")
+                self.assertEqual(recv_exact(sock, 5), b"\xff" * 4 + b"\x01")
                 # CS END=2, same controls; read WINC ID from SPI.
                 sock.sendall(bytes((2, 0x16, 7, 0)) + bytes(7))
-                self.assertEqual(sock.recv(8), bytes.fromhex("ca00f3b0021000") + b"\x01")
+                self.assertEqual(recv_exact(sock, 8), bytes.fromhex("ca00f3b0021000") + b"\x01")
                 # Active reset pin: bus goes electrically absent.
                 sock.sendall(bytes((2, 0x12, 4, 0)) + bytes.fromhex("ca001000"))
                 self.assertEqual(sock.recv(5), b"\xff" * 4 + b"\x01")
