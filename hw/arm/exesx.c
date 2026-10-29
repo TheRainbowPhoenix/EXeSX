@@ -42,10 +42,11 @@ typedef struct EXeSXState {
     ARMCPU *a7cpu;
     EXeSXProfileWindow *mu_a, *mu_b, *lcd, *dmamux1, *m4_gpio_a, *m4_gpio_b;
     EXeSXProfileWindow *m4_port_a, *m4_port_b, *m4_iomuxc0, *m4_lpi2c2;
-    EXeSXProfileWindow *wlan_lpspi2, *wlan_dma1;
+    EXeSXProfileWindow *wlan_lpspi2, *wlan_dma1, *usb0;
     /* Actual i.MX7ULP eDMA1 grouped channel interrupts are GIC SPIs
      * 0..15 (channels n and n+16 share an IRQ), see imx7ulp.dtsi. */
     qemu_irq dma1_group_irqs[16];
+    qemu_irq usb1_irq;
     uint64_t m4_keyboard_code;
     int m4_keyboard_row;
     int64_t m4_keyboard_next_poll_ns;
@@ -93,6 +94,10 @@ struct EXeSXProfileWindow {
     EXeSXState *board;
     /* Host-only TCP socket is NEVER snapshotted as guest hardware state. */
     int lpspi_backend_fd;
+    int usb_listen_fd, usb_peer_fd;
+    QEMUTimer *usb_poll_timer;
+    unsigned usb_rx_have;
+    uint8_t usb_rxbuf[4100];
     QEMUTimer *lpit_timer, *lptmr_timer, *tpm0_timer, *lcd_screenshot_timer, *m4_port_poll_timer;
     uint32_t m4_port_previous;
     bool m4_port_sampled;
@@ -157,6 +162,15 @@ static void exesx_m4_rom_handoff(EXeSXState *s, uint32_t entry)
 static int exesx_registers_post_load(void *opaque, int version_id)
 {
     EXeSXProfileWindow *w = opaque;
+    if (w->usb_peer_fd >= 0) {
+        closesocket(w->usb_peer_fd);
+        w->usb_peer_fd = -1;
+    }
+    w->usb_rx_have = 0;
+    if (w->usb_poll_timer) {
+        timer_mod(w->usb_poll_timer,
+                  qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 1000000);
+    }
     if (w->lpspi_backend_fd >= 0 && w->base == UINT64_C(0x40290000)) {
         closesocket(w->lpspi_backend_fd);
         w->lpspi_backend_fd = -1;
@@ -365,6 +379,8 @@ static void exesx_load_profile(MemoryRegion *sysmem, EXeSXState *board)
         g_autofree char *kind = g_key_file_get_string(cfg, group, "kind", NULL);
         EXeSXProfileWindow *w = g_new0(EXeSXProfileWindow, 1);
         w->lpspi_backend_fd = -1;
+        w->usb_listen_fd = -1;
+        w->usb_peer_fd = -1;
         gsize nkeys;
         g_auto(GStrv) keys = NULL;
         gsize i;
@@ -425,6 +441,16 @@ static void exesx_load_profile(MemoryRegion *sysmem, EXeSXState *board)
                 (!strcmp(kind, "imx7ulp-tstmr") && w->size != 8)) {
                 error_report("EXeSX i.MX7ULP model window %s invalid size", group);
                 exit(1);
+            }
+            if (!strcmp(kind, "imx7ulp-usb") && w->base == 0x40330000) {
+                board->usb0 = w;
+                if (g_getenv("EXESX_USB_FIXTURE_TCP_PORT") &&
+                    !g_strcmp0(g_getenv("EXESX_EXPERIMENTAL_USB_ENDPOINTS"), "1")) {
+                    w->usb_poll_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
+                                                     exesx_usb_tick, w);
+                    timer_mod(w->usb_poll_timer,
+                              qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 1000000);
+                }
             }
             if (g_strcmp0(kind, "imx7ulp-dmamux") == 0 && w->base == 0x40210000) {
                 board->dmamux1 = w;
@@ -644,6 +670,7 @@ static void exesx_init(MachineState *ms)
                            qdev_get_gpio_in(DEVICE(a7), ARM_CPU_FIQ));
         /* GIC qdev input indices are 0-based SPIs (GIC ID=32+index). */
         s->mu_b_irq = qdev_get_gpio_in(gic, 19);
+        s->usb1_irq = qdev_get_gpio_in(gic, 40); /* USBOTG1 */
         for (unsigned ch = 0; ch < 16; ++ch) {
             s->dma1_group_irqs[ch] = qdev_get_gpio_in(gic, ch);
         }
