@@ -24,6 +24,11 @@
 #include "qemu/log.h"
 #include "qemu/timer.h"
 #include "qemu/sockets.h"
+#ifndef _WIN32
+/* Modern QEMU osdep.h no longer defines the old closesocket alias on
+ * Linux. Windows still has its real socket-close wrapper. */
+#define closesocket(fd) close(fd)
+#endif
 #include "migration/vmstate.h"
 #include <inttypes.h>
 
