@@ -19,6 +19,10 @@ From the owner-local `XD-SX9850.0.c` decompilation (the proprietary file is **no
 
 **Important:** the factory `WIFI AUTO TEST` has an external communication/cable dependency in addition to any Wi-Fi chip. A successful SPI chip-ID or synthetic packet is not the same test.
 
+## Additional original LPSPI2 source fingerprint
+
+The owner's original A7 decompilation includes `FUN_1FFEA5E4`, a bootloader function which checks `s_lpspiHandle[2]` and calls `FUN_1FFEA5A8(0x40290000, handle)`. Its retained NXP SDK assert string names `fsl_lpspi.c`. This **does ground LPSPI2 as a real programmed controller** in this ROM family; it **does not** show that the WLAN task attaches to this bus or which chip select is wired to the radio. We still need guest execution and MMIO reads/writes while original WLAN CHECK runs.
+
 ## What is known about the candidate module
 
 The earlier photographed **PWB-DY890-1** board has an **ATWINC1510-MR210PB**. The supplied OSUP is the **DY357** image. Physical placement and PCB routing may differ. Neither an A7-to-LPSPI2 bus address nor CS/IRQ/RESET wiring for DY357 has been observed yet.
