@@ -48,6 +48,27 @@ The candidate is 2.4 GHz 802.11 b/g/n; signals are SPI_SSN, MOSI, MISO, SCK plus
 3. Add opt-in original guest trace `EXESX_TRACE_WLAN_A7=1` in the factory GUI worker to watch the authentic WLAN auto and service entry paths without injecting data or altering A7/M4 registers.
 4. Keep private original firmware and MMIO logs local.
 
+## Current opt-in QEMU and Python transport (2026-10-29)
+
+The following code is now committed on this **draft** branch:
+
+- Native LPSPI2 PIO packed 32-bit words and the high-lane terminal partial word, original `PCS2` chip select and `TCR.BYSW` byte swapping on **both** TX and RX, FIFO status, reset and no-slave controls. `EXESX_EXPERIMENTAL_LPSPI2_FIFO=1`.
+- Bounded paired eDMA1 linear RAM-to-`TDR` and `RDR`-to-RAM transfers, real TCD `DONE`/interrupt only on actual transfer and GIC grouped IRQ W1C. `EXESX_EXPERIMENTAL_LPSPI2_DMA=1`.
+- Localhost TCP SPI bridge, with original QEMU-determined `PCS` and byte stream. `EXESX_WINC1510_TCP_PORT=<port>`.
+- `scripts/winc1510_spi_backend.py` models SPI chip ID, selected WINC internal registers, command response/acknowledgements, DMA-accessible memory, optional private 1MiB flash image and chip-select boundaries. `--hif-mailbox` additionally implements the original outbound buffer request (`0x1078`/`0x150400`) and guest-originated HIF request parsing (`0x106c`), plus callback-ready buffer registers (`0x1084`/`0x1070`). It **does not synthesize successful AP association or sockets**.
+- The published Microchip `nmspi.c` byte ordering is used: command addresses travel in big-endian order, but the four register *data* bytes are little-endian. The initial synthetic model had this wrong; the branch now tests the corrected MISO behavior using the **original firmware's** BYSW-enabled TCR and little-endian TDR values.
+- Public real-ARM hardware tests: `scripts/probe_wlan_lpspi.py`, `scripts/probe_wlan_packed.py`, `scripts/probe_winc1510_tcp.py`, and `scripts/probe_winc1510_dma.py`; Python HIF mailbox fixtures in `tests/test_winc1510_spi_backend.py`.
+
+Example of the separate localhost process:
+
+```sh
+python3 scripts/winc1510_spi_backend.py --port 50991 --hif-mailbox
+```
+
+In the QEMU environment, set `EXESX_EXPERIMENTAL_LPSPI2_FIFO=1`, `EXESX_EXPERIMENTAL_LPSPI2_DMA=1`, and `EXESX_WINC1510_TCP_PORT=50991` **before launching QEMU**. Use `-accel tcg,thread=single` and your private ROM/media. The server never connects to an AP or Internet automatically. A broken/missing server must not be interpreted as a chip reply.
+
+**Still missing before original WLAN OK:** source-derived actual WINC IRQ_N and RESET/WAKE GPIO routing; WINC firmware/HIF operation and asynchronous response scheduling; original A7 **scatter/gather eDMA1 TCD chains** (FUN_601c2740 queues multiple descriptors and may reprogram TCR between 512-byte blocks); Wi-Fi association, DHCP, sockets; and the **separate** USB factory test fixture described in [WLAN_PROTOCOL_AND_USB_FIXTURE.md](WLAN_PROTOCOL_AND_USB_FIXTURE.md). Linear synthetic DMA passing does not establish real large-transfer completion or genuine WLAN menus.
+
 ## Original-ROM single-threaded factory WLAN test (local negative control)
 
 A new bounded original-OSUP run on the owner-private emulator, with `-accel tcg,thread=single` and source-derived eMMC plus a disposable SD card both opened snapshot-protected, reached the authentic factory menu and sent only M4 physical key contacts:
