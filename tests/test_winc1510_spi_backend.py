@@ -16,7 +16,7 @@ class SPIProtocolTests(unittest.TestCase):
         self.assertEqual(self.dev.shift(0, header, begin=True),
                          b"\xff" * 4)
         self.assertEqual(self.dev.shift(0,bytes(7),end=True),
-                         bytes.fromhex("ca00f3001002b0"))
+                         bytes.fromhex("ca00f3b0021000"))
         self.assertIsNone(self.dev.selected_pcs)
 
     def test_register_write_and_subsequent_read(self):
@@ -24,7 +24,7 @@ class SPIProtocolTests(unittest.TestCase):
         self.assertEqual(self.dev.registers[0x108c],0x12345678)
         self.dev.shift(1,bytes.fromhex("ca00108c"),begin=True)
         self.assertEqual(self.dev.shift(1,bytes(7),end=True),
-                         bytes.fromhex("ca00f312345678"))
+                         bytes.fromhex("ca00f378563412"))
 
     def test_dma_read_protocol_and_chip_select(self):
         self.dev._dma_put(0x10000,bytes.fromhex("11223344"))
@@ -100,7 +100,7 @@ class SPIProtocolTests(unittest.TestCase):
         dev=Winc1510SPI(crc=True)
         dev.shift(0,bytes.fromhex("ca0010005a"),begin=True)
         self.assertEqual(dev.shift(0,bytes(7),end=True),
-                         bytes.fromhex("ca00f3001002b0"))
+                         bytes.fromhex("ca00f3b0021000"))
 
 
 if __name__ == "__main__":
