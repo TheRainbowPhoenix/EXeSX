@@ -94,14 +94,14 @@ def exercise(qemu, profile, mode):
                         print("PASS LPSPI2 disabled: prior strict CR-only mode",flush=True)
                         return
                     assert read_word(q,BASE)==0x01000003
-                    assert read_word(q,BASE+0x04)==0x00000202
+                    assert read_word(q,BASE+0x04)==0x00000404
                     assert "Cannot access memory" in q.hmp("xp /1wx 0x40290028")
                     q.execute("cont")
                     time.sleep(.7)
                     words=[read_word(q,OUT+i*4) for i in range(8)]
                     expected_rx=0x3c if mode=="loopback" else 0xff
                     assert words[0]==0x01000003
-                    assert words[1]==0x00000202
+                    assert words[1]==0x00000404
                     assert words[2] & 0x403 == 0x403, list(map(hex,words))
                     assert words[3]==0x00010000, list(map(hex,words))
                     assert words[4]==expected_rx, list(map(hex,words))
