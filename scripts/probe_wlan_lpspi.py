@@ -51,14 +51,14 @@ def probe_elf():
         code.append(value)
     binary=struct.pack("<{}I".format(len(code)),*code)
     header=struct.pack("<16sHHIIIIIHHHHHH",
-        b"\\x7fELF\\x01\\x01\\x01"+bytes(9),2,40,1,ENTRY,52,0,
+        b"\x7fELF\x01\x01\x01"+bytes(9),2,40,1,ENTRY,52,0,
         0x05000000,52,32,1,0,0,0)
     phdr=struct.pack("<8I",1,0x100,ENTRY,ENTRY,len(binary),len(binary),5,0x100)
     return header+phdr+bytes(0x100-len(header)-len(phdr))+binary
 
 def read_word(q, addr):
     data=q.hmp("xp /1wx 0x{:x}".format(addr))
-    match=re.search(r":\\s+0x([0-9a-fA-F]+)",data)
+    match=re.search(r":\s+0x([0-9a-fA-F]+)",data)
     if not match:raise AssertionError("Unavailable MMIO / original memory: "+data)
     return int(match.group(1),16)
 
