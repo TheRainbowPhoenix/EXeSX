@@ -16,7 +16,7 @@ concurrency:
 jobs:
   native-qemu:
     runs-on: ubuntu-24.04
-    timeout-minutes: 100
+    timeout-minutes: 110
     env:
       JOBS: '4'
       CC: "ccache gcc"
@@ -469,6 +469,19 @@ jobs:
             --emmc "$RUNNER_TEMP/private-e2e/source-derived-synthetic-emmc.raw" \
             --sd "$RUNNER_TEMP/private-e2e/disposable-sd-2g.raw" \
             --display-settings-menu --output "$RUNNER_TEMP/display-settings-evidence" --attempts 6
+      - name: Run original nested DISPLAY TEST MENU 1 full-color golden
+        if: steps.fixture.outputs.enabled == 'true'
+        env:
+          PYTHONPATH: ${{ github.workspace }}/scripts
+        shell: bash
+        run: |
+          python3 -u "$GITHUB_WORKSPACE/scripts/ci_e2e_display_advanced.py" \
+            --qemu "$RUNNER_TEMP/native/exesx-qemu-linux-x86_64/qemu-system-arm" \
+            --profile "$GITHUB_WORKSPACE/profiles/imx7ulp-early-boot.ini" \
+            --elf "$RUNNER_TEMP/private-e2e/a7-bios-os.elf" \
+            --emmc "$RUNNER_TEMP/private-e2e/source-derived-synthetic-emmc.raw" \
+            --sd "$RUNNER_TEMP/private-e2e/disposable-sd-2g.raw" \
+            --advanced-menu1 --output "$RUNNER_TEMP/display-menu1-evidence" --attempts 6
       - name: Upload original framebuffer screenshots and sanitized result
         if: ${{ always() && steps.fixture.outputs.enabled == 'true' }}
         uses: actions/upload-artifact@v4
@@ -524,3 +537,11 @@ jobs:
             ${{ runner.temp }}/display-settings-evidence/attempt-*/manual-menu.png
             ${{ runner.temp }}/display-settings-evidence/attempt-*/display-menu.png
             ${{ runner.temp }}/display-settings-evidence/attempt-*/display-settings-menu.png
+            ${{ runner.temp }}/display-menu1-evidence/result.json
+            ${{ runner.temp }}/display-menu1-evidence/attempt-*/attempt-result.json
+            ${{ runner.temp }}/display-menu1-evidence/attempt-*/factory-menu.png
+            ${{ runner.temp }}/display-menu1-evidence/attempt-*/manual-menu.png
+            ${{ runner.temp }}/display-menu1-evidence/attempt-*/display-menu.png
+            ${{ runner.temp }}/display-menu1-evidence/attempt-*/display-test-menu.png
+            ${{ runner.temp }}/display-menu1-evidence/attempt-*/selected-menu-1.png
+            ${{ runner.temp }}/display-menu1-evidence/attempt-*/display-menu-1.png
