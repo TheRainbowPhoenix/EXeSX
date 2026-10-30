@@ -221,6 +221,8 @@ jobs:
           cp scripts/drive_factory_menu.py scripts/drive_physical_menu_qmp.py scripts/probe_factory_snapshot.py scripts/probe_lptmr_m4_irq.py scripts/probe_m4_key_matrix.py scripts/probe_m4_port_irq.py scripts/probe_m4_tpm0_irq.py dist/exesx-qemu-linux-x86_64/
           cp build/exesx-memtrace.so dist/exesx-qemu-linux-x86_64/
           cp scripts/hmp_memory.py dist/exesx-qemu-linux-x86_64/
+          # Ship the real opt-in WINC1510 TCP/HIF slave used by original-ROM tests.
+          cp scripts/winc1510_spi_backend.py dist/exesx-qemu-linux-x86_64/
           cp -r profiles dist/exesx-qemu-linux-x86_64/
           cp build/cp15-probe.elf dist/exesx-qemu-linux-x86_64/
           cp docs/local-firmware.md dist/exesx-qemu-linux-x86_64/LOCAL-FIRMWARE.md
