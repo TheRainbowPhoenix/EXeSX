@@ -209,7 +209,7 @@ def attempt(args, number):
             screenshot(out/"factory-menu.ppm", out/"factory-menu.png")
             if len(menu["histogram"]) != 2:
                 raise RuntimeError("original factory menu not monochrome")
-            navigate(qmp, contact, out, 3)
+            navigate(qmp, contact, out, args.factory_row)
             start = time.monotonic()
             while time.monotonic()-start < 1.5 and not m4_idle(qmp):
                 time.sleep(.035)
@@ -234,11 +234,11 @@ def attempt(args, number):
                 raise RuntimeError("ARM PATTERN differs from verified 2026-10-30 golden PPM")
             screenshot(out/"arm-pattern.ppm", out/"arm-pattern.png")
             result = {"result": "PASS", "tcg": "single", "factory_checkpoints": dict(hits),
-                      "arm_pattern_row": 3, "original_lcd": "864x480 RGB565",
+                      "arm_pattern_row": args.factory_row, "test_name": ("ARM PATTERN MANUAL CHECK" if args.factory_row == 2 else "ARM PATTERN AUTO CHECK"), "original_lcd": "864x480 RGB565",
                       "sha256": again["sha256"], "golden_sha256": GOLDEN,
                       "color_pixels": again["histogram"], "screen_png": "arm-pattern.png"}
             (args.output / "result.json").write_text(json.dumps(result, indent=2)+"\n")
-            print("PASS original factory TEST MENU -> ARM PATTERN AUTO CHECK; exact LCD SHA256 " + GOLDEN, flush=True)
+            print("PASS original factory TEST MENU -> %s; exact LCD SHA256 %s" %\n                  ("ARM PATTERN MANUAL CHECK" if args.factory_row == 2 else "ARM PATTERN AUTO CHECK", GOLDEN), flush=True)
             return True
         finally:
             physical(contact, "0")
@@ -311,7 +311,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     for item in ("qemu", "profile", "elf", "emmc", "sd", "output"):
         p.add_argument("--" + item, type=Path, required=True)
-    p.add_argument("--attempts", type=int, default=4)
+    p.add_argument("--factory-row", type=int, choices=(2, 3), default=3,\n                   help="original factory display test: 2=ARM PATTERN MANUAL, 3=ARM PATTERN AUTO")\n    p.add_argument("--attempts", type=int, default=4)
     p.add_argument("--boot-timeout", type=float, default=90)
     a = p.parse_args()
     for item in ("qemu", "profile", "elf", "emmc", "sd"):
