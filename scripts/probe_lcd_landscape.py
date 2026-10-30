@@ -96,6 +96,14 @@ def make_elf():
     bounds(0x2b, 200, 200)
     command(0x2c)
     data(0xf800)
+    # Native ARM DCS/display status and raw vendor B2 control write.
+    for cmd in (0x11, 0x29, 0x21, 0x39):
+        command(cmd)
+    command(0x51)
+    data(0x80)
+    command(0xb2)
+    for v in (0x10, 0x20, 0x30, 0x40, 0x50):
+        data(v)
     op(0xeafffffe)
 
     pool = len(instructions)
@@ -202,7 +210,18 @@ def run(qemu, profile):
                     qmp.execute("cont")
                     time.sleep(.5)
                     capture_frame(qmp, folder / "lcd-rgb565.raw", ppm)
+                    state = folder / "lcd-dcs-state.bin"
+                    qmp.hmp('pmemsave 0xb1100000 64 "{}"'.format(state.as_posix()))
+                    words = struct.unpack("<16I", state.read_bytes())
                 verify(ppm)
+                assert words[0] == 0x3144434c, "DCS diagnostic window signature"
+                assert words[1] & 0x3f == 0x3d, "display, sleep, inversion, idle state"
+                assert words[2] == 0x000560b2, "vendor parameter length and MADCTL"
+                assert words[3] & 255 == 0x80, "DCS brightness parameter"
+                assert words[4] == 0x40302010, "vendor B2 bytes 0..3"
+                assert words[5] & 255 == 0x50, "vendor B2 byte 4"
+                assert words[6] == 0, "default path must not byte-swap"
+                print("PASS ARM DCS state: display/inversion/idle/brightness and vendor B2 raw data")
             finally:
                 proc.terminate()
                 try:
