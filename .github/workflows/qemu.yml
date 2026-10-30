@@ -1,7 +1,7 @@
 name: Build and smoke-test EXeSX QEMU
 on:
   push:
-    branches: [main]
+    branches: [main, experiment/dy357-wlan-host-20261029]
   pull_request:
   workflow_dispatch:
 
@@ -267,3 +267,135 @@ jobs:
             build/meson-logs/meson-log.txt
             build/config.log
           if-no-files-found: ignore
+
+  # Owner-only original-ROM end-to-end test, AFTER the latest Linux QEMU build.
+  # Never expose private images or secrets to untrusted pull-request code.
+  private-arm-pattern-e2e:
+    needs: native-qemu
+    if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/experiment/dy357-wlan-host-20261029' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Determine whether private fixture is configured
+        id: fixture
+        env:
+          FIXTURE_URL: ${{ secrets.EXESX_PRIVATE_E2E_URL }}
+          FIXTURE_SHA: ${{ secrets.EXESX_PRIVATE_E2E_SHA256 }}
+        shell: bash
+        run: |
+          if [[ -z "$FIXTURE_URL" && -z "$FIXTURE_SHA" ]]; then
+            echo "::notice::PRIVATE E2E SKIPPED - configure both private fixture secrets."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          elif [[ -z "$FIXTURE_URL" || -z "$FIXTURE_SHA" ]]; then
+            echo "::error::Both private E2E fixture URL and SHA256 secrets are required."
+            exit 1
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Download freshly built Linux QEMU artifact
+        if: steps.fixture.outputs.enabled == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: exesx-qemu-native-${{ github.sha }}
+          path: ${{ runner.temp }}/native
+      - name: Extract the Linux build from this workflow run
+        if: steps.fixture.outputs.enabled == 'true'
+        shell: bash
+        run: |
+          tar -xzf "$RUNNER_TEMP/native/exesx-qemu-linux-x86_64.tar.gz" -C "$RUNNER_TEMP/native"
+          chmod +x "$RUNNER_TEMP/native/exesx-qemu-linux-x86_64/qemu-system-arm"
+          test "$(cat "$RUNNER_TEMP/native/exesx-qemu-linux-x86_64/SOURCE_COMMIT")" = "$GITHUB_SHA"
+      - name: Fetch and authenticate owner-private boot fixture
+        if: steps.fixture.outputs.enabled == 'true'
+        env:
+          FIXTURE_URL: ${{ secrets.EXESX_PRIVATE_E2E_URL }}
+          FIXTURE_SHA: ${{ secrets.EXESX_PRIVATE_E2E_SHA256 }}
+          FIXTURE_TOKEN: ${{ secrets.EXESX_PRIVATE_ASSET_TOKEN }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib, os, pathlib, re, urllib.request, zipfile
+          url = os.environ["FIXTURE_URL"]
+          sha = os.environ["FIXTURE_SHA"].strip().lower()
+          if not url.startswith("https://") or not re.fullmatch(r"[0-9a-f]{64}", sha):
+              raise SystemExit("private fixture must be HTTPS and have SHA256")
+          headers = {"User-Agent": "EXeSX-private-arm-pattern-e2e"}
+          if os.environ.get("FIXTURE_TOKEN"):
+              headers["Authorization"] = "Bearer " + os.environ["FIXTURE_TOKEN"]
+          path = pathlib.Path(os.environ["RUNNER_TEMP"]) / "private-e2e.zip"
+          digest = hashlib.sha256()
+          size = 0
+          with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=90) as inp, path.open("wb") as out:
+              while chunk := inp.read(1024 * 1024):
+                  size += len(chunk)
+                  if size > 256 * 1024 * 1024:
+                      raise SystemExit("private fixture exceeds max download size")
+                  digest.update(chunk)
+                  out.write(chunk)
+          if size < 1024 or digest.hexdigest() != sha:
+              path.unlink(missing_ok=True)
+              raise SystemExit("private fixture SHA256 mismatch")
+          dest = pathlib.Path(os.environ["RUNNER_TEMP"]) / "private-e2e"
+          dest.mkdir()
+          with zipfile.ZipFile(path) as archive:
+              # Extract only known fixture inputs; never trust arbitrary ZIP paths.
+              prefix = "EXeSX-private-E2E-fixture/"
+              approved = {"OSUP.BIN", "a7-bios-os.elf", "emmc-data-extents.bin",
+                          "reconstruct_media.py", "manifest.json", "ci_e2e_arm_pattern.py"}
+              if not approved.issubset({n[len(prefix):] for n in archive.namelist() if n.startswith(prefix)}):
+                  raise SystemExit("private fixture missing required members")
+              for member in approved:
+                  item = archive.getinfo(prefix + member)
+                  if item.file_size > 128 * 1024 * 1024:
+                      raise SystemExit("private fixture member too large")
+                  with archive.open(item) as inp, (dest / member).open("wb") as out:
+                      while chunk := inp.read(1024 * 1024):
+                          out.write(chunk)
+          path.unlink()
+          print("Owner-private fixture integrity verified; input files extracted outside checkout.")
+          PY
+      - name: Reconstruct and verify disposable boot media
+        if: steps.fixture.outputs.enabled == 'true'
+        shell: bash
+        run: |
+          cd "$RUNNER_TEMP/private-e2e"
+          python3 - <<'PY'
+          import hashlib, json, pathlib
+          manifest = json.loads(pathlib.Path("manifest.json").read_text())
+          for filename in ("OSUP.BIN", "a7-bios-os.elf", "emmc-data-extents.bin"):
+              source = pathlib.Path(filename)
+              assert hashlib.sha256(source.read_bytes()).hexdigest() == manifest["images"][filename]["sha256"], filename
+          print("Verified firmware and packed media against internal fixture manifest.")
+          PY
+          python3 reconstruct_media.py
+          test "$(stat -c %s source-derived-synthetic-emmc.raw)" = 15642656768
+          test "$(stat -c %s disposable-sd-2g.raw)" = 2147483648
+      - name: Run original A7 ARM PATTERN AUTO CHECK and assert LCD golden
+        if: steps.fixture.outputs.enabled == 'true'
+        env:
+          PYTHONPATH: ${{ github.workspace }}/scripts
+        shell: bash
+        run: |
+          python3 -u "$RUNNER_TEMP/private-e2e/ci_e2e_arm_pattern.py" \
+            --qemu "$RUNNER_TEMP/native/exesx-qemu-linux-x86_64/qemu-system-arm" \
+            --profile "$GITHUB_WORKSPACE/profiles/imx7ulp-early-boot.ini" \
+            --elf "$RUNNER_TEMP/private-e2e/a7-bios-os.elf" \
+            --emmc "$RUNNER_TEMP/private-e2e/source-derived-synthetic-emmc.raw" \
+            --sd "$RUNNER_TEMP/private-e2e/disposable-sd-2g.raw" \
+            --output "$RUNNER_TEMP/arm-pattern-evidence" --attempts 4
+      - name: Upload original framebuffer screenshots and sanitized result
+        if: ${{ always() && steps.fixture.outputs.enabled == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: private-arm-pattern-screen-${{ github.run_id }}
+          retention-days: 3
+          if-no-files-found: ignore
+          path: |
+            ${{ runner.temp }}/arm-pattern-evidence/result.json
+            ${{ runner.temp }}/arm-pattern-evidence/attempt-*/arm-pattern.png
+            ${{ runner.temp }}/arm-pattern-evidence/attempt-*/factory-menu.png
+            ${{ runner.temp }}/arm-pattern-evidence/attempt-*/selected-row.png
