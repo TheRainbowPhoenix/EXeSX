@@ -48,6 +48,54 @@ static const MemoryRegionOps exesx_lcd_export_ops = {
     .impl = { .min_access_size = 1, .max_access_size = 8, .unaligned = true },
 };
 
+/* Read-only diagnostic window: raw DCS state, never an LCD verdict.
+ * WORD0 signature, WORD1 flags, WORD2 cmd/MADCTL/param-count,
+ * WORD3 brightness/last-data, WORD4/5 raw vendor B2 bytes,
+ * WORD6 opt-in byte-swapped RAMWR count, WORD7 pixel-write count.
+ */
+#define EXESX_LCD_STATUS_EXPORT_BASE UINT64_C(0xb1100000)
+#define EXESX_LCD_STATUS_EXPORT_SIZE 64
+static uint64_t exesx_lcd_status_read(void *opaque, hwaddr offset, unsigned size)
+{
+    EXeSXState *board = opaque;
+    EXeSXProfileWindow *w = board->lcd;
+    uint32_t words[16] = { 0 };
+    uint64_t result = 0;
+    if (!w || offset >= EXESX_LCD_STATUS_EXPORT_SIZE ||
+        size > EXESX_LCD_STATUS_EXPORT_SIZE - offset) {
+        return 0;
+    }
+    words[0] = 0x3144434c; /* "LCD1" */
+    words[1] = (w->lcd_rgb565 ? 1U : 0U) |
+               (w->lcd_te_enabled ? 2U : 0U) |
+               (w->lcd_display_on ? 4U : 0U) |
+               (w->lcd_sleep_out ? 8U : 0U) |
+               (w->lcd_inverted ? 16U : 0U) |
+               (w->lcd_idle ? 32U : 0U);
+    words[2] = (uint32_t)w->lcd_cmd |
+               ((uint32_t)w->lcd_madctl << 8) |
+               ((w->lcd_param_count & 0xffffU) << 16);
+    words[3] = (uint32_t)w->lcd_dcs_brightness |
+               ((uint32_t)w->lcd_last_data << 8);
+    for (unsigned i = 0; i < 8; ++i) {
+        words[4 + i / 4] |= (uint32_t)w->lcd_b2[i] << (8 * (i & 3));
+    }
+    words[6] = w->lcd_swapped_writes;
+    words[7] = (uint32_t)w->lcd_pixel_writes;
+    for (unsigned i = 0; i < size; ++i) {
+        unsigned pos = offset + i;
+        result |= (uint64_t)((words[pos / 4] >> (8 * (pos & 3))) & 255)
+                  << (8 * i);
+    }
+    return result;
+}
+static const MemoryRegionOps exesx_lcd_status_ops = {
+    .read = exesx_lcd_status_read,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+    .valid = { .min_access_size = 1, .max_access_size = 8, .unaligned = true },
+    .impl = { .min_access_size = 1, .max_access_size = 8, .unaligned = true },
+};
+
 static void exesx_lcd_screenshot_file(EXeSXProfileWindow *w,
                                       const char *file)
 {
