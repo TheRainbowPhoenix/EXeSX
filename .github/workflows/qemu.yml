@@ -386,7 +386,7 @@ jobs:
             --elf "$RUNNER_TEMP/private-e2e/a7-bios-os.elf" \
             --emmc "$RUNNER_TEMP/private-e2e/source-derived-synthetic-emmc.raw" \
             --sd "$RUNNER_TEMP/private-e2e/disposable-sd-2g.raw" \
-            --output "$RUNNER_TEMP/arm-pattern-evidence" --attempts 4
+            --output "$RUNNER_TEMP/arm-pattern-evidence" --attempts 8
       - name: Upload original framebuffer screenshots and sanitized result
         if: ${{ always() && steps.fixture.outputs.enabled == 'true' }}
         uses: actions/upload-artifact@v4
