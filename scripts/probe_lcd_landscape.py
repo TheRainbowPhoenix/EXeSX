@@ -16,7 +16,7 @@ W, H = 864, 480
 ENTRY = 0x60000000
 
 
-def make_elf(brightness=0x80):
+def make_elf(brightness=0x80, shadow_duty=None, shadow_divisor=None):
     instructions, fixups = [], []
 
     def op(word):
@@ -104,6 +104,15 @@ def make_elf(brightness=0x80):
     command(0xb2)
     for v in (0x10, 0x20, 0x30, 0x40, 0x50):
         data(v)
+    if shadow_duty is not None or shadow_divisor is not None:
+        if shadow_duty is None or shadow_divisor is None:
+            raise ValueError("PWM shadow requires both duty and divisor")
+        lit(0, 0x62344f3c)  # owner-original firmware PWM_FREQ variable
+        lit(1, shadow_divisor)
+        store(1, 0, 0)
+        lit(0, 0x62413262)  # original BACKLIGHT DUTY variable
+        lit(1, shadow_duty)
+        half(1, 0)
     op(0xeafffffe)
 
     pool = len(instructions)
