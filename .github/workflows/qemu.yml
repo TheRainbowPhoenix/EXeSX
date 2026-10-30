@@ -16,7 +16,7 @@ concurrency:
 jobs:
   native-qemu:
     runs-on: ubuntu-24.04
-    timeout-minutes: 70
+    timeout-minutes: 90
     env:
       JOBS: '4'
       CC: "ccache gcc"
@@ -430,6 +430,32 @@ jobs:
             --emmc "$RUNNER_TEMP/private-e2e/source-derived-synthetic-emmc.raw" \
             --sd "$RUNNER_TEMP/private-e2e/disposable-sd-2g.raw" \
             --advanced-frame --output "$RUNNER_TEMP/display-frame-evidence" --attempts 6
+      - name: Run original nested DISPLAY TEST R-CHIDORI golden framebuffer
+        if: steps.fixture.outputs.enabled == 'true'
+        env:
+          PYTHONPATH: ${{ github.workspace }}/scripts
+        shell: bash
+        run: |
+          python3 -u "$GITHUB_WORKSPACE/scripts/ci_e2e_display_advanced.py" \
+            --qemu "$RUNNER_TEMP/native/exesx-qemu-linux-x86_64/qemu-system-arm" \
+            --profile "$GITHUB_WORKSPACE/profiles/imx7ulp-early-boot.ini" \
+            --elf "$RUNNER_TEMP/private-e2e/a7-bios-os.elf" \
+            --emmc "$RUNNER_TEMP/private-e2e/source-derived-synthetic-emmc.raw" \
+            --sd "$RUNNER_TEMP/private-e2e/disposable-sd-2g.raw" \
+            --advanced-rchidori --output "$RUNNER_TEMP/display-rchidori-evidence" --attempts 6
+      - name: Run original nested DISPLAY TEST W-B GRADATION golden framebuffer
+        if: steps.fixture.outputs.enabled == 'true'
+        env:
+          PYTHONPATH: ${{ github.workspace }}/scripts
+        shell: bash
+        run: |
+          python3 -u "$GITHUB_WORKSPACE/scripts/ci_e2e_display_advanced.py" \
+            --qemu "$RUNNER_TEMP/native/exesx-qemu-linux-x86_64/qemu-system-arm" \
+            --profile "$GITHUB_WORKSPACE/profiles/imx7ulp-early-boot.ini" \
+            --elf "$RUNNER_TEMP/private-e2e/a7-bios-os.elf" \
+            --emmc "$RUNNER_TEMP/private-e2e/source-derived-synthetic-emmc.raw" \
+            --sd "$RUNNER_TEMP/private-e2e/disposable-sd-2g.raw" \
+            --advanced-gradation --output "$RUNNER_TEMP/display-gradation-evidence" --attempts 6
       - name: Upload original framebuffer screenshots and sanitized result
         if: ${{ always() && steps.fixture.outputs.enabled == 'true' }}
         uses: actions/upload-artifact@v4
@@ -464,3 +490,19 @@ jobs:
             ${{ runner.temp }}/display-frame-evidence/attempt-*/display-test-menu.png
             ${{ runner.temp }}/display-frame-evidence/attempt-*/selected-frame.png
             ${{ runner.temp }}/display-frame-evidence/attempt-*/display-frame.png
+            ${{ runner.temp }}/display-rchidori-evidence/result.json
+            ${{ runner.temp }}/display-rchidori-evidence/attempt-*/attempt-result.json
+            ${{ runner.temp }}/display-rchidori-evidence/attempt-*/factory-menu.png
+            ${{ runner.temp }}/display-rchidori-evidence/attempt-*/manual-menu.png
+            ${{ runner.temp }}/display-rchidori-evidence/attempt-*/display-menu.png
+            ${{ runner.temp }}/display-rchidori-evidence/attempt-*/display-test-menu.png
+            ${{ runner.temp }}/display-rchidori-evidence/attempt-*/selected-r-chidori.png
+            ${{ runner.temp }}/display-rchidori-evidence/attempt-*/display-r-chidori.png
+            ${{ runner.temp }}/display-gradation-evidence/result.json
+            ${{ runner.temp }}/display-gradation-evidence/attempt-*/attempt-result.json
+            ${{ runner.temp }}/display-gradation-evidence/attempt-*/factory-menu.png
+            ${{ runner.temp }}/display-gradation-evidence/attempt-*/manual-menu.png
+            ${{ runner.temp }}/display-gradation-evidence/attempt-*/display-menu.png
+            ${{ runner.temp }}/display-gradation-evidence/attempt-*/display-test-menu.png
+            ${{ runner.temp }}/display-gradation-evidence/attempt-*/selected-w-b-gradation.png
+            ${{ runner.temp }}/display-gradation-evidence/attempt-*/display-w-b-gradation.png

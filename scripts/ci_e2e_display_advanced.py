@@ -137,6 +137,17 @@ CHIDORI_SHA = "e7b16ad2c9f0f78bd3b6d2af65e1e667fea228f4fc2b2748bdc9cfc3af55eaf3"
 CHIDORI_PIXELS = {"000000": 207360, "ffffff": 207360}
 FRAME_SHA = "6a73559f416f12f85796679dcb2c58176b9813a1194c3eae554a5e5555fdca51"
 FRAME_PIXELS = {"000000": 412036, "ffffff": 2684}
+RCHIDORI_SHA = "3d1395bbb76379ca9f706c7ffe151aa628e8263a14690b5f735fd8b55b2bf91d"
+RCHIDORI_PIXELS = {"000000": 207360, "ffffff": 207360}
+GRADATION_SHA = "78f1a4a3ba9fa1de9b2440084acd70b926ab5a60792b898dab07664aa4dfddda"
+_GRADATION_GRAY = (
+    "000000 080808 101010 181818 202020 292829 313031 393839 "
+    "414041 4a484a 525052 5a595a 626162 6a696a 737173 7b797b "
+    "838183 8b898b 949194 9c999c a4a1a4 acaaac b4b2b4 bdbabd "
+    "c5c2c5 cdcacd d5d2d5 dedade e6e2e6 eeeaee f6f2f6"
+)
+GRADATION_PIXELS = {color: 12480 for color in _GRADATION_GRAY.split()}
+GRADATION_PIXELS["ffffff"] = 27840
 
 
 def screen_rgb(out, name):
@@ -201,9 +212,13 @@ def changed_two_unselected_rows(baseline, candidate):
 
 
 def advanced_display_test(qmp, contact, out, output, row):
-    name = "frame" if row == 6 else "chidori"
-    golden = FRAME_SHA if row == 6 else CHIDORI_SHA
-    pixel_golden = FRAME_PIXELS if row == 6 else CHIDORI_PIXELS
+    patterns = {
+        4: ("chidori", CHIDORI_SHA, CHIDORI_PIXELS),
+        5: ("r-chidori", RCHIDORI_SHA, RCHIDORI_PIXELS),
+        6: ("frame", FRAME_SHA, FRAME_PIXELS),
+        7: ("w-b-gradation", GRADATION_SHA, GRADATION_PIXELS),
+    }
+    name, golden, pixel_golden = patterns[row]
     for stage in ("manual-menu", "display-menu", "display-test-menu"):
         navigate(qmp, contact, out, 1)
         enter_original_submenu(qmp, contact, out, stage)
@@ -337,9 +352,12 @@ def attempt(args, number):
             screenshot(out/"factory-menu.ppm", out/"factory-menu.png")
             if len(menu["histogram"]) != 2:
                 raise RuntimeError("original factory menu not monochrome")
-            if args.advanced_chidori or args.advanced_frame:
-                advanced_display_test(qmp, contact, out, args.output,
-                                      6 if args.advanced_frame else 4)
+            if (args.advanced_chidori or args.advanced_rchidori or
+                    args.advanced_frame or args.advanced_gradation):
+                row = (7 if args.advanced_gradation else
+                       6 if args.advanced_frame else
+                       5 if args.advanced_rchidori else 4)
+                advanced_display_test(qmp, contact, out, args.output, row)
                 return True
             navigate(qmp, contact, out, args.factory_row)
             start = time.monotonic()
@@ -448,6 +466,10 @@ def main():
                    help="real nested DISPLAY TEST CHIDORI checkerboard")
     p.add_argument("--advanced-frame", action="store_true",
                    help="real nested DISPLAY TEST FRAME border")
+    p.add_argument("--advanced-rchidori", action="store_true",
+                   help="real nested DISPLAY TEST R-CHIDORI")
+    p.add_argument("--advanced-gradation", action="store_true",
+                   help="real nested DISPLAY TEST W-B GRADATION")
     p.add_argument("--factory-row", type=int, choices=(2, 3), default=3,
                    help="original factory display test: 2=ARM PATTERN MANUAL, 3=ARM PATTERN AUTO")
     p.add_argument("--attempts", type=int, default=4)
