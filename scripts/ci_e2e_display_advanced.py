@@ -135,6 +135,8 @@ HEADERS = {
 }
 CHIDORI_SHA = "e7b16ad2c9f0f78bd3b6d2af65e1e667fea228f4fc2b2748bdc9cfc3af55eaf3"
 CHIDORI_PIXELS = {"000000": 207360, "ffffff": 207360}
+FRAME_SHA = "6a73559f416f12f85796679dcb2c58176b9813a1194c3eae554a5e5555fdca51"
+FRAME_PIXELS = {"000000": 412036, "ffffff": 2684}
 
 
 def screen_rgb(out, name):
@@ -198,14 +200,20 @@ def changed_two_unselected_rows(baseline, candidate):
     return changed >= 2
 
 
-def advanced_chidori_test(qmp, contact, out, output):
+def advanced_display_test(qmp, contact, out, output, row):
+    name = "frame" if row == 6 else "chidori"
+    golden = FRAME_SHA if row == 6 else CHIDORI_SHA
+    pixel_golden = FRAME_PIXELS if row == 6 else CHIDORI_PIXELS
     for stage in ("manual-menu", "display-menu", "display-test-menu"):
         navigate(qmp, contact, out, 1)
         enter_original_submenu(qmp, contact, out, stage)
-    navigate(qmp, contact, out, 4)
-    frame(qmp, out, "selected-chidori")
-    screenshot(out / "selected-chidori.ppm", out / "selected-chidori.png")
-    original_menu = screen_rgb(out, "selected-chidori")
+    navigate(qmp, contact, out, row)
+    selected = "selected-" + name
+    rendered = "display-" + name
+    probe = name + "-probe"
+    frame(qmp, out, selected)
+    screenshot(out / (selected + ".ppm"), out / (selected + ".png"))
+    original_menu = screen_rgb(out, selected)
     start = time.monotonic()
     while time.monotonic() - start < 1.5 and not m4_idle(qmp):
         time.sleep(.035)
@@ -215,34 +223,34 @@ def advanced_chidori_test(qmp, contact, out, output):
         start = time.monotonic()
         while time.monotonic() - start < 9:
             time.sleep(.15)
-            observed = frame(qmp, out, "chidori-probe")
-            if (observed["histogram"] == CHIDORI_PIXELS and
+            observed = frame(qmp, out, probe)
+            if (observed["histogram"] == pixel_golden and
                     changed_two_unselected_rows(original_menu,
-                                                screen_rgb(out, "chidori-probe"))):
+                                                screen_rgb(out, probe))):
                 candidate = observed
                 break
     finally:
         physical(contact, "0")
     if candidate is None:
-        raise RuntimeError("genuine CHIDORI checkerboard never appeared")
+        raise RuntimeError("genuine advanced display pattern never appeared")
     time.sleep(.6)
-    final = frame(qmp, out, "display-chidori")
-    if final["sha256"] != CHIDORI_SHA or final["histogram"] != CHIDORI_PIXELS:
-        raise RuntimeError("original CHIDORI LCD failed independent golden frame")
-    screenshot(out / "display-chidori.ppm", out / "display-chidori.png")
-    result = {"result": "PASS", "test": "DISPLAY TEST MENU -> CHIDORI",
+    final = frame(qmp, out, rendered)
+    if final["sha256"] != golden or final["histogram"] != pixel_golden:
+        raise RuntimeError("original advanced display LCD failed independent golden frame")
+    screenshot(out / (rendered + ".ppm"), out / (rendered + ".png"))
+    result = {"result": "PASS", "test": "DISPLAY TEST MENU -> " + name.upper(),
               "tcg": "single", "source": "original A7/M4 physical key events",
               "stable": final["sha256"] == candidate["sha256"],
-              "sha256": final["sha256"], "expected_sha256": CHIDORI_SHA,
+              "sha256": final["sha256"], "expected_sha256": golden,
               "color_pixels": final["histogram"],
               "screenshots": ["manual-menu.png", "display-menu.png",
-                              "display-test-menu.png", "selected-chidori.png",
-                              "display-chidori.png"]}
+                              "display-test-menu.png", selected + ".png",
+                              rendered + ".png"]}
     if not result["stable"]:
-        raise RuntimeError("original CHIDORI frame was not stable")
+        raise RuntimeError("original advanced display frame was not stable")
     output.joinpath("result.json").write_text(json.dumps(result, indent=2) + "\n")
-    print("PASS original DISPLAY TEST -> CHIDORI; exact LCD SHA256 " + CHIDORI_SHA,
-          flush=True)
+    print("PASS original DISPLAY TEST -> %s; exact LCD SHA256 %s" %
+          (name.upper(), golden), flush=True)
 
 
 def attempt(args, number):
@@ -329,8 +337,9 @@ def attempt(args, number):
             screenshot(out/"factory-menu.ppm", out/"factory-menu.png")
             if len(menu["histogram"]) != 2:
                 raise RuntimeError("original factory menu not monochrome")
-            if args.advanced_chidori:
-                advanced_chidori_test(qmp, contact, out, args.output)
+            if args.advanced_chidori or args.advanced_frame:
+                advanced_display_test(qmp, contact, out, args.output,
+                                      6 if args.advanced_frame else 4)
                 return True
             navigate(qmp, contact, out, args.factory_row)
             start = time.monotonic()
@@ -437,6 +446,8 @@ def main():
         p.add_argument("--" + item, type=Path, required=True)
     p.add_argument("--advanced-chidori", action="store_true",
                    help="real nested DISPLAY TEST CHIDORI checkerboard")
+    p.add_argument("--advanced-frame", action="store_true",
+                   help="real nested DISPLAY TEST FRAME border")
     p.add_argument("--factory-row", type=int, choices=(2, 3), default=3,
                    help="original factory display test: 2=ARM PATTERN MANUAL, 3=ARM PATTERN AUTO")
     p.add_argument("--attempts", type=int, default=4)
