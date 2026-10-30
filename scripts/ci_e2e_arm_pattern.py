@@ -29,7 +29,7 @@ CHECKPOINTS = {"wait": "600108a8", "first": "60010910",
                "last": "60010928", "accepted": "60010930",
                "factory": "6003a878", "ipc_call": "60006240",
                "ipc_return": "60006268", "paint": "60057668",
-               "arm_auto": "60058138"}
+               "arm_auto": "60058138", "dialog_exit": "60010974"}
 TRACE_PC = re.compile(r"^Trace \d+:.*?/00000000([0-9a-fA-F]{8})/", re.M)
 
 
@@ -147,6 +147,8 @@ def attempt(args, number):
                "0x60010868+0x130,0x6003a878+0x500,0x60006240+0x70,0x60057668+0x40,0x60058138+0x40",
                "-D", str(out / "private-execution.log")]
     hits = Counter()
+    stage = "startup"
+    key_cycles = 0
     trace = out / "private-execution.log"
     started = time.monotonic()
     sock = None
@@ -168,6 +170,8 @@ def attempt(args, number):
                 up_at = 0.0
                 ack_before = 0
                 buffered = ""
+                ipc_call_at = None
+                ipc_return_at = None
                 while time.monotonic()-started < args.boot_timeout and proc.poll() is None:
                     now = time.monotonic()-started
                     if not released and now >= 4:
@@ -182,7 +186,33 @@ def attempt(args, number):
                         for label, addr in CHECKPOINTS.items():
                             if pc.lower() == addr:
                                 hits[label] += 1
-                    if released and hits["wait"] and index < 3:
+                    if hits["ipc_call"] and not hits["ipc_return"]:
+                        stage = "original-ipc-0x400b"
+                        if ipc_call_at is None:
+                            ipc_call_at = now
+                        elif now - ipc_call_at > args.ipc_timeout:
+                            raise RuntimeError("original 0x400B IPC service did not return within timeout")
+                    if hits["ipc_return"] and not hits["paint"]:
+                        stage = "original-menu-painter"
+                        if ipc_return_at is None:
+                            ipc_return_at = now
+                        elif now - ipc_return_at > args.paint_timeout:
+                            raise RuntimeError("original LCD menu painter did not run after IPC return")
+                    if not hits["wait"] and now >= args.wait_timeout:
+                        raise RuntimeError("original A7 version-event wait not reached within startup limit")
+                    if hits["dialog_exit"] and not hits["accepted"]:
+                        raise RuntimeError("original version dialog exited before factory acceptance")
+                    if released and hits["wait"] and index >= 3 and not hits["accepted"] and now-up_at >= .35:
+                        # The last genuine electrical contact may have been missed.
+                        # Retry the original key sequence through the M4 matrix,
+                        # never by editing an A7 event, PC or shared memory.
+                        key_cycles += 1
+                        if key_cycles >= args.key_cycles:
+                            raise RuntimeError("physical factory-key sequence exhausted retries")
+                        index = 0
+                        next_at = now + .08
+                    if released and hits["wait"] and index < 3 and not hits["accepted"]:
+                        stage = "startup-key-sequence"
                         # Advance on actual A7 acceptance; do not use blind keypress counts.
                         desired = ("first", "first", "accepted")[index]
                         if not down and now >= next_at:
@@ -204,15 +234,18 @@ def attempt(args, number):
             if not all(hits[name] for name in required):
                 raise RuntimeError("original A7 factory checkpoints missing: " +
                                    ",".join(n for n in required if not hits[n]))
+            stage = "factory-menu-frame"
             time.sleep(1.3)
             menu = frame(qmp, out, "factory-menu")
             screenshot(out/"factory-menu.ppm", out/"factory-menu.png")
             if len(menu["histogram"]) != 2:
                 raise RuntimeError("original factory menu not monochrome")
+            stage = "row-3-navigation"
             navigate(qmp, contact, out, 3)
             start = time.monotonic()
             while time.monotonic()-start < 1.5 and not m4_idle(qmp):
                 time.sleep(.035)
+            stage = "arm-pattern-enter"
             physical(contact, "0x94")
             passed = None
             try:
@@ -227,6 +260,7 @@ def attempt(args, number):
                 physical(contact, "0")
             if passed is None:
                 raise RuntimeError("ARM PATTERN AUTO CHECK failed expected 8-color framebuffer histogram")
+            stage = "golden-frame-verification"
             # Read again after key release; persistent original pixels, not transient bus output.
             time.sleep(.30)
             again = frame(qmp, out, "arm-pattern")
@@ -240,6 +274,32 @@ def attempt(args, number):
             (args.output / "result.json").write_text(json.dumps(result, indent=2)+"\n")
             print("PASS original factory TEST MENU -> ARM PATTERN AUTO CHECK; exact LCD SHA256 " + GOLDEN, flush=True)
             return True
+        except Exception as exc:
+            # Only deterministic in-runner errors may appear in CI artifacts.
+            # Never upload private source, guest execution logs, SRAM or URLs.
+            allowed = (
+                "original 0x400B IPC service did not return",
+                "original LCD menu painter did not run",
+                "original A7 version-event wait not reached",
+                "original version dialog exited before factory acceptance",
+                "physical factory-key sequence exhausted retries",
+                "original A7 factory checkpoints missing:",
+                "original factory menu not monochrome",
+                "physical DOWN/UP did not move visible LCD selection",
+                "ARM PATTERN row 3 selection never stabilized",
+                "ARM PATTERN AUTO CHECK failed expected",
+                "ARM PATTERN differs from verified",
+                "incomplete original LCD",
+            )
+            reason = str(exc) if isinstance(exc, RuntimeError) and str(exc).startswith(allowed) else type(exc).__name__
+            diagnostic = {"status": "FAIL", "stage": stage,
+                          "seconds": round(time.monotonic()-started, 2),
+                          "original_checkpoints": dict(hits),
+                          "factory_key_retries": key_cycles,
+                          "qemu_exited_early": proc.poll() is not None,
+                          "reason": reason}
+            (out / "attempt-result.json").write_text(json.dumps(diagnostic, indent=2) + "\n")
+            raise
         finally:
             physical(contact, "0")
             if sock:
@@ -258,6 +318,10 @@ def main():
         p.add_argument("--" + item, type=Path, required=True)
     p.add_argument("--attempts", type=int, default=4)
     p.add_argument("--boot-timeout", type=float, default=90)
+    p.add_argument("--wait-timeout", type=float, default=50, help="retry cold boot if original A7 event wait is never reached")
+    p.add_argument("--ipc-timeout", type=float, default=14, help="wait for unchanged original 0x400B IPC response")
+    p.add_argument("--paint-timeout", type=float, default=14, help="wait for original menu painter after 0x400B")
+    p.add_argument("--key-cycles", type=int, default=4, help="max original physical factory-key sequences per boot")
     a = p.parse_args()
     for item in ("qemu", "profile", "elf", "emmc", "sd"):
         path = getattr(a, item).resolve(strict=True)
@@ -269,7 +333,14 @@ def main():
             if attempt(a, n):
                 return 0
         except Exception as exc:
-            print("ARM PATTERN attempt %d/%d failed: %s" % (n, a.attempts, type(exc).__name__), flush=True)
+            detail = a.output / ("attempt-%d" % n) / "attempt-result.json"
+            if detail.exists():
+                diag = json.loads(detail.read_text())
+                print("ARM PATTERN attempt %d/%d failed at %s: %s (%.1fs, %d key retries)" %
+                      (n, a.attempts, diag["stage"], diag["reason"], diag["seconds"], diag["factory_key_retries"]), flush=True)
+            else:
+                print("ARM PATTERN attempt %d/%d failed: %s" %
+                      (n, a.attempts, type(exc).__name__), flush=True)
             if n == a.attempts:
                 (a.output / "result.json").write_text(json.dumps({"result":"FAIL", "attempts":n,
                     "reason":str(exc)})+"\n")
