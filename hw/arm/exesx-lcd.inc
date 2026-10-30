@@ -55,16 +55,54 @@ static const MemoryRegionOps exesx_lcd_export_ops = {
  */
 #define EXESX_LCD_STATUS_EXPORT_BASE UINT64_C(0xb1100000)
 #define EXESX_LCD_STATUS_EXPORT_SIZE 64
+/*
+ * DY357 factory's original BACKLIGHT DUTY and PWM FREQ menus maintain
+ * their numeric settings in A7 RAM (observed in original disassembly).
+ * The frequency menu sends a constant 1 to the LCD data port, not its
+ * divisor, so the panel's real vendor register protocol is unknown.
+ *
+ * Explicit compatibility mode ONLY: sample unchanged guest RAM to drive
+ * a host-observable virtual signal. Never write RAM, alter original
+ * firmware UI, claim a real vendor-command decode or modify GRAM pixels.
+ * Invalid/uninitialized RAM retains the previous diagnostic defaults.
+ */
+static bool exesx_lcd_pwm_shadow_sample(EXeSXProfileWindow *w)
+{
+    uint8_t divisor_bytes[4] = {0}, duty_bytes[2] = {0};
+    uint32_t divisor, duty;
+    if (!w->lcd_original_pwm_shadow) {
+        return false;
+    }
+    if (address_space_read(&address_space_memory, UINT64_C(0x62344f3c),
+                           MEMTXATTRS_UNSPECIFIED, divisor_bytes, 4) != MEMTX_OK ||
+        address_space_read(&address_space_memory, UINT64_C(0x62413262),
+                           MEMTXATTRS_UNSPECIFIED, duty_bytes, 2) != MEMTX_OK) {
+        return false;
+    }
+    divisor = (uint32_t)divisor_bytes[0] | ((uint32_t)divisor_bytes[1] << 8) |
+              ((uint32_t)divisor_bytes[2] << 16) |
+              ((uint32_t)divisor_bytes[3] << 24);
+    duty = (uint32_t)duty_bytes[0] | ((uint32_t)duty_bytes[1] << 8);
+    if (divisor < 160 || divisor > 160000 || duty > 255) {
+        return false;
+    }
+    w->lcd_pwm_divisor = divisor;
+    w->lcd_pwm_duty = duty;
+    return true;
+}
+
 static uint64_t exesx_lcd_status_read(void *opaque, hwaddr offset, unsigned size)
 {
     EXeSXState *board = opaque;
     EXeSXProfileWindow *w = board->lcd;
     uint32_t words[16] = { 0 };
     uint64_t result = 0;
+    bool shadow_ok;
     if (!w || offset >= EXESX_LCD_STATUS_EXPORT_SIZE ||
         size > EXESX_LCD_STATUS_EXPORT_SIZE - offset) {
         return 0;
     }
+    shadow_ok = exesx_lcd_pwm_shadow_sample(w);
     words[0] = 0x3144434c; /* "LCD1" */
     words[1] = (w->lcd_rgb565 ? 1U : 0U) |
                (w->lcd_te_enabled ? 2U : 0U) |
@@ -104,7 +142,8 @@ static uint64_t exesx_lcd_status_read(void *opaque, hwaddr offset, unsigned size
         words[12] = w->lcd_pwm_divisor;
         words[13] = UINT32_C(16000000) / w->lcd_pwm_divisor;
         words[14] = w->lcd_pwm_duty;
-        words[15] = 0x50574d31; /* PWM1, diagnostic model only */
+        words[15] = shadow_ok ? 0x50574d32 : 0x50574d31;
+        /* PWM2: sampled live original A7 RAM, not panel vendor command. */
     }
     for (unsigned i = 0; i < size; ++i) {
         unsigned pos = offset + i;
