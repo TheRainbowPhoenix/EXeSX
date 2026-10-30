@@ -109,6 +109,7 @@ struct EXeSXProfileWindow {
     bool lcd_dc, lcd_te_enabled, lcd_rgb565;
     bool lcd_display_on, lcd_sleep_out, lcd_inverted, lcd_idle;
     bool lcd_transposed_byteswap, lcd_pwm_diagnostic;
+    bool lcd_original_pwm_shadow;
     uint16_t lcd_pwm_divisor;
     uint8_t lcd_pwm_duty;
     uint8_t lcd_dcs_brightness, lcd_last_data, lcd_b2[8];
@@ -419,6 +420,12 @@ static void exesx_load_profile(MemoryRegion *sysmem, EXeSXState *board)
              */
             w->lcd_pwm_diagnostic =
                 !g_strcmp0(g_getenv("EXESX_EXPERIMENTAL_LCD_PWM_DIAGNOSTIC"), "1");
+            /* Owner-ROM compatibility shadow; never enabled by default. */
+            w->lcd_original_pwm_shadow =
+                !g_strcmp0(g_getenv("EXESX_EXPERIMENTAL_LCD_ORIGINAL_PWM_SHADOW"), "1");
+            if (w->lcd_original_pwm_shadow) {
+                w->lcd_pwm_diagnostic = true;
+            }
             w->lcd_pwm_divisor = 0x1239;
             w->lcd_pwm_duty = 0xcc;
             w->lcd_transposed_byteswap =
