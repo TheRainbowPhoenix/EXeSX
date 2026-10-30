@@ -396,6 +396,7 @@ jobs:
           if-no-files-found: ignore
           path: |
             ${{ runner.temp }}/arm-pattern-evidence/result.json
+            ${{ runner.temp }}/arm-pattern-evidence/attempt-*/attempt-result.json
             ${{ runner.temp }}/arm-pattern-evidence/attempt-*/arm-pattern.png
             ${{ runner.temp }}/arm-pattern-evidence/attempt-*/factory-menu.png
             ${{ runner.temp }}/arm-pattern-evidence/attempt-*/selected-row.png
