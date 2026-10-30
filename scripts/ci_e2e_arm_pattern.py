@@ -312,7 +312,9 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     for item in ("qemu", "profile", "elf", "emmc", "sd", "output"):
         p.add_argument("--" + item, type=Path, required=True)
-    p.add_argument("--factory-row", type=int, choices=(2, 3), default=3,\n                   help="original factory display test: 2=ARM PATTERN MANUAL, 3=ARM PATTERN AUTO")\n    p.add_argument("--attempts", type=int, default=4)
+    p.add_argument("--factory-row", type=int, choices=(2, 3), default=3,
+                   help="original factory display test: 2=ARM PATTERN MANUAL, 3=ARM PATTERN AUTO")
+    p.add_argument("--attempts", type=int, default=4)
     p.add_argument("--boot-timeout", type=float, default=90)
     a = p.parse_args()
     for item in ("qemu", "profile", "elf", "emmc", "sd"):
