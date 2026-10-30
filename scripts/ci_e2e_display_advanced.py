@@ -149,6 +149,7 @@ _GRADATION_GRAY = (
 )
 GRADATION_PIXELS = {color: 12480 for color in _GRADATION_GRAY.split()}
 GRADATION_PIXELS["ffffff"] = 27840
+MENU1_SHA = "a026ec18d32a20b6530620a3b6d18a5ffd4e3e5536d925a2b3fbe3f3ce4c1521"
 
 
 def screen_rgb(out, name):
@@ -253,8 +254,13 @@ def advanced_display_test(qmp, contact, out, output, row):
         5: ("r-chidori", RCHIDORI_SHA, RCHIDORI_PIXELS),
         6: ("frame", FRAME_SHA, FRAME_PIXELS),
         7: ("w-b-gradation", GRADATION_SHA, GRADATION_PIXELS),
+        8: ("menu-1", MENU1_SHA, None),
     }
     name, golden, pixel_golden = patterns[row]
+    def expected_colors(hist):
+        return (hist == pixel_golden if pixel_golden is not None else
+                len(hist) == 408 and hist.get("ffffff") == 328793 and
+                hist.get("9cdaf6") == 23117 and hist.get("b4e218") == 6139)
     for stage in ("manual-menu", "display-menu", "display-test-menu"):
         navigate(qmp, contact, out, 1)
         enter_original_submenu(qmp, contact, out, stage)
@@ -275,7 +281,7 @@ def advanced_display_test(qmp, contact, out, output, row):
         while time.monotonic() - start < 9:
             time.sleep(.15)
             observed = frame(qmp, out, probe)
-            if (observed["histogram"] == pixel_golden and
+            if (expected_colors(observed["histogram"]) and
                     changed_two_unselected_rows(original_menu,
                                                 screen_rgb(out, probe))):
                 candidate = observed
@@ -286,7 +292,7 @@ def advanced_display_test(qmp, contact, out, output, row):
         raise RuntimeError("genuine advanced display pattern never appeared")
     time.sleep(.6)
     final = frame(qmp, out, rendered)
-    if final["sha256"] != golden or final["histogram"] != pixel_golden:
+    if final["sha256"] != golden or not expected_colors(final["histogram"]):
         raise RuntimeError("original advanced display LCD failed independent golden frame")
     screenshot(out / (rendered + ".ppm"), out / (rendered + ".png"))
     result = {"result": "PASS", "test": "DISPLAY TEST MENU -> " + name.upper(),
@@ -392,8 +398,10 @@ def attempt(args, number):
                 advanced_settings_menu_test(qmp, contact, out, args.output)
                 return True
             if (args.advanced_chidori or args.advanced_rchidori or
-                    args.advanced_frame or args.advanced_gradation):
-                row = (7 if args.advanced_gradation else
+                    args.advanced_frame or args.advanced_gradation or
+                    args.advanced_menu1):
+                row = (8 if args.advanced_menu1 else
+                       7 if args.advanced_gradation else
                        6 if args.advanced_frame else
                        5 if args.advanced_rchidori else 4)
                 advanced_display_test(qmp, contact, out, args.output, row)
@@ -509,6 +517,8 @@ def main():
                    help="real nested DISPLAY TEST FRAME border")
     p.add_argument("--advanced-rchidori", action="store_true",
                    help="real nested DISPLAY TEST R-CHIDORI")
+    p.add_argument("--advanced-menu1", action="store_true",
+                   help="original MENU 1 full-color layout, exact 408-color PPM golden")
     p.add_argument("--advanced-gradation", action="store_true",
                    help="real nested DISPLAY TEST W-B GRADATION")
     p.add_argument("--factory-row", type=int, choices=(2, 3), default=3,
