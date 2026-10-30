@@ -108,6 +108,7 @@ struct EXeSXProfileWindow {
     uint8_t lcd_cmd, lcd_madctl;
     bool lcd_dc, lcd_te_enabled, lcd_rgb565;
     bool lcd_display_on, lcd_sleep_out, lcd_inverted, lcd_idle;
+    bool lcd_transposed_byteswap;
     uint8_t lcd_dcs_brightness, lcd_last_data, lcd_b2[8];
     uint32_t lcd_swapped_writes;
     uint64_t lcd_pixel_writes;
@@ -410,6 +411,8 @@ static void exesx_load_profile(MemoryRegion *sysmem, EXeSXState *board)
             w->lcd_x1 = EXESX_LCD_W - 1;
             w->lcd_y1 = EXESX_LCD_H - 1;
             w->lcd_rgb565 = true;
+            w->lcd_transposed_byteswap =
+                !g_strcmp0(g_getenv("EXESX_LCD_TRANSPOSED_RGB565_BYTESWAP"), "1");
             if (!g_strcmp0(g_getenv("EXESX_LCD_FRAMEBUFFER_EXPORT"), "1")) {
                 memory_region_init_io(&board->lcd_export, OBJECT(board),
                     &exesx_lcd_export_ops, board, "exesx.debug.lcd.rgb565",
