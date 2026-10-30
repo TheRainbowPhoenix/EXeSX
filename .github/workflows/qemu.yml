@@ -276,7 +276,7 @@ jobs:
     needs: native-qemu
     if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/experiment/dy357-wlan-host-20261029' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 35
     permissions:
       contents: read
       actions: read
@@ -389,6 +389,19 @@ jobs:
             --emmc "$RUNNER_TEMP/private-e2e/source-derived-synthetic-emmc.raw" \
             --sd "$RUNNER_TEMP/private-e2e/disposable-sd-2g.raw" \
             --output "$RUNNER_TEMP/arm-pattern-evidence" --attempts 8
+      - name: Run independent original ARM PATTERN MANUAL CHECK (factory row 2)
+        if: steps.fixture.outputs.enabled == 'true'
+        env:
+          PYTHONPATH: ${{ github.workspace }}/scripts
+        shell: bash
+        run: |
+          python3 -u "$GITHUB_WORKSPACE/scripts/ci_e2e_arm_pattern.py" \
+            --qemu "$RUNNER_TEMP/native/exesx-qemu-linux-x86_64/qemu-system-arm" \
+            --profile "$GITHUB_WORKSPACE/profiles/imx7ulp-early-boot.ini" \
+            --elf "$RUNNER_TEMP/private-e2e/a7-bios-os.elf" \
+            --emmc "$RUNNER_TEMP/private-e2e/source-derived-synthetic-emmc.raw" \
+            --sd "$RUNNER_TEMP/private-e2e/disposable-sd-2g.raw" \
+            --factory-row 2 --output "$RUNNER_TEMP/arm-pattern-manual-evidence" --attempts 6
       - name: Upload original framebuffer screenshots and sanitized result
         if: ${{ always() && steps.fixture.outputs.enabled == 'true' }}
         uses: actions/upload-artifact@v4
@@ -402,3 +415,8 @@ jobs:
             ${{ runner.temp }}/arm-pattern-evidence/attempt-*/arm-pattern.png
             ${{ runner.temp }}/arm-pattern-evidence/attempt-*/factory-menu.png
             ${{ runner.temp }}/arm-pattern-evidence/attempt-*/selected-row.png
+            ${{ runner.temp }}/arm-pattern-manual-evidence/result.json
+            ${{ runner.temp }}/arm-pattern-manual-evidence/attempt-*/attempt-result.json
+            ${{ runner.temp }}/arm-pattern-manual-evidence/attempt-*/arm-pattern.png
+            ${{ runner.temp }}/arm-pattern-manual-evidence/attempt-*/factory-menu.png
+            ${{ runner.temp }}/arm-pattern-manual-evidence/attempt-*/selected-row.png
