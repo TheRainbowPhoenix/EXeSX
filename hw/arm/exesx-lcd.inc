@@ -82,6 +82,30 @@ static uint64_t exesx_lcd_status_read(void *opaque, hwaddr offset, unsigned size
     }
     words[6] = w->lcd_swapped_writes;
     words[7] = (uint32_t)w->lcd_pixel_writes;
+    /*
+     * Host-only signal observer, explicitly NOT the unknown vendor
+     * panel PWM register. The original UI displays 16 MHz/divisor
+     * and initializes duty 0xCC. Model an ideal digital waveform
+     * only when the diagnostic option is enabled. RGB565 GRAM
+     * and real GPIOF/PTB register behavior are not changed.
+     */
+    if (w->lcd_pwm_diagnostic && w->lcd_pwm_divisor) {
+        uint64_t period_ns =
+            ((uint64_t)w->lcd_pwm_divisor * UINT64_C(1000000000) +
+             UINT64_C(8000000)) / UINT64_C(16000000);
+        uint64_t high_ns =
+            (period_ns * w->lcd_pwm_duty + 127U) / 255U;
+        uint64_t phase_ns =
+            qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) % period_ns;
+        words[8] = (uint32_t)period_ns;
+        words[9] = (uint32_t)high_ns;
+        words[10] = (phase_ns < high_ns) ? 1 : 0;
+        words[11] = (w->lcd_pwm_duty * 10000U + 127U) / 255U;
+        words[12] = w->lcd_pwm_divisor;
+        words[13] = UINT32_C(16000000) / w->lcd_pwm_divisor;
+        words[14] = w->lcd_pwm_duty;
+        words[15] = 0x50574d31; /* PWM1, diagnostic model only */
+    }
     for (unsigned i = 0; i < size; ++i) {
         unsigned pos = offset + i;
         result |= (uint64_t)((words[pos / 4] >> (8 * (pos & 3))) & 255)
@@ -315,9 +339,15 @@ static void exesx_lcd_parameter(EXeSXProfileWindow *w, uint16_t v)
     case 0x3a: /* COLMOD; only RGB565 data storage supported */
         w->lcd_rgb565 = (v & 255) == 0x55;
         break;
-    case 0x51: /* Standard DCS brightness register; no optical output */
+    case 0x51: /* Standard DCS brightness register, 0..255 */
         if (n == 0) {
             w->lcd_dcs_brightness = v & 255;
+            if (w->lcd_pwm_diagnostic) {
+                /* Explicit experimental PWM mapping: never a claim that
+                 * DY357 vendor BACKLIGHT DUTY uses DCS 0x51.
+                 */
+                w->lcd_pwm_duty = v & 255;
+            }
         }
         break;
     case 0xb2: /* Preserve original vendor data; semantics not guessed */
