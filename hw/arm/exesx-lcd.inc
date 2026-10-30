@@ -202,6 +202,7 @@ static void exesx_lcd_ramwr_pixel(EXeSXProfileWindow *w, uint16_t rgb565)
     if ((w->lcd_madctl & 0xe0) == 0x40 &&
         !g_strcmp0(g_getenv("EXESX_LCD_TRANSPOSED_RGB565_BYTESWAP"), "1")) {
         rgb565 = (uint16_t)((rgb565 >> 8) | (rgb565 << 8));
+        ++w->lcd_swapped_writes;
     }
     unsigned x = w->lcd_x;
     unsigned y = w->lcd_y;
@@ -280,6 +281,7 @@ static void exesx_lcd_ramwr_pixel(EXeSXProfileWindow *w, uint16_t rgb565)
 static void exesx_lcd_parameter(EXeSXProfileWindow *w, uint16_t v)
 {
     unsigned n = w->lcd_param_count++;
+    w->lcd_last_data = v & 255;
     switch (w->lcd_cmd) {
     case 0x35: /* TEON */
         w->lcd_te_enabled = true;
@@ -313,6 +315,16 @@ static void exesx_lcd_parameter(EXeSXProfileWindow *w, uint16_t v)
         break;
     case 0x3a: /* COLMOD; only RGB565 data storage supported */
         w->lcd_rgb565 = (v & 255) == 0x55;
+        break;
+    case 0x51: /* Standard DCS brightness register; no optical output */
+        if (n == 0) {
+            w->lcd_dcs_brightness = v & 255;
+        }
+        break;
+    case 0xb2: /* Preserve original vendor data; semantics not guessed */
+        if (n < G_N_ELEMENTS(w->lcd_b2)) {
+            w->lcd_b2[n] = v & 255;
+        }
         break;
     default:
         break; /* Preserve unknown vendor initialization as inert. */
@@ -350,6 +362,18 @@ static MemTxResult exesx_lcd_write(EXeSXProfileWindow *w, hwaddr offset,
             w->lcd_y = w->lcd_y0;
         } else if (w->lcd_cmd == 0x34) {
             w->lcd_te_enabled = false;
+        }
+        /* DCS power and inversion are panel state, not GRAM mutations. */
+        switch (w->lcd_cmd) {
+        case 0x10: w->lcd_sleep_out = false; break;
+        case 0x11: w->lcd_sleep_out = true; break;
+        case 0x20: w->lcd_inverted = false; break;
+        case 0x21: w->lcd_inverted = true; break;
+        case 0x28: w->lcd_display_on = false; break;
+        case 0x29: w->lcd_display_on = true; break;
+        case 0x38: w->lcd_idle = false; break;
+        case 0x39: w->lcd_idle = true; break;
+        default: break;
         }
     } else {
         exesx_lcd_parameter(w, data & 0xffff);
