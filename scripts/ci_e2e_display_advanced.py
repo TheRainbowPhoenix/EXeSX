@@ -149,7 +149,7 @@ _GRADATION_GRAY = (
 )
 GRADATION_PIXELS = {color: 12480 for color in _GRADATION_GRAY.split()}
 GRADATION_PIXELS["ffffff"] = 27840
-MENU1_SHA = "a026ec18d32a20b6530620a3b6d18a5ffd4e3e5536d925a2b3fbe3f3ce4c1521"
+MENU1_SHA = "3427cb8f7e56a24432f779fa17ea48657dbe284f5ecae73e8969bbc80bad060b"
 
 
 def screen_rgb(out, name):
@@ -260,7 +260,7 @@ def advanced_display_test(qmp, contact, out, output, row):
     def expected_colors(hist):
         return (hist == pixel_golden if pixel_golden is not None else
                 len(hist) == 408 and hist.get("ffffff") == 328793 and
-                hist.get("9cdaf6") == 23117 and hist.get("b4e218") == 6139)
+                hist.get("ded2f6") == 23117 and hist.get("0075bd") == 6139)
     for stage in ("manual-menu", "display-menu", "display-test-menu"):
         navigate(qmp, contact, out, 1)
         enter_original_submenu(qmp, contact, out, stage)
@@ -317,6 +317,8 @@ def attempt(args, number):
     physical(contact, "0x9c,0x90")
     profile = profile_with_lcd(args.profile, out)
     env = qemu_env(profile.resolve(), contact.resolve())
+    if args.advanced_menu1:
+        env["EXESX_LCD_TRANSPOSED_RGB565_BYTESWAP"] = "1"
     lib = args.qemu.parent / "lib"
     if lib.is_dir():
         env["LD_LIBRARY_PATH"] = str(lib.resolve()) + os.pathsep + env.get("LD_LIBRARY_PATH", "")
