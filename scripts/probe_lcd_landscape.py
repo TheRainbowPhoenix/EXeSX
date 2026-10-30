@@ -16,7 +16,7 @@ W, H = 864, 480
 ENTRY = 0x60000000
 
 
-def make_elf():
+def make_elf(brightness=0x80):
     instructions, fixups = [], []
 
     def op(word):
@@ -100,7 +100,7 @@ def make_elf():
     for cmd in (0x11, 0x29, 0x21, 0x39):
         command(cmd)
     command(0x51)
-    data(0x80)
+    data(brightness)
     command(0xb2)
     for v in (0x10, 0x20, 0x30, 0x40, 0x50):
         data(v)
