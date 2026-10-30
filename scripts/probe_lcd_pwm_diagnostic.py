@@ -21,11 +21,15 @@ DIVISOR = 0x1239
 PERIOD_NS = (DIVISOR * 1000000000 + 8000000) // 16000000
 
 
-def one_boot(qemu, profile, duty):
+def one_boot(qemu, profile, duty, shadow_divisor=None):
     with tempfile.TemporaryDirectory() as temp:
         d = Path(temp)
         elf = d / "pwm-dcs.elf"
-        elf.write_bytes(make_elf(brightness=duty))
+        if shadow_divisor is None:
+            elf.write_bytes(make_elf(brightness=duty))
+        else:
+            elf.write_bytes(make_elf(brightness=0x80, shadow_duty=duty,
+                                     shadow_divisor=shadow_divisor))
         ini = d / "profile.ini"
         ini.write_text(profile.read_text() +
                        "\n[lcd-pwm-test]\nkind=exesx-lcd\nbase=0xb0000000\nsize=0x1000\n")
@@ -34,6 +38,8 @@ def one_boot(qemu, profile, duty):
                    EXESX_EXPERIMENTAL_LCD="1",
                    EXESX_LCD_FRAMEBUFFER_EXPORT="1",
                    EXESX_EXPERIMENTAL_LCD_PWM_DIAGNOSTIC="1")
+        if shadow_divisor is not None:
+            env["EXESX_EXPERIMENTAL_LCD_ORIGINAL_PWM_SHADOW"] = "1"
         lib = qemu.resolve().parent / "lib"
         if lib.is_dir():
             env["LD_LIBRARY_PATH"] = str(lib.resolve()) + os.pathsep + env.get("LD_LIBRARY_PATH", "")
