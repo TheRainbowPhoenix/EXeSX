@@ -238,7 +238,8 @@ def attempt(args, number):
                       "sha256": again["sha256"], "golden_sha256": GOLDEN,
                       "color_pixels": again["histogram"], "screen_png": "arm-pattern.png"}
             (args.output / "result.json").write_text(json.dumps(result, indent=2)+"\n")
-            print("PASS original factory TEST MENU -> %s; exact LCD SHA256 %s" %\n                  ("ARM PATTERN MANUAL CHECK" if args.factory_row == 2 else "ARM PATTERN AUTO CHECK", GOLDEN), flush=True)
+            label = "ARM PATTERN MANUAL CHECK" if args.factory_row == 2 else "ARM PATTERN AUTO CHECK"
+            print("PASS original factory TEST MENU -> %s; exact LCD SHA256 %s" % (label, GOLDEN), flush=True)
             return True
         finally:
             physical(contact, "0")
