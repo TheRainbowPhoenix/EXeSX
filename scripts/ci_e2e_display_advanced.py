@@ -132,6 +132,7 @@ HEADERS = {
     "manual-menu": "f282e75fe60f94bbdbfcede794aba81af115775432f5cb1b4c9afd8fb146afd4",
     "display-menu": "9713b41f998d654760eb741eab783f1ef3ab0b64d043792843717e110e33bc29",
     "display-test-menu": "ba98084398d39b027d663a8936b386f16a6d26743e9287c97bc16c911395be35",
+    "display-settings-menu": "9c16cf391219e0dbed4f6d84ec3dd9226f31d0a4c0f23faeb509ed24475c328e",
 }
 CHIDORI_SHA = "e7b16ad2c9f0f78bd3b6d2af65e1e667fea228f4fc2b2748bdc9cfc3af55eaf3"
 CHIDORI_PIXELS = {"000000": 207360, "ffffff": 207360}
@@ -210,6 +211,41 @@ def changed_two_unselected_rows(baseline, candidate):
         changed += diff > 130
     return changed >= 2
 
+
+
+def advanced_settings_menu_test(qmp, contact, out, output):
+    """Assert original settings-menu rendering, NOT brightness or PWM hardware."""
+    for stage in ("manual-menu", "display-menu"):
+        navigate(qmp, contact, out, 1)
+        enter_original_submenu(qmp, contact, out, stage)
+    navigate(qmp, contact, out, 2)
+    enter_original_submenu(qmp, contact, out, "display-settings-menu")
+    time.sleep(.5)
+    first = frame(qmp, out, "settings-stable")
+    time.sleep(.5)
+    second = frame(qmp, out, "settings-stable")
+    pixels = (out / "settings-stable.ppm").read_bytes()
+    rgb = pixels[len(HEADER):]
+    if first["sha256"] != second["sha256"] or native_header_fingerprint(rgb) != HEADERS["display-settings-menu"]:
+        raise RuntimeError("original DISPLAY SETTINGS menu was unstable")
+    if len(second["histogram"]) != 2:
+        raise RuntimeError("original DISPLAY SETTINGS menu not monochrome")
+    ink = []
+    for row in range(1, 12):
+        y0 = round(25 + (row - 1) * 24.3)
+        dots = sum(rgb[3 * (y * 864 + x):3 * (y * 864 + x) + 3] == b"\x00\x00\x00"
+                   for y in range(y0, y0 + 20) for x in range(20, 250))
+        ink.append(dots)
+    if min(ink) < 100:
+        raise RuntimeError("not all eleven DISPLAY SETTINGS captions were drawn")
+    screenshot(out / "settings-stable.ppm", out / "display-settings-menu.png")
+    result = {"result": "PASS", "scope": "DISPLAY SETTINGS menu rendering only",
+              "hardware_controls_verified": False, "rows": 11,
+              "original_lcd_sha256": second["sha256"], "ink_by_row": ink,
+              "screen_png": "display-settings-menu.png"}
+    output.joinpath("result.json").write_text(json.dumps(result, indent=2) + "\n")
+    print("PASS genuine DISPLAY SETTINGS MENU: 11 captions, stable LCD screenshot",
+          flush=True)
 
 def advanced_display_test(qmp, contact, out, output, row):
     patterns = {
@@ -352,6 +388,9 @@ def attempt(args, number):
             screenshot(out/"factory-menu.ppm", out/"factory-menu.png")
             if len(menu["histogram"]) != 2:
                 raise RuntimeError("original factory menu not monochrome")
+            if args.display_settings_menu:
+                advanced_settings_menu_test(qmp, contact, out, args.output)
+                return True
             if (args.advanced_chidori or args.advanced_rchidori or
                     args.advanced_frame or args.advanced_gradation):
                 row = (7 if args.advanced_gradation else
@@ -462,6 +501,8 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     for item in ("qemu", "profile", "elf", "emmc", "sd", "output"):
         p.add_argument("--" + item, type=Path, required=True)
+    p.add_argument("--display-settings-menu", action="store_true",
+                   help="eleven-entry original settings display render only")
     p.add_argument("--advanced-chidori", action="store_true",
                    help="real nested DISPLAY TEST CHIDORI checkerboard")
     p.add_argument("--advanced-frame", action="store_true",
