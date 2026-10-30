@@ -345,7 +345,7 @@ jobs:
               # Extract only known fixture inputs; never trust arbitrary ZIP paths.
               prefix = "EXeSX-private-E2E-fixture/"
               approved = {"OSUP.BIN", "a7-bios-os.elf", "emmc-data-extents.bin",
-                          "reconstruct_media.py", "manifest.json", "ci_e2e_arm_pattern.py"}
+                          "reconstruct_media.py", "manifest.json"}
               if not approved.issubset({n[len(prefix):] for n in archive.namelist() if n.startswith(prefix)}):
                   raise SystemExit("private fixture missing required members")
               for member in approved:
@@ -380,7 +380,7 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/scripts
         shell: bash
         run: |
-          python3 -u "$RUNNER_TEMP/private-e2e/ci_e2e_arm_pattern.py" \
+          python3 -u "$GITHUB_WORKSPACE/scripts/ci_e2e_arm_pattern.py" \
             --qemu "$RUNNER_TEMP/native/exesx-qemu-linux-x86_64/qemu-system-arm" \
             --profile "$GITHUB_WORKSPACE/profiles/imx7ulp-early-boot.ini" \
             --elf "$RUNNER_TEMP/private-e2e/a7-bios-os.elf" \
