@@ -27,6 +27,8 @@ jobs:
       CCACHE_MAXSIZE: 650M
     steps:
       - uses: actions/checkout@v4
+      - name: Syntax-check original-ROM E2E runner
+        run: python3 -m py_compile scripts/ci_e2e_arm_pattern.py
       - name: Install build dependencies
         run: |
           sudo apt-get update -qq
