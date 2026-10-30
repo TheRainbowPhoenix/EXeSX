@@ -145,6 +145,16 @@ static void exesx_lcd_gpioa(EXeSXState *s, uint32_t off, uint32_t bits)
  */
 static void exesx_lcd_ramwr_pixel(EXeSXProfileWindow *w, uint16_t rgb565)
 {
+    /*
+     * Original DY357 transposed 16-bit image transfer (MADCTL=0x40):
+     * owner-ROM MENU 1 evidence shows reversed RGB565 byte lanes.
+     * Experimental opt-in until the exact FlexBus transfer provenance
+     * is established. Never alter normal 0x60/PIO color-bar pixels.
+     */
+    if ((w->lcd_madctl & 0xe0) == 0x40 &&
+        !g_strcmp0(g_getenv("EXESX_LCD_TRANSPOSED_RGB565_BYTESWAP"), "1")) {
+        rgb565 = (uint16_t)((rgb565 >> 8) | (rgb565 << 8));
+    }
     unsigned x = w->lcd_x;
     unsigned y = w->lcd_y;
     /*
