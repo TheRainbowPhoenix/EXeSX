@@ -108,7 +108,9 @@ struct EXeSXProfileWindow {
     uint8_t lcd_cmd, lcd_madctl;
     bool lcd_dc, lcd_te_enabled, lcd_rgb565;
     bool lcd_display_on, lcd_sleep_out, lcd_inverted, lcd_idle;
-    bool lcd_transposed_byteswap;
+    bool lcd_transposed_byteswap, lcd_pwm_diagnostic;
+    uint16_t lcd_pwm_divisor;
+    uint8_t lcd_pwm_duty;
     uint8_t lcd_dcs_brightness, lcd_last_data, lcd_b2[8];
     uint32_t lcd_swapped_writes;
     uint64_t lcd_pixel_writes;
@@ -411,6 +413,14 @@ static void exesx_load_profile(MemoryRegion *sysmem, EXeSXState *board)
             w->lcd_x1 = EXESX_LCD_W - 1;
             w->lcd_y1 = EXESX_LCD_H - 1;
             w->lcd_rgb565 = true;
+            /* Experimental waveform observer only: original factory defaults.
+             * Frequency menu's software divisor is NOT yet an identified
+             * physical panel register. No guest PWM success is fabricated.
+             */
+            w->lcd_pwm_diagnostic =
+                !g_strcmp0(g_getenv("EXESX_EXPERIMENTAL_LCD_PWM_DIAGNOSTIC"), "1");
+            w->lcd_pwm_divisor = 0x1239;
+            w->lcd_pwm_duty = 0xcc;
             w->lcd_transposed_byteswap =
                 !g_strcmp0(g_getenv("EXESX_LCD_TRANSPOSED_RGB565_BYTESWAP"), "1");
             if (!g_strcmp0(g_getenv("EXESX_LCD_FRAMEBUFFER_EXPORT"), "1")) {
