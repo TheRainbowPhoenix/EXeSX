@@ -148,6 +148,17 @@ class SPIProtocolTests(unittest.TestCase):
         self.assertEqual(chip._read_reg(0x1014), 0x80000000)
         self.assertEqual(chip._read_reg(0x207bc) & 1, 1)
 
+    def test_original_winc_firmware_boot_ack_does_not_inject_guest_events(self):
+        chip = Winc1510SPI(fixture_identity=True, hif_mailbox=True)
+        self.assertEqual(chip._read_reg(0x108c), 0)
+        chip._write_reg(0x108c, 0x13301361)
+        self.assertEqual(chip._read_reg(0x108c), 0x02532636)
+        self.assertEqual(chip.hif_notifications, [])
+        self.assertEqual(chip.hif_requests, [])
+        self.assertEqual(chip._read_reg(0x1070), 0)
+        chip._write_reg(0x108c, 0)
+        self.assertEqual(chip._read_reg(0x108c), 0)
+
     def test_optional_crc_extra_command_byte(self):
         dev=Winc1510SPI(crc=True)
         dev.shift(0,bytes.fromhex("ca0010005a"),begin=True)
