@@ -581,11 +581,19 @@ static bool exesx_lpspi2_dma_advance(EXeSXProfileWindow *w,
     uint8_t bytes[32];
     MemTxResult status;
 
-    if (t[0] != UINT32_C(0x40290074)) {
+    /*
+     * Genuine DY357 transmit-only / receive-only descriptors have a
+     * constant peripheral discard source or sink: SOFF/DOFF=0.
+     * The previous unconditional moved-byte update corrupted those
+     * descriptors even if the transfer itself succeeded.
+     */
+    if (t[0] != UINT32_C(0x40290074) &&
+        (int16_t)(t[1] & 0xffffU) == 4) {
         t[0] += moved;
     }
     if (t[4] != UINT32_C(0x40290064) &&
-        t[4] != UINT32_C(0x40290060)) {
+        t[4] != UINT32_C(0x40290060) &&
+        (int16_t)(t[5] & 0xffffU) == 4) {
         t[4] += moved;
     }
     t[5] &= 0xffff; /* CITER exhausted, preserve DOFF */
@@ -669,12 +677,12 @@ static void exesx_lpspi2_dma_kick(EXeSXProfileWindow *w)
         /* DY357 FUN_601c2f04: DMA1 ch2 TX source 0x1a, ch3 RX
          * source 0x19. Both are actual programmed guest registers. */
         if (t[4] == UINT32_C(0x40290064) &&
-            soff == 4 && doff == 0 &&
+            (soff == 4 || soff == 0) && doff == 0 &&
             (cfg & 0x7f) == 0x1a &&
             t[0] >= UINT32_C(0x60000000)) {
             if (tx < 0) tx = channel;
         } else if (t[0] == UINT32_C(0x40290074) &&
-                   soff == 0 && doff == 4 &&
+                   soff == 0 && (doff == 4 || doff == 0) &&
                    (cfg & 0x7f) == 0x19 &&
                    t[4] >= UINT32_C(0x60000000)) {
             if (rx < 0) rx = channel;
@@ -707,6 +715,8 @@ static void exesx_lpspi2_dma_kick(EXeSXProfileWindow *w)
         uint32_t txcount = td[5] >> 16;
         uint32_t txbytes, rxbytes = 0;
         uint32_t txsrc = td[0], txdest = td[4];
+        int16_t tx_soff = (int16_t)(td[1] & 0xffffU);
+        int16_t rx_doff = (int16_t)(rd[5] & 0xffffU);
         uint8_t data[4];
 
         if (!td[2] || (td[2] & 3) || !txcount ||
@@ -760,7 +770,7 @@ static void exesx_lpspi2_dma_kick(EXeSXProfileWindow *w)
             for (uint32_t i = 0; i < txbytes; i += 4) {
                 uint64_t word;
                 status = address_space_read(&address_space_memory,
-                                            txsrc + i,
+                                            txsrc + (tx_soff ? i : 0),
                                             MEMTXATTRS_UNSPECIFIED, data, 4);
                 if (status != MEMTX_OK ||
                     exesx_lpspi2_write(w, 0x64,
@@ -770,7 +780,7 @@ static void exesx_lpspi2_dma_kick(EXeSXProfileWindow *w)
                 }
                 stl_le_p(data, (uint32_t)word);
                 status = address_space_write(&address_space_memory,
-                                             rd[4] + i,
+                                             rd[4] + (rx_doff ? i : 0),
                                              MEMTXATTRS_UNSPECIFIED, data, 4);
                 if (status != MEMTX_OK) {
                     qemu_log_mask(LOG_GUEST_ERROR,
