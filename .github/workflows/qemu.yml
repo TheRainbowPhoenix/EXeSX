@@ -199,6 +199,8 @@ jobs:
           python3 scripts/probe_wlan_packed.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
           python3 scripts/probe_winc1510_tcp.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
           python3 scripts/probe_winc1510_dma.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
+          python3 scripts/probe_winc1510_dma.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini --rx-discard
+          python3 scripts/probe_winc1510_dma.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini --tx-constant
           python3 scripts/probe_winc1510_dma.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini --rx-discard --tx-constant
           python3 scripts/probe_usb_endpoint_bridge.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
           python3 scripts/probe_factory_profile_backfill.py
