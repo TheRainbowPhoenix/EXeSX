@@ -535,19 +535,78 @@ static MemTxResult exesx_lpspi2_write(EXeSXProfileWindow *w,
     }
 }
 
-/* Deliberately bounded, descriptor-driven *real* peripheral eDMA.
- * Chained/scatter descriptors are not yet supported: do not mark DONE.
- * A full 512-byte original WLAN DMA frame is serviced in paired 32-bit
- * TDR/RDR words so the sixteen-word RX FIFO never overflows.
+/*
+ * Guest-originated eDMA1 LPSPI2 transfers. The original DY357 WLAN driver
+ * queues scatter/gather TCDs (FUN_601c2740 / FUN_601b82e8), including TX
+ * writes to TCR between 512-byte TX/RX segments. Rejecting CSR.ESG on the
+ * initial TCD previously prevented those transfers from ever reaching SPI.
+ *
+ * Deliberately bounded: only genuine DMA1/DMAMUX1 requests for the observed
+ * LPSPI2 TX/RX sources, 32-bit transfers, RAM-backed TCD links and <=8192
+ * clocked bytes are accepted. No guest RAM, HIF callback or success flag is
+ * fabricated: all bytes are moved through the real modeled TDR and RDR.
  */
+static bool exesx_lpspi2_dma_advance(EXeSXProfileWindow *w,
+                                      EXeSXProfileWindow *dma,
+                                      unsigned channel, uint32_t moved)
+{
+    uint32_t *t = &dma->regfile[(0x1000 + channel * 32) / 4];
+    uint16_t csr = t[7] & 0xffff;
+    bool link = !!(csr & 0x10); /* eDMA CSR.ESG */
+    uint32_t next = t[6];
+    uint8_t bytes[32];
+    MemTxResult status;
+
+    if (t[0] != UINT32_C(0x40290074)) {
+        t[0] += moved;
+    }
+    if (t[4] != UINT32_C(0x40290064) &&
+        t[4] != UINT32_C(0x40290060)) {
+        t[4] += moved;
+    }
+    t[5] &= 0xffff; /* CITER exhausted, preserve DOFF */
+    if (csr & 2) { /* INTMAJOR: original DMA completion callback */
+        dma->regfile[0x24 / 4] |= 1U << channel;
+        qemu_set_irq(w->board->dma1_group_irqs[channel & 15], 1);
+    }
+    if (link) {
+        /* Never follow arbitrary MMIO, ROM or unaligned guest pointers. */
+        if ((next & 31) || next < UINT32_C(0x60000000) ||
+            next >= UINT32_C(0x70000000)) {
+            qemu_log_mask(LOG_GUEST_ERROR,
+                          "EXeSX WLAN eDMA invalid linked TCD address\n");
+            return false;
+        }
+        status = address_space_read(&address_space_memory, next,
+                                    MEMTXATTRS_UNSPECIFIED,
+                                    bytes, sizeof(bytes));
+        if (status != MEMTX_OK) {
+            qemu_log_mask(LOG_GUEST_ERROR,
+                          "EXeSX WLAN eDMA unreadable linked TCD\n");
+            return false;
+        }
+        for (unsigned i = 0; i < 8; ++i) {
+            t[i] = ldl_le_p(bytes + 4 * i);
+        }
+        return true;
+    }
+    t[7] |= 0x80; /* DONE only for the terminal TCD */
+    if (csr & 8) { /* DREQ */
+        dma->regfile[0x0c / 4] &= ~(1U << channel);
+    }
+    return true;
+}
+
 static void exesx_lpspi2_dma_kick(EXeSXProfileWindow *w)
 {
     EXeSXProfileWindow *dma = w->board->wlan_dma1;
     EXeSXProfileWindow *mux = w->board->dmamux1;
     int tx = -1, rx = -1;
-    uint32_t nbytes = 0;
-    uint8_t data[4];
+    uint32_t clocked = 0;
+    bool tx_done = false, rx_done = false;
+    unsigned steps;
     MemTxResult status;
+
     if (g_strcmp0(g_getenv("EXESX_EXPERIMENTAL_LPSPI2_DMA"), "1") ||
         !exesx_lpspi2_pio_enabled() || !dma || !mux ||
         !(w->regfile[0x10 / 4] & 1) ||
@@ -555,105 +614,130 @@ static void exesx_lpspi2_dma_kick(EXeSXProfileWindow *w)
         (w->regfile[0x1c / 4] & 3) != 3) {
         return;
     }
+
     for (unsigned channel = 0; channel < 32; ++channel) {
         uint32_t *t = &dma->regfile[(0x1000 + channel * 32) / 4];
         uint32_t cfg = mux->regfile[channel];
-        uint32_t total = t[2] * (t[5] >> 16);
         uint32_t attr = t[1];
         unsigned ssize = (attr >> 24) & 7, dsize = (attr >> 16) & 7;
         int16_t soff = (int16_t)(attr & 0xffff);
         int16_t doff = (int16_t)(t[5] & 0xffff);
         uint16_t csr = t[7] & 0xffff;
+        uint32_t citer = t[5] >> 16;
+        uint32_t minor = t[2];
+
         if (!(dma->regfile[0x0c / 4] & (1U << channel)) ||
-            !(cfg & (1U << 31)) || !(t[5] >> 16) ||
-            !total || total > 8192 || (total & 3) ||
-            (csr & 0x10) || (csr & 0x80)) {
+            !(cfg & (1U << 31)) ||
+            !citer || minor != 4 || citer > 2048 ||
+            (csr & 0x80) || ssize != 2 || dsize != 2 ||
+            t[3] != 0) {
             continue;
         }
-        if (ssize != 2 || dsize != 2 ||
-            t[3] != 0 || t[6] != 0) {
-            continue; /* never execute unsupported scatter/major links */
-        }
-        /* Original DY357 FUN_601C2F04 configures DMAMUX1 source
-         * 0x1A for LPSPI2 TX and 0x19 for LPSPI2 RX. An unrelated
-         * enabled DMA channel must not clock the WINC card. */
-        if (t[4] == UINT32_C(0x40290064) && soff == 4 && doff == 0 &&
-            (cfg & 0x7fU) == 0x1aU &&
+        /* DY357 FUN_601c2f04: DMA1 ch2 TX source 0x1a, ch3 RX
+         * source 0x19. Both are actual programmed guest registers. */
+        if (t[4] == UINT32_C(0x40290064) &&
+            soff == 4 && doff == 0 &&
+            (cfg & 0x7f) == 0x1a &&
             t[0] >= UINT32_C(0x60000000)) {
-            if (tx < 0) {
-                tx = channel;
-                nbytes = total;
-            }
+            if (tx < 0) tx = channel;
         } else if (t[0] == UINT32_C(0x40290074) &&
                    soff == 0 && doff == 4 &&
-                   (cfg & 0x7fU) == 0x19U &&
+                   (cfg & 0x7f) == 0x19 &&
                    t[4] >= UINT32_C(0x60000000)) {
-            /* RX can be the LOWER channel number. Do not compare its
-             * size to TX during discovery: the channel ordering is
-             * controlled by the original firmware, not the host. */
-            if (rx < 0) {
-                rx = channel;
-            }
+            if (rx < 0) rx = channel;
         }
     }
     if (tx < 0 || rx < 0) {
-        return; /* wait for both genuine host DMA channel requests */
+        return;
     }
-    uint32_t *td = &dma->regfile[(0x1000 + tx * 32) / 4];
-    uint32_t *rd = &dma->regfile[(0x1000 + rx * 32) / 4];
-    if (td[2] * (td[5] >> 16) != nbytes ||
-        rd[2] * (rd[5] >> 16) != nbytes ||
-        w->regfile[EXESX_LPSPI_FRAME_LEFT] < nbytes * 8U) {
-        return; /* do not claim DMA complete for a mismatched SPI frame */
-    }
-    uint32_t txsrc = td[0], rxdst = rd[4];
-    for (uint32_t i = 0; i < nbytes; i += 4) {
-        uint64_t word;
-        status = address_space_read(&address_space_memory, txsrc + i,
-                                    MEMTXATTRS_UNSPECIFIED, data, 4);
-        if (status != MEMTX_OK) {
-            qemu_log_mask(LOG_GUEST_ERROR,
-                          "EXeSX LPSPI2 eDMA TX RAM bus error\n");
+
+    for (steps = 0; steps < 64 && !tx_done; ++steps) {
+        uint32_t *td = &dma->regfile[(0x1000 + tx * 32) / 4];
+        uint32_t *rd = &dma->regfile[(0x1000 + rx * 32) / 4];
+        uint32_t txcount = td[5] >> 16;
+        uint32_t txbytes, rxbytes = 0;
+        uint32_t txsrc = td[0], txdest = td[4];
+        uint8_t data[4];
+
+        if (td[2] != 4 || !txcount || txcount > 2048 ||
+            (td[7] & 0x80)) {
+            break;
+        }
+        txbytes = txcount * 4;
+        if (txdest == UINT32_C(0x40290060)) {
+            /* A genuine chained TX descriptor reprograms TCR between
+             * original 512-byte frames. It clocks no MOSI bytes. */
+            uint32_t value;
+            if (txbytes != 4 || txsrc < UINT32_C(0x60000000)) {
+                break;
+            }
+            status = address_space_read(&address_space_memory, txsrc,
+                                        MEMTXATTRS_UNSPECIFIED, data, 4);
+            if (status != MEMTX_OK) break;
+            value = ldl_le_p(data);
+            if (exesx_lpspi2_write(w, 0x60, value, 4) != MEMTX_OK) {
+                break;
+            }
+        } else if (txdest == UINT32_C(0x40290064) && !rx_done &&
+                   rd[0] == UINT32_C(0x40290074) &&
+                   td[1] >> 24 == 2 && rd[1] >> 24 == 2 &&
+                   txsrc >= UINT32_C(0x60000000) &&
+                   rd[4] >= UINT32_C(0x60000000)) {
+            uint32_t rxcnt = rd[5] >> 16;
+            if (rd[2] != 4 || !rxcnt || rxcnt > 2048) {
+                break;
+            }
+            rxbytes = rxcnt * 4;
+            if (txbytes != rxbytes ||
+                clocked + txbytes > 8192 ||
+                w->regfile[EXESX_LPSPI_FRAME_LEFT] <
+                    txbytes * 8U) {
+                break;
+            }
+            for (uint32_t i = 0; i < txbytes; i += 4) {
+                uint64_t word;
+                status = address_space_read(&address_space_memory,
+                                            txsrc + i,
+                                            MEMTXATTRS_UNSPECIFIED, data, 4);
+                if (status != MEMTX_OK ||
+                    exesx_lpspi2_write(w, 0x64,
+                                        ldl_le_p(data), 4) != MEMTX_OK ||
+                    exesx_lpspi2_read(w, 0x74, &word, 4) != MEMTX_OK) {
+                    return;
+                }
+                stl_le_p(data, (uint32_t)word);
+                status = address_space_write(&address_space_memory,
+                                             rd[4] + i,
+                                             MEMTXATTRS_UNSPECIFIED, data, 4);
+                if (status != MEMTX_OK) {
+                    qemu_log_mask(LOG_GUEST_ERROR,
+                                  "EXeSX WLAN eDMA RX RAM bus error\n");
+                    return;
+                }
+            }
+            clocked += txbytes;
+            if (!exesx_lpspi2_dma_advance(w, dma, rx, rxbytes)) {
+                return;
+            }
+            rx_done = !(rd[5] >> 16);
+        } else {
+            /* Unsupported peripheral descriptor: don't produce a
+             * successful guest DMA interrupt without real clocks. */
+            break;
+        }
+        bool was_link = !!(td[7] & 0x10);
+        if (!exesx_lpspi2_dma_advance(w, dma, tx, txbytes)) {
             return;
         }
-        uint32_t word_in = ldl_le_p(data);
-        status = exesx_lpspi2_write(w, 0x64, word_in, 4);
-        if (status != MEMTX_OK) {
-            return;
-        }
-        status = exesx_lpspi2_read(w, 0x74, &word, 4);
-        if (status != MEMTX_OK) {
-            return;
-        }
-        stl_le_p(data, (uint32_t)word);
-        status = address_space_write(&address_space_memory, rxdst + i,
-                                     MEMTXATTRS_UNSPECIFIED, data, 4);
-        if (status != MEMTX_OK) {
-            qemu_log_mask(LOG_GUEST_ERROR,
-                          "EXeSX LPSPI2 eDMA RX RAM bus error\n");
-            return;
+        tx_done = !was_link;
+        if (rxbytes && rx_done) {
+            /* RX descriptor's successor may have been loaded above. */
+            rx_done = !!(rd[7] & 0x80);
         }
     }
-    /* Actual bytes moved. Apply the real eDMA TCD state transitions. */
-    td[0] += nbytes;
-    rd[4] += nbytes;
-    td[5] &= 0xffff;
-    rd[5] &= 0xffff;
-    for (unsigned k = 0; k < 2; ++k) {
-        unsigned channel = k ? rx : tx;
-        uint32_t *t = k ? rd : td;
-        uint16_t csr = t[7] & 0xffff;
-        t[7] |= 0x80; /* DONE */
-        if (csr & 8) {
-            dma->regfile[0x0c / 4] &= ~(1U << channel); /* DREQ */
-        }
-        if (csr & 2) {
-            dma->regfile[0x24 / 4] |= 1U << channel; /* INTMAJOR */
-            qemu_set_irq(w->board->dma1_group_irqs[channel & 15], 1);
-        }
+    if (clocked && !g_strcmp0(g_getenv("EXESX_TRACE_WLAN_SPI"), "1")) {
+        qemu_log("EXeSX WINC guest-originated linked eDMA "
+                 "%u bytes, %u TCD steps, TX ch%d RX ch%d\n",
+                 clocked, steps, tx, rx);
     }
-    qemu_log_mask(LOG_UNIMP,
-                  "EXeSX LPSPI2 real paired eDMA %u bytes TX ch%d RX ch%d "
-                  "PCS%u, TCD DONE/IRQ only after successful MMIO bus\n",
-                  nbytes, tx, rx, w->regfile[EXESX_LPSPI_ACTIVE_PCS]);
 }
