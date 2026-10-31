@@ -193,6 +193,68 @@ class SPIProtocolTests(unittest.TestCase):
         self.assertEqual(device.hif_notifications, [])
         self.assertIsNone(device.selected_pcs)
 
+    @staticmethod
+    def original_hif(dev, opcode, payload=b""):
+        """Write complete source-derived HIF bytes and notify via WINC reg."""
+        body = bytes((1, opcode)) + (8 + len(payload)).to_bytes(2, "little")
+        body += bytes(4) + payload
+        dev._dma_put(0x30000, body)
+        dev._write_reg(0x106c, (0x30000 << 2) | 2)
+
+    def test_real_hif_opcodes_ap_rssi_and_dhcp_fixture(self):
+        dev = Winc1510SPI(hif_mailbox=True, fixture_ssid="TestBench",
+                          fixture_ipv4="192.0.2.31", fixture_rssi_dbm=-61)
+        self.original_hif(dev, 0xbb, b"TestBench" + bytes(39))
+        self.assertTrue(dev.ap_connected)
+        self.assertEqual(dev.hif_requests[-1]["opcode"], 0xbb)
+        self.assertEqual(dev.hif_notifications, [(1, 0x2c, 12)])
+        self.assertFalse(dev.irq_n)
+        self.assertEqual(dev._dma_get(0x32008, 4), bytes((1, 0, 0, 0)))
+        # The DHCP callback must wait until original A7 acknowledges IRQ.
+        self.assertEqual(len(dev.deferred_callbacks), 1)
+        dev._write_reg(0x1070, 0)
+        self.assertEqual(dev.hif_notifications[-1], (1, 0x32, 32))
+        self.assertEqual(dev._dma_get(0x32008, 4), bytes((192, 0, 2, 31)))
+        dev._write_reg(0x1070, 0)
+        self.original_hif(dev, 5)
+        self.assertEqual(dev.hif_notifications[-1], (1, 6, 56))
+        self.assertEqual(dev._dma_get(0x32008, 9), b"TestBench")
+        self.assertEqual(dev._dma_get(0x32008 + 45, 1), bytes((6,)))
+        dev._write_reg(0x1070, 0)
+        self.original_hif(dev, 3)
+        self.assertEqual(dev.hif_notifications[-1], (1, 4, 12))
+        self.assertEqual(dev._dma_get(0x32008, 1), bytes((195,)))  # -61
+        dev._write_reg(0x1070, 0)
+        self.original_hif(dev, 0x2b)
+        self.assertFalse(dev.ap_connected)
+        self.assertEqual(dev.hif_notifications[-1], (1, 0x2c, 12))
+
+    def test_ap_fixture_negative_controls_and_power_request(self):
+        offline = Winc1510SPI(hif_mailbox=True)
+        self.original_hif(offline, 0xbb, b"TestBench" + bytes(39))
+        self.assertFalse(offline.ap_connected)
+        self.assertEqual(offline.hif_notifications, [])
+        mismatch = Winc1510SPI(hif_mailbox=True, fixture_ssid="TestBench")
+        self.original_hif(mismatch, 0xbb, b"OtherSSID" + bytes(39))
+        self.assertFalse(mismatch.ap_connected)
+        self.assertEqual(mismatch._dma_get(0x32008, 2), bytes((0, 1)))
+        mismatch._write_reg(0x1070, 0)
+        self.original_hif(mismatch, 0x2d, bytes((3, 1, 0, 0)))
+        self.assertEqual(mismatch.power_save_mode, (3, 1))
+        self.assertFalse(mismatch.ap_connected)
+        self.assertTrue(mismatch.irq_n)
+        mismatch.set_pins(reset_n=False)
+        self.assertIsNone(mismatch.power_save_mode)
+        self.assertEqual(mismatch.hif_notifications, [])
+        with self.assertRaises(ValueError):
+            Winc1510SPI(fixture_ipv4="192.0.2.20")
+        with self.assertRaises(ValueError):
+            Winc1510SPI(hif_mailbox=True, fixture_ssid="TestBench",
+                        fixture_ipv4="300.1.1.1")
+        with self.assertRaises(ValueError):
+            Winc1510SPI(hif_mailbox=True, fixture_ssid="TestBench",
+                        fixture_rssi_dbm=0)
+
     def test_optional_crc_extra_command_byte(self):
         dev=Winc1510SPI(crc=True)
         dev.shift(0,bytes.fromhex("ca0010005a"),begin=True)
