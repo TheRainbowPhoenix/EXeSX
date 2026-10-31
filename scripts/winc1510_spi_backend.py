@@ -30,7 +30,8 @@ MAX_FLASH = 1024 * 1024
 class Winc1510SPI:
     def __init__(self, flash=None, chip_id=0x1002b0, crc=False,
                  hif_mailbox=False, fixture_ssid=None,
-                 fixture_identity=False, frame_spanning_cs=False):
+                 fixture_identity=False, frame_spanning_cs=False,
+                 fixture_rssi_dbm=-55, fixture_ipv4=None):
         if flash is not None and len(flash) > MAX_FLASH:
             raise ValueError("WINC SPI flash image larger than documented 1 MiB")
         self.flash = bytes(flash) if flash is not None else None
@@ -48,7 +49,22 @@ class Winc1510SPI:
         self.fixture_ssid = fixture_ssid
         self.fixture_identity = bool(fixture_identity)
         self.frame_spanning_cs = bool(frame_spanning_cs)
+        if not -100 <= fixture_rssi_dbm <= -1:
+            raise ValueError("fixture RSSI must be -100..-1 dBm")
+        if fixture_ipv4 is not None:
+            if fixture_ssid is None or not hif_mailbox:
+                raise ValueError("DHCP fixture requires an AP and HIF")
+            octets = fixture_ipv4.split(".")
+            if len(octets) != 4 or any(
+                    not x.isascii() or not x.isdecimal() or
+                    not 0 <= int(x) <= 255 for x in octets):
+                raise ValueError("invalid fixture IPv4 address")
+            self.fixture_ipv4 = bytes(int(x) for x in octets)
+        else:
+            self.fixture_ipv4 = None
+        self.fixture_rssi_dbm = fixture_rssi_dbm
         self.ap_connected = False
+        self.power_save_mode = None
         self.deferred_callbacks = deque()
         self.hif_outbound_addr = 0x30000
         self.hif_inbound_addr = 0x32000
@@ -109,6 +125,7 @@ class Winc1510SPI:
             self.hif_requests.clear()
             self.hif_notifications.clear()
             self.ap_connected = False
+            self.power_save_mode = None
             self.deferred_callbacks.clear()
             self.registers.clear()
             self.registers.update({
@@ -228,20 +245,44 @@ class Winc1510SPI:
         # A7 HIF commands, and only with an explicit configured AP.
         # The A7 must fetch it through WINC SPI, handle IRQ_N and
         # build its OWN application event. There is no guest SRAM write.
+        if group == 1 and opcode == 0x2d and len(payload) >= 2:
+            # Original FUN_601cab94 emits this request for auto-deep
+            # sleep; record settings but never invent a host OK event.
+            self.power_save_mode = (payload[0], payload[1])
+            self.events.append(("guest-power-save-request", *self.power_save_mode))
         if self.fixture_ssid is not None and group == 1:
-            if opcode == 0x10:  # original FUN_601C3E90 connect
-                self.ap_connected = True
-                self._defer_hif_callback(1, 0x2c, b"\x01" + bytes(3))
-            elif opcode == 3:  # original FUN_601C3F6C disconnect
+            if opcode == 0xbb:
+                # Original FUN_601c37d0 emits group1/0xBB with SSID
+                # inside the security/connection structure (up to 0x30).
+                expected = self.fixture_ssid.encode("utf-8")
+                if expected not in payload:
+                    self.events.append(("ap-fixture-ssid-mismatch",))
+                    self._defer_hif_callback(1, 0x2c, bytes((0, 1, 0, 0)))
+                else:
+                    self.ap_connected = True
+                    self.events.append(("ap-fixture-associated", self.fixture_ssid))
+                    self._defer_hif_callback(1, 0x2c, bytes((1, 0, 0, 0)))
+                    if self.fixture_ipv4 is not None:
+                        # Device-side WINC DHCP callback 0x32. Original
+                        # A7 must handle the IRQ and copy the 24 bytes.
+                        lease = self.fixture_ipv4 + bytes(20)
+                        self._defer_hif_callback(1, 0x32, lease)
+            elif opcode == 0x2b:
+                # Original FUN_601c3d78 sends 0x2B disconnect.
                 self.ap_connected = False
                 self._defer_hif_callback(1, 0x2c, bytes(4))
-            elif opcode == 0x2f and self.ap_connected:
-                # Original FUN_601C3030 expects 100 bytes for AP info.
-                # Offset0 SSID length, offset1 channel, 2.. SSID.
+            elif opcode == 5 and self.ap_connected:
+                # Original FUN_601c4088 queries AP info. FUN_601c3030
+                # reads 48 bytes; callback reads channel from byte45.
                 ssid = self.fixture_ssid.encode("utf-8")
-                info = bytes((len(ssid), 1)) + ssid.ljust(33, b"\0")
-                info += bytes(100 - len(info))
-                self._defer_hif_callback(1, 0x2f, info)
+                info = bytearray(48)
+                info[:len(ssid)] = ssid
+                info[45] = 6
+                self._defer_hif_callback(1, 6, bytes(info))
+            elif opcode == 3 and self.ap_connected:
+                # Original FUN_601c3f6c -> 0x03 query, 0x04 callback.
+                self._defer_hif_callback(
+                    1, 4, bytes((self.fixture_rssi_dbm & 0xff, 0, 0, 0)))
 
     def _defer_hif_callback(self, group, opcode, payload):
         if self.registers.get(0x1070, 0) & 1:
@@ -468,6 +509,10 @@ def main():
     p.add_argument("--fixture-ssid", type=str,
                    help="opt-in deterministic simulated AP name (NO real radio,"
                         " internet proxy, DHCP or socket semantics)")
+    p.add_argument("--fixture-rssi-dbm", type=int, default=-55,
+                   help="simulated RSSI (-100..-1 dBm), only after query")
+    p.add_argument("--fixture-ipv4", type=str,
+                   help="explicit simulated DHCP address, no host network")
     p.add_argument("--hif-mailbox", action="store_true",
                    help="implement original WINC HIF grant/notify and RAM;"
                         " does NOT auto-ACK network or association commands")
@@ -479,7 +524,9 @@ def main():
                        hif_mailbox=args.hif_mailbox,
                        fixture_ssid=args.fixture_ssid,
                        fixture_identity=args.fixture_identity,
-                       frame_spanning_cs=args.frame_spanning_cs)
+                       frame_spanning_cs=args.frame_spanning_cs,
+                       fixture_rssi_dbm=args.fixture_rssi_dbm,
+                       fixture_ipv4=args.fixture_ipv4)
     serve(args.listen, args.port, chip, args.gpio_status)
 
 
