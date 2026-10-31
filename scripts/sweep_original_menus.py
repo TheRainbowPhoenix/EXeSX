@@ -93,6 +93,26 @@ FACTORY_KNOWN_ROWS = {1, 8, 13}
 # silently navigating back into DISPLAY instead of the WLAN menu.
 # The first two are original MANUAL MENU -> WLAN CHECK MENU;
 # the third is the genuine "****< Wi-Fi MENU >****" with RSSI TEST row 1.
+# The original root TEST MENU and nested MANUAL CHECK share the literal
+# header "MANUAL MENU". A title-only fingerprint is insufficient: the
+# nested menu has row2 MEMORY MENU and row3 eMMC MENU, whereas the root
+# has ARM PATTERN entries. Golden is derived only from the original LCD
+# row2-4 *caption ink*, not guest state or synthetic text injection.
+ORIGINAL_MANUAL_CHECK_ROWS_SHA256 = (
+    "880467b96e315f0f46957098e2ba6ed17ce2faa257e139d9672001650bd7cf38"
+)
+
+
+def original_menu_rows_fingerprint(rgb):
+    ink = bytearray()
+    for row in (2, 3, 4):
+        y0 = round(25 + (row - 1) * 24.3)
+        ink.extend(int(rgb[3 * (y * 864 + x)] < 127)
+                   for y in range(y0, y0 + 20)
+                   for x in range(20, 430))
+    return hashlib.sha256(ink).hexdigest()
+
+
 ORIGINAL_WLAN_ROUTE_HEADERS = {
     (1, 8): "252dd05d8034ae95fce3ad729a483efba2eda65c9bca9a6972f516eb9c1eb721",
     (1, 8, 1): "c4ad1600bca91a11754d3b74f1fe04dcb91bc35231cc276bcc1f20a069706d54",
@@ -106,7 +126,7 @@ ROOT_UNMAPPED = tuple(
 )
 
 
-def require_original_menu_header(route, observed):
+def require_original_menu_header(route, observed, rgb=None):
     """Reject wrong navigation even when the native LCD changed.
 
     A stale M4 ENTER once went from WLAN CHECK MENU into DISPLAY MENU.
@@ -125,6 +145,12 @@ def require_original_menu_header(route, observed):
     if expected and observed != expected:
         raise RuntimeError("original factory route heading mismatch: " +
                            ",".join(map(str, route)))
+    if tuple(route) == (1,):
+        if rgb is None or original_menu_rows_fingerprint(rgb) != (
+                ORIGINAL_MANUAL_CHECK_ROWS_SHA256):
+            raise RuntimeError(
+                "root and nested MANUAL MENU have identical titles; "
+                "original row-caption evidence does not match nested menu")
 
 
 def all_cases():
@@ -336,7 +362,8 @@ def run_case(args, case, attempt, goldens):
                     attempts=args.entry_attempts)
                 entered.append({"row": row, "header_sha256": title})
                 require_original_menu_header(
-                    case.route[:depth + 1], title)
+                    case.route[:depth + 1], title,
+                    screen_rgb(root, stage + "-opened"))
             # A native WLAN OK/NG can appear briefly before the A7
             # returns to the previous menu. Preserve distinct real LCD
             # screenshots throughout observation; never infer an OK
