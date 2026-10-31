@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Syntax-check original-ROM E2E runner
-        run: python3 -m py_compile scripts/ci_e2e_arm_pattern.py scripts/ci_e2e_display_advanced.py
+        run: python3 -m py_compile scripts/ci_e2e_arm_pattern.py scripts/ci_e2e_display_advanced.py scripts/sweep_original_menus.py
       - name: Syntax-check LCD backlight GPIO probe
         run: python3 -m py_compile scripts/probe_lcd_backlight_enable.py
       - name: Syntax-check PWM A/B diagnostic
@@ -188,6 +188,7 @@ jobs:
         run: |
           python3 -m py_compile scripts/auto_driver.py scripts/drive_ca05_factory_menu_nogdb.py scripts/factory_control_panel.py scripts/headless_factory_menu_checks.py
           python3 -m unittest discover -s tests -p test_factory_auto_driver.py -v
+          python3 scripts/sweep_original_menus.py --list --scope all > /dev/null
           python3 -m unittest discover -s tests -p test_factory_control_panel.py -v
           python3 scripts/probe_lcd_qmp.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
           python3 scripts/probe_adc_conversion.py --qemu build/qemu-system-arm --profile profiles/imx7ulp-early-boot.ini
@@ -235,6 +236,7 @@ jobs:
           cp scripts/hmp_memory.py dist/exesx-qemu-linux-x86_64/
           # Ship the real opt-in WINC1510 TCP/HIF slave used by original-ROM tests.
           cp scripts/winc1510_spi_backend.py dist/exesx-qemu-linux-x86_64/
+          cp scripts/sweep_original_menus.py scripts/ci_e2e_arm_pattern.py scripts/ci_e2e_display_advanced.py scripts/usb_factory_host.py dist/exesx-qemu-linux-x86_64/
           cp -r profiles dist/exesx-qemu-linux-x86_64/
           cp build/cp15-probe.elf dist/exesx-qemu-linux-x86_64/
           cp docs/local-firmware.md dist/exesx-qemu-linux-x86_64/LOCAL-FIRMWARE.md
