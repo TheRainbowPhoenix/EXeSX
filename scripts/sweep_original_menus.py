@@ -188,7 +188,18 @@ def press_and_open(qmp, contact, out, stage, attempts=6):
         finally:
             physical(contact, "0")
         if changed:
-            time.sleep(.3)
+            # The original A7 can paint a new menu title BEFORE it
+            # dispatches the subsequent ENTER to the new handler.
+            # Sending a new key immediately after the first changed
+            # LCD frame can dispatch it into the previous MANUAL MENU
+            # and wrongly open DISPLAY rather than WLAN COMMUNICATION.
+            # Release the physical M4 contact and require its key latch
+            # to clear, then let the original A7 finish the transition.
+            for _ in range(35):
+                if m4_idle(qmp):
+                    break
+                time.sleep(.04)
+            time.sleep(1.25)
             settled = frame(qmp, out, stage + "-opened")
             final = native_header_fingerprint(screen_rgb(out, stage + "-opened"))
             if final != old_title:
