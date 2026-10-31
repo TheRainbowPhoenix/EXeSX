@@ -270,6 +270,8 @@ class SPIProtocolTests(unittest.TestCase):
         ack = b"".join(dev.shift(2, bytes([0]), begin=True, end=True)
                        for _ in range(3))
         self.assertEqual(ack, bytes.fromhex("c700f3"))
+        # Command-echo polling never contaminates HIF DMA RAM.
+        self.assertEqual(dev._dma_get(0x30000, 8), bytes(8))
         dev.shift(2, bytes.fromhex("f3"), begin=True, end=True)
         header = bytes.fromhex("013b0c0000000000")
         dev.shift(2, header, begin=True, end=True)
