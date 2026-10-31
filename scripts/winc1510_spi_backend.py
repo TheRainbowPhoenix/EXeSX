@@ -29,7 +29,8 @@ MAX_FLASH = 1024 * 1024
 
 class Winc1510SPI:
     def __init__(self, flash=None, chip_id=0x1002b0, crc=False,
-                 hif_mailbox=False, fixture_ssid=None):
+                 hif_mailbox=False, fixture_ssid=None,
+                 fixture_identity=False):
         if flash is not None and len(flash) > MAX_FLASH:
             raise ValueError("WINC SPI flash image larger than documented 1 MiB")
         self.flash = bytes(flash) if flash is not None else None
@@ -45,6 +46,7 @@ class Winc1510SPI:
         # Deliberately deterministic AP fixture: no RF and no TCP/IP.
         # An unconfigured card must NOT auto-report a connection.
         self.fixture_ssid = fixture_ssid
+        self.fixture_identity = bool(fixture_identity)
         self.ap_connected = False
         self.deferred_callbacks = deque()
         self.hif_outbound_addr = 0x30000
@@ -56,6 +58,7 @@ class Winc1510SPI:
                           0x108c: 0, 0x106c: 0, 0x150400: 0}
         self.memory = {}
         self.events = []
+        self._populate_fixture_identity()
         # Board control pins are electrical lines, not HIF "OK" events.
         # Active-low RESET_N and WAKE_N; CHIP_EN is active high.
         self.reset_n = True
@@ -63,6 +66,29 @@ class Winc1510SPI:
         self.chip_enable = True
         self.selected_pcs = None
         self._reset_transaction()
+
+    def _populate_fixture_identity(self):
+        """Optional simulated WINC metadata in the original A7 layout.
+
+        Original FUN_601c14a8/FUN_601c4100 read WINC reg 0xC0008,
+        then the eight-byte pointer table at (value | 0x30000).
+        The first two little-endian offsets name the six-byte MAC
+        and the 40-byte version record. No guest event is injected.
+        """
+        if not self.fixture_identity:
+            return
+        self.registers[0xc0008] = 0x1000
+        header = (0x1100).to_bytes(4, "little")
+        header += (0x1200).to_bytes(4, "little")
+        mac = bytes((0x02, 0x35, 0x70, 0x15, 0x10, 0x01))
+        version = bytearray(40)
+        version[4:7] = bytes((19, 6, 1))
+        version[7:10] = bytes((19, 6, 1))
+        for address, payload in ((0x31000, header),
+                                 (0x31100, mac),
+                                 (0x31200, version)):
+            for offset, value in enumerate(payload):
+                self.memory[address + offset] = value
 
     def set_pins(self, reset_n=True, wake_n=False, chip_enable=True):
         """Apply genuine board pins supplied by the QEMU GPIO bridge.
@@ -87,6 +113,7 @@ class Winc1510SPI:
                 0x1070: 0, 0x1078: 0, 0x1084: 0, 0x108c: 0,
                 0x106c: 0, 0x150400: 0,
             })
+            self._populate_fixture_identity()
             self.events.append(("hardware-reset-or-chip-disabled",))
         self.reset_n = reset_n
         self.wake_n = wake_n
@@ -253,6 +280,7 @@ class Winc1510SPI:
             self.registers.update({0x1000: self.chip_id, 0x13f4: 3,
                                    0x1070: 0, 0x1078: 0, 0x1084: 0,
                                    0x108c: 0, 0x106c: 0, 0x150400: 0})
+            self._populate_fixture_identity()
             self.pending.extend((cmd, 0))
         elif cmd in (0xc5, 0xc6):
             self.pending.extend((cmd, 0))
@@ -390,6 +418,9 @@ def main():
     p.add_argument("--gpio-status", action="store_true",
                    help="extended bridge: RESET_N/WAKE_N/EN control flags and"
                         " one sampled IRQ_N status byte after each SPI response")
+    p.add_argument("--fixture-identity", action="store_true",
+                   help="simulated WINC ROM metadata (MAC 02:35:70:15:10:01, "
+                        "firmware 19.6.1); no guest status injection")
     p.add_argument("--fixture-ssid", type=str,
                    help="opt-in deterministic simulated AP name (NO real radio,"
                         " internet proxy, DHCP or socket semantics)")
@@ -402,7 +433,8 @@ def main():
     flash = args.flash.read_bytes() if args.flash else None
     chip = Winc1510SPI(flash, args.chip_id, args.command_crc,
                        hif_mailbox=args.hif_mailbox,
-                       fixture_ssid=args.fixture_ssid)
+                       fixture_ssid=args.fixture_ssid,
+                       fixture_identity=args.fixture_identity)
     serve(args.listen, args.port, chip, args.gpio_status)
 
 
