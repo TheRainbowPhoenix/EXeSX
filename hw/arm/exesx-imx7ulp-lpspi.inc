@@ -628,7 +628,8 @@ static void exesx_lpspi2_dma_kick(EXeSXProfileWindow *w)
 
         if (!(dma->regfile[0x0c / 4] & (1U << channel)) ||
             !(cfg & (1U << 31)) ||
-            !citer || minor != 4 || citer > 2048 ||
+            !citer || !minor || (minor & 3) ||
+            (uint64_t)minor * citer > 8192 ||
             (csr & 0x80) || ssize != 2 || dsize != 2 ||
             t[3] != 0) {
             continue;
@@ -659,11 +660,12 @@ static void exesx_lpspi2_dma_kick(EXeSXProfileWindow *w)
         uint32_t txsrc = td[0], txdest = td[4];
         uint8_t data[4];
 
-        if (td[2] != 4 || !txcount || txcount > 2048 ||
+        if (!td[2] || (td[2] & 3) || !txcount ||
+            (uint64_t)td[2] * txcount > 8192 ||
             (td[7] & 0x80)) {
             break;
         }
-        txbytes = txcount * 4;
+        txbytes = txcount * td[2];
         if (txdest == UINT32_C(0x40290060)) {
             /* A genuine chained TX descriptor reprograms TCR between
              * original 512-byte frames. It clocks no MOSI bytes. */
@@ -684,10 +686,11 @@ static void exesx_lpspi2_dma_kick(EXeSXProfileWindow *w)
                    txsrc >= UINT32_C(0x60000000) &&
                    rd[4] >= UINT32_C(0x60000000)) {
             uint32_t rxcnt = rd[5] >> 16;
-            if (rd[2] != 4 || !rxcnt || rxcnt > 2048) {
+            if (!rd[2] || (rd[2] & 3) || !rxcnt ||
+                (uint64_t)rd[2] * rxcnt > 8192) {
                 break;
             }
-            rxbytes = rxcnt * 4;
+            rxbytes = rxcnt * rd[2];
             if (txbytes != rxbytes ||
                 clocked + txbytes > 8192 ||
                 w->regfile[EXESX_LPSPI_FRAME_LEFT] <
