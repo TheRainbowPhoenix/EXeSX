@@ -276,10 +276,10 @@ class SPIProtocolTests(unittest.TestCase):
         header = bytes.fromhex("013b0c0000000000")
         dev.shift(2, header, begin=True, end=True)
         self.assertEqual(dev._dma_get(0x30000, 8), header)
-        self.assertEqual(dev.shift(2, bytes(2), begin=True, end=True),
-                         bytes([255, 255]))
-        self.assertEqual(dev.shift(2, bytes(2), begin=True, end=True),
-                         bytes.fromhex("c300"))
+        # Original FUN_601c18c4 reads exactly three clocks after the
+        # last data byte; the response must be FF,C3,00 (not FF,FF,C3).
+        self.assertEqual(dev.shift(2, bytes(3), begin=True, end=True),
+                         bytes.fromhex("ffc300"))
         self.assertIsNone(dev.selected_pcs)
         self.assertIn(("dma-write-data-ack",), dev.events)
         self.assertEqual(dev.hif_requests, [])
