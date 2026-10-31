@@ -88,6 +88,17 @@ CASES = (
 # labels/hardware classification before any automatic ENTER. Do not try
 # unknown firmware-modifying tests speculatively.
 FACTORY_KNOWN_ROWS = {1, 8, 13}
+# Reference fingerprints are measured from the owner-original A7 LCD,
+# not inferred from a changed frame. Prevent stale M4 ENTER keys from
+# silently navigating back into DISPLAY instead of the WLAN menu.
+# The first two are original MANUAL MENU -> WLAN CHECK MENU;
+# the third is the genuine "****< Wi-Fi MENU >****" with RSSI TEST row 1.
+ORIGINAL_WLAN_ROUTE_HEADERS = {
+    (1, 8): "252dd05d8034ae95fce3ad729a483efba2eda65c9bca9a6972f516eb9c1eb721",
+    (1, 8, 1): "c4ad1600bca91a11754d3b74f1fe04dcb91bc35231cc276bcc1f20a069706d54",
+}
+
+
 ROOT_UNMAPPED = tuple(
     MenuCase("factory-row-%02d-unmapped" % row, (row,), "blocked",
              "root row action not yet audited; no automatic ENTER")
@@ -294,6 +305,12 @@ def run_case(args, case, attempt, goldens):
                     if known and title != HEADERS[known]:
                         raise RuntimeError("original submenu header mismatch: " +
                                            known)
+                    expected_wlan = ORIGINAL_WLAN_ROUTE_HEADERS.get(
+                        case.route[:depth + 1])
+                    if expected_wlan and title != expected_wlan:
+                        raise RuntimeError(
+                            "original WLAN route lost (stale ENTER or "
+                            "incorrect key navigation): " + stage)
             # A native WLAN OK/NG can appear briefly before the A7
             # returns to the previous menu. Preserve distinct real LCD
             # screenshots throughout observation; never infer an OK
