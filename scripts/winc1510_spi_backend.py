@@ -79,6 +79,8 @@ class Winc1510SPI:
         if not self.fixture_identity:
             return
         self.registers[0xc0008] = 0x1000
+        # FUN_601c1298 checks bit0 of WINC 0x207bc for firmware boot.
+        self.registers[0x207bc] = 1
         header = (0x1100).to_bytes(4, "little")
         header += (0x1200).to_bytes(4, "little")
         mac = bytes((0x02, 0x35, 0x70, 0x15, 0x10, 0x01))
@@ -156,6 +158,11 @@ class Winc1510SPI:
         return (header[1] << 16) | (header[2] << 8) | header[3]
 
     def _read_reg(self, addr):
+        # Original DY357 FUN_601c1298 polls WINC 0x1014 bit31 for
+        # power/clock readiness before starting HIF. This is physical
+        # chip status, never a fabricated guest callback or WLAN PASS.
+        if addr == 0x1014:
+            return 0x80000000 if self.reset_n and self.chip_enable else 0
         if addr in self.registers:
             return self.registers[addr]
         if self.flash is not None and 0x400000 <= addr < 0x400000 + len(self.flash):
