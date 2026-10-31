@@ -408,7 +408,14 @@ class Winc1510SPI:
                     # we returned FF,FF,00: the original A7 regarded
                     # this as a failed write, issued CMD_RESET (0xCF)
                     # and retried the same HIF header ten times.
-                    self.data_crc_remaining = 2
+                    # The original A7 reads three response bytes after
+                    # the F3 + payload transfer. Observed MOSI/MISO:
+                    # 00 00 00 -> FF C3 00. One turnaround dummy clock,
+                    # then the real last-data-packet status C3,00.
+                    # Do not consume two CRC clocks here: doing so
+                    # shifts C3 to byte3, which original FUN_601c18c4
+                    # rejects and triggers ten CMD_RESET retries.
+                    self.data_crc_remaining = 1
                 else:
                     self.pending.extend((0,))
             return response
