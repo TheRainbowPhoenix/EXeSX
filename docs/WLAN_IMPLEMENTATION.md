@@ -1,5 +1,45 @@
 # DY357 WLAN: firmware entry points, candidate device, and pass criteria
 
+## 2026-10-31 original WLAN RSSI cold-boot trace: bounded remaining failure
+
+**Unchanged private original OSUP; QEMU `tcg,thread=single`; physical M4
+factory chord and menu entry; `snapshot=on` on eMMC/SD.**
+
+- Original A7 reached genuine `Wi-Fi RSSI TEST`, displayed
+  `CONNECTING TO AP...`, then `WLAN CONNECT ERROR! E 06`.
+  Original LCD captures are retained owner-local only.
+- Actual LPSPI2 PCS2 guest SPI traffic was observed in Python. Original
+  WINC `C7` DMA write header/data byte handling had two simulator
+  defects: readback dummy clocks were incorrectly stored as HIF payload,
+  and the data packet reply was misaligned. Fixed with genuine original
+  `C7 00 F3` command ack and `FF C3 00` packet acknowledgment.
+- The real A7 subsequently issued HIF messages through `C7` at
+  WINC RAM offsets `0x30000` and `0x30008`, then notified `0x106C`
+  using a true `C9` register write. This is **real original SPI/HIF
+  communication**, not an injected A7 callback or fake WLAN PASS.
+- A subsequent original `C7` payload to `0x30038` with length
+  **108 bytes** stalled before any MOSI payload clock. The firmware
+  reset/retried and displayed `E 06`; the remaining gate is
+  original eDMA1 scatter/gather trigger/descriptor compatibility.
+- Independent firmware-free native ARM QEMU probes passed a full
+  **108-byte paired SPI eDMA1 transfer** and one using an ESG-linked
+  TCR descriptor, so byte length alone is not the cause. Those are
+  not original-ROM or WLAN radio results.
+- Source-only `EXESX_TRACE_WLAN_DMA_REJECT=1` now exposes exact
+  DMA1 TCD2/3/ERQ/DMAMUX/LPSPI enable/length rejection state without
+  changing guest memory. The IRQ_N bridge now waits until genuine
+  LPSPI2 `MEN` is set, avoiding early synchronous Wi-Fi TCP polling
+  during unrelated M4 keyboard scanning.
+- Original factory entry remains intermittent with WLAN instrumentation.
+  A **separate no-WINC CI-style control cold boot passed original ARM
+  PATTERN AUTO CHECK and its exact framebuffer golden**. Missed
+  factory startup chords are not WLAN RSSI test failures.
+
+**Current verdict: original WLAN RSSI E2E NOT PASSING; AP association,
+DHCP, power-management and USB factory WLAN are not proven.** Keep
+simulated HIF fixture tests distinct from original LCD acceptance.
+Never commit private OSUP, AP credentials, raw emulator logs or pixels.
+
 ## 2026-10-31: AP/RSSI/DHCP fixture and on-demand factory menu inventory
 
 **Source-derived request/callback mapping (original private A7 decompilation):**
