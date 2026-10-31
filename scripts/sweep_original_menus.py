@@ -212,7 +212,7 @@ def press_and_open(qmp, contact, out, stage, attempts=6):
     raise RuntimeError("physical ENTER did not change original LCD title: " + stage)
 
 
-ORIGINAL_CHORD_CHECKPOINTS = ("first", "last", "accepted")
+ORIGINAL_CHORD_CHECKPOINTS = ("first", None, "accepted")
 
 
 def factory_boot(qmp, contact, trace, proc, timeout):
@@ -258,18 +258,19 @@ def factory_boot(qmp, contact, trace, proc, timeout):
                 if not down and now >= next_at:
                     if index == 0 or m4_idle(qmp) or now - up_at > .75:
                         physical(contact, ("0x93", "0x93", "0x94")[index])
-                        ack_before = hits[desired]
+                        ack_before = hits[desired] if desired else 0
                         pressed = now
                         down = True
-                elif down and (hits[desired] > ack_before or
+                elif down and ((desired is not None and
+                               hits[desired] > ack_before) or
                                now - pressed >= .34):
-                    acknowledged = hits[desired] > ack_before
+                    acknowledged = (desired is None or hits[desired] > ack_before)
                     physical(contact, "0")
                     down = False
                     up_at = now
                     if acknowledged:
                         index += 1
-                        next_at = now + .18
+                        next_at = now + .012
                     else:
                         misses[index] += 1
                         if misses[index] >= 6:
