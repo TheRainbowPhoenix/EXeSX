@@ -106,6 +106,11 @@ lpspi_target = qemu / 'hw/arm/exesx-imx7ulp-lpspi.inc'
 if lpspi_target.exists() and lpspi_target.read_bytes() != lpspi_module.read_bytes():
     raise SystemExit('Refusing to overwrite changed upstream exesx-imx7ulp-lpspi.inc')
 lpspi_target.write_bytes(lpspi_module.read_bytes())
+usb_module = root / 'hw/arm/exesx-imx7ulp-usb.inc'
+usb_target = qemu / 'hw/arm/exesx-imx7ulp-usb.inc'
+if usb_target.exists() and usb_target.read_bytes() != usb_module.read_bytes():
+    raise SystemExit('Refusing to overwrite changed upstream exesx-imx7ulp-usb.inc')
+usb_target.write_bytes(usb_module.read_bytes())
 sema_module = root / 'hw/arm/exesx-imx7ulp-sema42.inc'
 sema_target = qemu / 'hw/arm/exesx-imx7ulp-sema42.inc'
 if sema_target.exists() and sema_target.read_bytes() != sema_module.read_bytes():

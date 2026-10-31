@@ -53,6 +53,12 @@ A7_MILESTONES = {
     # checkpoints, not touch-test OK verdicts.
     0x600580dc: "TOUCH PANEL PRESET handler entered",
     0x6005830c: "E2 PATTERN CHECK handler entered",
+    0x60059404: "Native WIFI AUTO TEST handler entered",
+    0x600597a0: "Native WIFI AUTO TEST communication startup",
+    0x60059808: "Native WIFI AUTO TEST transport loop",
+    0x601770d8: "Native WLAN/USB communication reset",
+    0x60177130: "Native WLAN/USB communication open",
+    0x601cfb14: "Native WLAN service initialization",
     # Original owner A7 FUN_6005C6BC: these are the actual E2 verdict
     # branches, not host-side guesses from a black/white framebuffer.
     0x6005cd08: "E2 original OK branch entered",
@@ -287,6 +293,10 @@ class EmulatorWorker(threading.Thread):
         # keyboard/touch events or alter original guest code.
         e2_a7_trace = (",0x6005c6bc+0x780"
                         if env.get("EXESX_TRACE_E2_A7") == "1" else "")
+        wlan_a7_trace = (
+            ",0x60059404+0x650,0x601770d8+0x180,"
+            "0x60077848+0x140,0x601cfb14+0xa0"
+            if env.get("EXESX_TRACE_WLAN_A7") == "1" else "")
         touch_trace = (
             ",0x1ffdba48+0x10,0x1ffdbcde+0x10,0x1ffdc2be+0x10"
             ",0x1ffdff08+0x10,0x1ffdff2e+0x10,0x1ffdfeea+0x10"
@@ -312,7 +322,7 @@ class EmulatorWorker(threading.Thread):
              if getattr(args, "trace_m4_400b", False) else
              "0x60010868+0x140,0x6003a878+0x500,0x60006240+0x60,0x60057668+0x30,"
              "0x600580dc+0x28,0x6005830c+0x30")
-            + touch_trace + e2_a7_trace,
+            + touch_trace + e2_a7_trace + wlan_a7_trace,
             "-D", str(trace),
         ]
         command += gdb_options
