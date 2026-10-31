@@ -93,6 +93,48 @@ class WincGPIOTests(unittest.TestCase):
             Winc1510SPI(fixture_ssid="AP")
         self.assertEqual(Winc1510SPI(hif_mailbox=True).hif_notifications, [])
 
+    def test_original_tcg_idle_does_not_drop_live_winc_session(self):
+        """A7 RTOS/DMA may take >5s between real SPI frames under TCG.
+
+        Old backend conn.settimeout(5) disconnected and reset HIF state.
+        Keep the same TCP/PCS transaction alive through host-side idle.
+        """
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            port = probe.getsockname()[1]
+        proc = subprocess.Popen(
+            [sys.executable, str(ROOT / "scripts/winc1510_spi_backend.py"),
+             "--port", str(port), "--gpio-status"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        try:
+            for _ in range(70):
+                try:
+                    connection = socket.create_connection(
+                        ("127.0.0.1", port), .1)
+                    break
+                except OSError:
+                    if proc.poll() is not None:
+                        self.fail("WINC backend failed before listen")
+                    time.sleep(.03)
+            else:
+                self.fail("WINC backend never listened")
+            with connection as sock:
+                sock.settimeout(2)
+                sock.sendall(bytes((255, 0x20, 0, 0)))
+                self.assertEqual(recv_exact(sock, 1), bytes((1,)))
+                # No QEMU SPI transfer for more than the former 5s bound.
+                time.sleep(5.2)
+                sock.sendall(bytes((255, 0x20, 0, 0)))
+                self.assertEqual(recv_exact(sock, 1), bytes((1,)))
+                self.assertIsNone(proc.poll())
+        finally:
+            proc.terminate()
+            try:
+                proc.wait(timeout=4)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+
     def test_extended_socket_irq_poll_and_legacy_byte_clock(self):
         # Stand-alone device loopback only, no QEMU or original ROM.
         with socket.socket() as probe:
