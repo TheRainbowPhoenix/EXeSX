@@ -125,13 +125,13 @@ class SPIProtocolTests(unittest.TestCase):
         dev = Winc1510SPI(crc=True, fixture_identity=True,
                           frame_spanning_cs=True)
         self.assertEqual(dev.shift(2, bytes.fromhex("cfffffffaa"),
-                                   begin=True, end=True), b"\\xff" * 5)
-        self.assertEqual(dev.shift(2, b"\\x00", begin=True, end=True),
-                         b"\\xcf")
+                                   begin=True, end=True), bytes([255]) * 5)
+        self.assertEqual(dev.shift(2, bytes([0]), begin=True, end=True),
+                         bytes([0xcf]))
         self.assertIsNone(dev.selected_pcs)
         self.assertEqual(dev.shift(2, bytes.fromhex("ca0c0008bc"),
-                                   begin=True, end=True), b"\\xff" * 5)
-        answer = b"".join(dev.shift(2, b"\\x00", begin=True, end=True)
+                                   begin=True, end=True), bytes([255]) * 5)
+        answer = b"".join(dev.shift(2, bytes([0]), begin=True, end=True)
                           for _ in range(7))
         self.assertEqual(answer, bytes.fromhex("ca00f300100000"))
         self.assertIsNone(dev.selected_pcs)
