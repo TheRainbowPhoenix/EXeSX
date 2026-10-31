@@ -601,6 +601,12 @@ static bool exesx_lpspi2_dma_advance(EXeSXProfileWindow *w,
         dma->regfile[0x24 / 4] |= 1U << channel;
         qemu_set_irq(w->board->dma1_group_irqs[channel & 15], 1);
     }
+    if (!g_strcmp0(g_getenv("EXESX_TRACE_WLAN_DMA_REJECT"), "1")) {
+        qemu_log("EXeSX WLAN DMA FINISH channel=%u bytes=%u "
+                 "CSR=%04x link=%d nextTCD=%08x INT=%08x ERQ=%08x\n",
+                 channel, moved, csr, link, next,
+                 dma->regfile[0x24 / 4], dma->regfile[0x0c / 4]);
+    }
     if (link) {
         /* Never follow arbitrary MMIO, ROM or unaligned guest pointers. */
         if ((next & 31) || next < UINT32_C(0x60000000) ||
