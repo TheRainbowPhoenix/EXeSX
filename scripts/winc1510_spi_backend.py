@@ -149,6 +149,7 @@ class Winc1510SPI:
         self.header = bytearray()
         self.pending = deque()
         self.payload_size = 0
+        self.data_crc_remaining = 0
         self.payload_addr = None
         self.payload = bytearray()
         self.completed = False
@@ -392,7 +393,22 @@ class Winc1510SPI:
                 self.payload_size = 0
                 self.payload_addr = None
                 self.payload.clear()
-                self.pending.extend((0,))  # data packet acknowledged
+                if self.crc and self.frame_spanning_cs:
+                    # Original DY357 FUN_601c1af0 writes two CRC16 bytes
+                    # after the C7 DMA payload. FUN_601c18c4 then reads
+                    # the WINC *data packet* ACK 0xC3,0x00. Previously
+                    # we returned FF,FF,00: the original A7 regarded
+                    # this as a failed write, issued CMD_RESET (0xCF)
+                    # and retried the same HIF header ten times.
+                    self.data_crc_remaining = 2
+                else:
+                    self.pending.extend((0,))
+            return response
+        if self.data_crc_remaining:
+            self.data_crc_remaining -= 1
+            if not self.data_crc_remaining:
+                self.pending.extend((0xc3, 0))
+                self.events.append(("dma-write-data-ack",))
             return response
         if self.completed:
             return response
@@ -439,7 +455,8 @@ class Winc1510SPI:
             # Once the reply is fully clocked, reset CS and parser so
             # the next actual original command starts from a clean slate.
             if not (self.frame_spanning_cs and
-                    (not self.completed or self.pending or self.payload_size)):
+                    (not self.completed or self.pending or
+                     self.payload_size or self.data_crc_remaining)):
                 self.end()
         return rx
 
