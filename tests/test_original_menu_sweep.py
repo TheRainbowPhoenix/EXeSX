@@ -28,6 +28,19 @@ class SweepTests(unittest.TestCase):
         self.assertGreaterEqual(
             len([c for c in sweep.ROOT_UNMAPPED]), 10)
 
+    def test_original_wlan_route_cannot_be_confused_with_display(self):
+        captured = sweep.ORIGINAL_WLAN_ROUTE_HEADERS
+        for route, heading in captured.items():
+            sweep.require_original_menu_header(route, heading)
+        # Original DISPLAY MENU heading from previous original-ROM run.
+        wrong_display = "9713b41f998d654760eb741eab783f1ef3ab0b64d043792843717e110e33bc29"
+        with self.assertRaisesRegex(RuntimeError, "heading mismatch"):
+            sweep.require_original_menu_header((1, 8, 1), wrong_display)
+        with self.assertRaisesRegex(RuntimeError, "heading mismatch"):
+            sweep.require_original_menu_header((1, 8), "not-the-wlan-header")
+        # Unmapped test results remain UNKNOWN, not a guessed PASS.
+        sweep.require_original_menu_header((1, 8, 1, 1), "unverified-result")
+
     def test_no_backend_does_not_mark_wlan_pass(self):
         class Config:
             winc_port = None
