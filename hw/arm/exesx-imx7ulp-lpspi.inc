@@ -242,9 +242,43 @@ static void exesx_lpspi2_poll_gpio_irq(EXeSXProfileWindow *w)
     uint8_t status = 1;
     fd_set readfds;
     struct timeval deadline = { 0, 20000 };
-    if (!w || w->lpspi_backend_fd < 0 ||
+    if (!w ||
         g_strcmp0(g_getenv("EXESX_WINC1510_GPIO_PROTOCOL"), "1")) {
         return;
+    }
+    /*
+     * The original host may sample IRQ_N before issuing its first SPI
+     * command. Do not require an earlier TDR write to connect the slave:
+     * that creates a circular dependency when initialization waits for
+     * IRQ_N. The zero-clock query preserves CS and never generates a
+     * guest-visible completion or synthetic SPI byte.
+     */
+    if (w->lpspi_backend_fd < 0) {
+        const char *portstr = g_getenv("EXESX_WINC1510_TCP_PORT");
+        char *stop;
+        long port;
+        struct sockaddr_in address = {0};
+        int conn;
+        if (!portstr || !*portstr) {
+            return;
+        }
+        port = strtol(portstr, &stop, 10);
+        if (*stop || port < 1024 || port > 65535) {
+            return;
+        }
+        conn = qemu_socket(AF_INET, SOCK_STREAM, 0);
+        if (conn < 0) {
+            return;
+        }
+        address.sin_family = AF_INET;
+        address.sin_port = htons((uint16_t)port);
+        address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        if (connect(conn, (struct sockaddr *)&address,
+                    sizeof(address)) < 0) {
+            closesocket(conn);
+            return;
+        }
+        w->lpspi_backend_fd = conn;
     }
     int fd = w->lpspi_backend_fd;
     int sent = send(fd, (const char *)request, sizeof(request), 0);
