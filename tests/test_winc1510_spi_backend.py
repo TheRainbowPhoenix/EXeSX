@@ -159,6 +159,22 @@ class SPIProtocolTests(unittest.TestCase):
         chip._write_reg(0x108c, 0)
         self.assertEqual(chip._read_reg(0x108c), 0)
 
+    def test_original_c8_data_start_and_next_real_command(self):
+        """DY357 reads 8 bytes after C8 then sends a new CA command."""
+        dev = Winc1510SPI(crc=True, fixture_identity=True,
+                          frame_spanning_cs=True)
+        dev.shift(2, bytes.fromhex("c8031000000800aa"),
+                  begin=True, end=True)
+        response = b"".join(dev.shift(2, bytes([0]), begin=True, end=True)
+                            for _ in range(11))
+        self.assertEqual(response, bytes.fromhex("c800f30011000000120000"))
+        dev.shift(2, bytes.fromhex("ca001014aa"), begin=True, end=True)
+        response = b"".join(dev.shift(2, bytes([0]), begin=True, end=True)
+                            for _ in range(7))
+        self.assertEqual(response, bytes.fromhex("ca00f300000080"))
+        self.assertIn(("original-next-spi-command", 0xca), dev.events)
+        self.assertEqual(dev.hif_notifications, [])
+
     def test_optional_crc_extra_command_byte(self):
         dev=Winc1510SPI(crc=True)
         dev.shift(0,bytes.fromhex("ca0010005a"),begin=True)
