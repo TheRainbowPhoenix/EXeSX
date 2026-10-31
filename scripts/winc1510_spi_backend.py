@@ -441,7 +441,7 @@ def recv_exact(sock, n):
     return bytes(data)
 
 
-def serve(host, port, chip, gpio_status=False):
+def serve(host, port, chip, gpio_status=False, trace_events=False):
     if host != "127.0.0.1":
         raise ValueError("WINC backend intentionally binds localhost only")
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as srv:
@@ -454,6 +454,7 @@ def serve(host, port, chip, gpio_status=False):
             conn, _ = srv.accept()
             with conn:
                 conn.settimeout(5)
+                trace_index = len(chip.events)
                 try:
                     while True:
                         header = conn.recv(4)
@@ -482,6 +483,36 @@ def serve(host, port, chip, gpio_status=False):
                         # Legacy wire protocol remains strictly RX[n].
                         conn.sendall(rx + (bytes([int(chip.irq_n)])
                                            if gpio_status else b""))
+                        if trace_events:
+                            # No SSID/password bytes, guest RAM or flash in
+                            # the host log. Pure command metadata for local
+                            # sweep triage; original LCD remains the verdict.
+                            for event in chip.events[trace_index:]:
+                                kind = event[0]
+                                if kind == "spi-command":
+                                    record = {"event": kind, "pcs": event[1],
+                                              "opcode": hex(event[2]),
+                                              "address": hex(event[3])}
+                                elif kind in (
+                                        "hif-request", "hif-device-callback"):
+                                    record = {"event": kind, "group": event[1],
+                                              "opcode": hex(event[2]),
+                                              "size": event[3]}
+                                elif kind in (
+                                        "guest-power-save-request",
+                                        "hardware-reset-or-chip-disabled",
+                                        "firmware-boot-ack",
+                                        "ap-fixture-ssid-mismatch",
+                                        "ap-fixture-associated"):
+                                    record = {"event": kind}
+                                else:
+                                    continue
+                                print("WINC_EVENT " + json.dumps(record),
+                                      flush=True)
+                            trace_index = len(chip.events)
+                            if trace_index > 20000:
+                                del chip.events[:trace_index]
+                                trace_index = 0
                 except (ConnectionError, OSError, ValueError) as error:
                     print("WINC SPI disconnected:", error, flush=True)
                     chip.end()
@@ -496,6 +527,8 @@ def main():
                    help="owner original ROM accepts 0x1002B0 series; verify hardware revision")
     p.add_argument("--command-crc", action="store_true",
                    help="host transmits one extra CRC7 command byte")
+    p.add_argument("--trace-events", action="store_true",
+                   help="local redacted SPI/HIF event metadata for sweep")
     p.add_argument("--gpio-status", action="store_true",
                    help="extended bridge: RESET_N/WAKE_N/EN control flags and"
                         " one sampled IRQ_N status byte after each SPI response")
@@ -527,7 +560,8 @@ def main():
                        frame_spanning_cs=args.frame_spanning_cs,
                        fixture_rssi_dbm=args.fixture_rssi_dbm,
                        fixture_ipv4=args.fixture_ipv4)
-    serve(args.listen, args.port, chip, args.gpio_status)
+    serve(args.listen, args.port, chip, args.gpio_status,
+          args.trace_events)
 
 
 if __name__ == "__main__":
