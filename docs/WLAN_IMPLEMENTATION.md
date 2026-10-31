@@ -1,5 +1,74 @@
 # DY357 WLAN: firmware entry points, candidate device, and pass criteria
 
+## 2026-10-31: AP/RSSI/DHCP fixture and on-demand factory menu inventory
+
+**Source-derived request/callback mapping (original private A7 decompilation):**
+
+| Diagnostic capability | Real original A7 message | Opt-in Python WINC behavior |
+|---|---|---|
+| AP association | `FUN_601c37d0` -> HIF group 1, opcode `0xBB` | Only a request containing configured `--fixture-ssid` can generate `0x2C` associated callback; wrong SSID yields failure |
+| Current AP SSID/channel | `FUN_601c4088` -> group 1, `0x05` | Returns the documented 48-byte `0x06` callback, only when associated |
+| RSSI | `FUN_601c3f6c` -> group 1, `0x03` | Returns 4-byte `0x04` callback with `--fixture-rssi-dbm`, only when associated |
+| DHCP | Asynchronous WINC device callback `0x32` | Optional 24-byte simulated lease callback, after association and `--fixture-ipv4`; host LAN is not touched |
+| Automatic deep sleep settings | `FUN_601cab94` -> group 1, `0x2D` | Records the requested power mode; no artificial A7 sleep wakeup or PASS |
+| Chip reset/power down | QEMU-supplied real RESET_N / CHIP_EN signals | Volatile WINC RAM/commands cleared, IRQ deasserted; negative controls retained |
+
+**These are protocol-fixture and unit-test milestones, NOT original-ROM
+association, RSSI, DHCP, power-management or USB factory LCD passes.**
+The owner original firmware must actually request the command, receive its
+SPI/HIF callback via IRQ_N, consume the A7 event, and paint its own LCD
+result before an end-to-end PASS is recorded. DHCP callback payload and
+connection/security formatting still need cross-checking against an
+original observed complete request; no real RF/IP is simulated.
+
+### On-demand original-ROM menu sweep (owner-local only)
+
+The runner reuses the existing `ci_e2e_arm_pattern.py` boot checkpoints
+and `ci_e2e_display_advanced.py` physical-key LCD navigation. The
+entire declared registry, including unsafe and unimplemented entries,
+is inspectable **without** proprietary firmware:
+
+```sh
+python3 scripts/sweep_original_menus.py --list --scope all
+```
+
+For an owner-private native QEMU binary and reconstructed media:
+
+```sh
+python3 scripts/sweep_original_menus.py \
+  --qemu /private/qemu-system-arm --profile /private/diagnostic-profile.ini \
+  --elf /private/a7-bios-os.elf --emmc /private/emmc.raw \
+  --sd /private/disposable-sd.raw --output /private/menu-sweep \
+  --attempts 4 --scope all --winc-port 50991 \
+  --fixture-ssid BenchAP --fixture-ipv4 192.0.2.31
+```
+
+Use `--only wlan-version-check`, `--only wlan-rssi`,
+`--only wlan-get-mac`, etc., for focused runs. Each attempted menu
+path cold-boots unchanged OSUP with `tcg,thread=single`, media
+`snapshot=on`, and the real M4 chord/ENTER/DOWN keys. A failed boot
+or missed key is retried, then separately recorded as `NOT_REACHED`.
+The owner-only output includes `summary.json`, LCD PPM/PNG captures,
+and redacted `WINC_EVENT` command/HIF metadata.
+`MENU_VERIFIED` means **menu title matched**, not that hardware passed;
+`SCREEN_OBSERVED_NOT_HARDWARE_VERDICT` means **only a new screen**.
+Optional `--goldens /private/goldens.json` compares exact original
+PPM SHA-256 values by case ID and uses `PIXEL_GOLDEN_MATCH` explicitly.
+Unverified/unsafe/absent-fixture paths remain visible as
+`SKIPPED_DEPENDENCY_OR_SAFETY`, rather than being called OK.
+
+**Important USB distinction:** the factory TEST MENU row 8 WLAN AUTO
+TEST uses a *separate USB device-controller/endpoint and external host
+fixture* (`scripts/usb_factory_host.py`). The six-byte host
+client is available, but no working QEMU USB-to-host bridge has yet
+been validated; the sweep marks it `SKIPPED_DEPENDENCY_OR_SAFETY`.
+The WLAN CHECK menu's SPI version/MAC identity tests were already
+verified on two independent original-ROM cold boots as documented above.
+
+**Never upload** original OSUP/ELFs, emulated disks, raw LCD PNGs,
+guest execution logs, test Wi-Fi credentials or HIF payload captures
+to the public repository or CI artifact.
+
 ## 2026-10-31 update: genuine original-ROM VERSION and MAC checks passed against Python WINC
 
 **PASS, narrowly scoped:** Two *separate clean/cold boots* of unchanged owner OSUP,
