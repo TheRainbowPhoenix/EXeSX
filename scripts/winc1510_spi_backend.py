@@ -316,7 +316,11 @@ class Winc1510SPI:
                 raise ValueError("requested WINC SPI DMA size too large")
             self.pending.extend((cmd, 0, 0xf3))
             if cmd in DMA_READ:
-                self.pending.append(0xf3)
+                # Original FUN_601c19e8 consumes a single F3 data-start
+                # marker, then the DMA bytes. Sending two F3 bytes shifts
+                # the 8-byte MAC/version pointer table by one byte.
+                if not self.frame_spanning_cs:
+                    self.pending.append(0xf3)
                 self.pending.extend(self._dma_get(addr, length))
             else:
                 self.payload_addr = addr
@@ -356,7 +360,17 @@ class Winc1510SPI:
             self.end()
             return bytes([0xff]) * len(tx)
         if begin:
-            if not (self.frame_spanning_cs and self.selected_pcs == pcs):
+            if self.frame_spanning_cs and self.selected_pcs == pcs:
+                # With split DY357 LPSPI2 frames, zero MOSI clocks continue
+                # the pending reply. A NEW genuine command opcode ends the
+                # prior read even if a programmed DMA length wasn't fully
+                # clocked (no host buffer/event modification).
+                if (self.completed and not self.payload_size and tx and
+                        tx[0] in RECOGNIZED):
+                    self.events.append(("original-next-spi-command", tx[0]))
+                    self.end()
+                    self.begin(pcs)
+            else:
                 self.begin(pcs)
         if self.selected_pcs != pcs:
             raise ValueError("SPI transfer without active matching PCS")
