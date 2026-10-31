@@ -486,7 +486,8 @@ def recv_exact(sock, n):
     return bytes(data)
 
 
-def serve(host, port, chip, gpio_status=False, trace_events=False):
+def serve(host, port, chip, gpio_status=False, trace_events=False,
+          idle_timeout=120):
     if host != "127.0.0.1":
         raise ValueError("WINC backend intentionally binds localhost only")
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as srv:
@@ -498,7 +499,14 @@ def serve(host, port, chip, gpio_status=False, trace_events=False):
         while True:
             conn, _ = srv.accept()
             with conn:
-                conn.settimeout(5)
+                # Original OSUP can spend much more than five seconds
+                # in its A7/M4 ISR/task work between two genuine SPI
+                # frames when QEMU TCG single-thread and QMP capture
+                # share the host. The previous five-second socket idle
+                # timeout silently discarded pending HIF/CRC state
+                # exactly after a genuine 108-byte C7 DMA write.
+                # This is an idle bound, not a packet-completion timer.
+                conn.settimeout(idle_timeout)
                 trace_index = len(chip.events)
                 try:
                     while True:
@@ -572,6 +580,9 @@ def main():
                    help="owner original ROM accepts 0x1002B0 series; verify hardware revision")
     p.add_argument("--command-crc", action="store_true",
                    help="host transmits one extra CRC7 command byte")
+    p.add_argument("--idle-timeout", type=float, default=120,
+                   help="seconds allowed between actual guest SPI frames; "
+                        "default 120 for slow single-threaded original OSUP")
     p.add_argument("--trace-events", action="store_true",
                    help="local redacted SPI/HIF event metadata for sweep")
     p.add_argument("--gpio-status", action="store_true",
@@ -605,8 +616,10 @@ def main():
                        frame_spanning_cs=args.frame_spanning_cs,
                        fixture_rssi_dbm=args.fixture_rssi_dbm,
                        fixture_ipv4=args.fixture_ipv4)
+    if not 5 <= args.idle_timeout <= 3600:
+        p.error("--idle-timeout must be 5..3600 seconds")
     serve(args.listen, args.port, chip, args.gpio_status,
-          args.trace_events)
+          args.trace_events, args.idle_timeout)
 
 
 if __name__ == "__main__":
