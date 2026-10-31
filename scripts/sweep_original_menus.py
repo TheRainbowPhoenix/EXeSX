@@ -227,6 +227,7 @@ def run_case(args, case, attempt, goldens):
             sys.executable, str(Path(__file__).with_name(
                 "winc1510_spi_backend.py")), "--port", str(args.winc_port),
             "--gpio-status", "--hif-mailbox", "--fixture-identity",
+            "--trace-events",
             "--command-crc", "--frame-spanning-cs",
         ]
         if args.fixture_ssid:
@@ -304,8 +305,26 @@ def run_case(args, case, attempt, goldens):
                        "PIXEL_GOLDEN_MISMATCH" if expected else
                        "MENU_VERIFIED" if case.known_header else
                        "SCREEN_OBSERVED_NOT_HARDWARE_VERDICT")
+            events = []
+            if args.winc_port:
+                log = root / "private-winc.log"
+                if log.exists():
+                    for line in log.read_text(errors="replace").splitlines():
+                        if line.startswith("WINC_EVENT "):
+                            try:
+                                events.append(json.loads(line[11:]))
+                            except json.JSONDecodeError:
+                                pass
+            event_counts = dict(Counter(e["event"] for e in events))
+            opcodes = sorted(set(
+                e.get("opcode", "") for e in events
+                if e["event"] == "hif-request"))
             return {
                 "status": verdict, "route": list(case.route),
+                "winc_event_counts": event_counts,
+                "original_hif_request_opcodes": opcodes,
+                "winc_private_event_log": ("private-winc.log"
+                                           if args.winc_port else None),
                 "actual_a7_checkpoints": checkpoints, "entered": entered,
                 "original_lcd_ppm_sha256": final["sha256"],
                 "original_lcd_header_sha256": title,
