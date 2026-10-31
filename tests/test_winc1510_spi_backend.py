@@ -175,6 +175,24 @@ class SPIProtocolTests(unittest.TestCase):
         self.assertIn(("original-next-spi-command", 0xca), dev.events)
         self.assertEqual(dev.hif_notifications, [])
 
+    def test_original_c8_mac_read_after_pointer_table(self):
+        """Exercise the genuine original MAC address register/DMA chain."""
+        device = Winc1510SPI(crc=True, fixture_identity=True,
+                             frame_spanning_cs=True)
+        cases = (
+            ("ca0c0008aa", "ca00f300100000"),
+            ("c8031000000008aa", "c800f30011000000120000"),
+            ("c8031100000006aa", "c800f3023570151001"),
+        )
+        for command, expected in cases:
+            device.shift(2, bytes.fromhex(command), begin=True, end=True)
+            reply = b"".join(
+                device.shift(2, bytes(1), begin=True, end=True)
+                for _ in range(len(expected) // 2))
+            self.assertEqual(reply, bytes.fromhex(expected))
+        self.assertEqual(device.hif_notifications, [])
+        self.assertIsNone(device.selected_pcs)
+
     def test_optional_crc_extra_command_byte(self):
         dev=Winc1510SPI(crc=True)
         dev.shift(0,bytes.fromhex("ca0010005a"),begin=True)
