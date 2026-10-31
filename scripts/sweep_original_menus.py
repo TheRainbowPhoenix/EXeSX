@@ -257,6 +257,7 @@ def run_case(args, case, attempt, goldens):
         env["LD_LIBRARY_PATH"] = str(lib.resolve()) + os.pathsep + env.get(
             "LD_LIBRARY_PATH", "")
     backend = None
+    backend_command = None
     if args.winc_port:
         backend_command = [
             sys.executable, str(Path(__file__).with_name(
@@ -269,13 +270,15 @@ def run_case(args, case, attempt, goldens):
             backend_command.extend(("--fixture-ssid", args.fixture_ssid))
         if args.fixture_ipv4:
             backend_command.extend(("--fixture-ipv4", args.fixture_ipv4))
-        backend = subprocess.Popen(backend_command, stdin=subprocess.DEVNULL,
-                                   stdout=(root / "private-winc.log").open("wb"),
-                                   stderr=subprocess.STDOUT)
         env["EXESX_WINC1510_TCP_PORT"] = str(args.winc_port)
-        time.sleep(.25)
-        if backend.poll() is not None:
-            raise RuntimeError("WINC backend exited before QEMU startup")
+        if args.winc_start_early:
+            backend = subprocess.Popen(
+                backend_command, stdin=subprocess.DEVNULL,
+                stdout=(root / "private-winc.log").open("wb"),
+                stderr=subprocess.STDOUT)
+            time.sleep(.25)
+            if backend.poll() is not None:
+                raise RuntimeError("WINC backend exited before QEMU startup")
     qport = choose_port()
     command = [
         str(args.qemu), "-machine", "exesx", "-m", "64M",
@@ -312,6 +315,22 @@ def run_case(args, case, attempt, goldens):
             for depth, row in enumerate(case.route):
                 stage = "route-%d-row-%d" % (depth + 1, row)
                 navigate(qmp, contact, root, row)
+                if (backend_command and backend is None and
+                        depth == len(case.route) - 1):
+                    # A live synchronous GPIO/IRQ socket during earlier
+                    # M4 factory-key scanning can perturb the original
+                    # keypad debounce. Keep the QEMU port configured,
+                    # but attach the simulated WINC only once the A7 is
+                    # about to enter the requested WLAN test. Real guest
+                    # SPI bytes, not this host action, still initiate
+                    # every WINC transaction or HIF callback.
+                    backend = subprocess.Popen(
+                        backend_command, stdin=subprocess.DEVNULL,
+                        stdout=(root / "private-winc.log").open("wb"),
+                        stderr=subprocess.STDOUT)
+                    time.sleep(.25)
+                    if backend.poll() is not None:
+                        raise RuntimeError("WINC backend exited before test")
                 title = press_and_open(
                     qmp, contact, root, stage,
                     attempts=args.entry_attempts)
@@ -415,6 +434,9 @@ def main(argv=None):
     parser.add_argument("--boot-timeout", type=float, default=90)
     parser.add_argument("--settle", type=float, default=2)
     parser.add_argument("--winc-port", type=int)
+    parser.add_argument("--winc-start-early", action="store_true",
+                        help="legacy: attach Python WINC before QEMU boot; "
+                             "default defers it until selected test entry")
     parser.add_argument("--fixture-ssid")
     parser.add_argument("--fixture-ipv4")
     parser.add_argument("--goldens", type=Path,
