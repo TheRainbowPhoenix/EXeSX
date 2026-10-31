@@ -636,6 +636,14 @@ static void exesx_lpspi2_dma_kick(EXeSXProfileWindow *w)
         !(w->regfile[0x10 / 4] & 1) ||
         !(w->regfile[0x24 / 4] & 1) ||
         (w->regfile[0x1c / 4] & 3) != 3) {
+        if (!g_strcmp0(g_getenv("EXESX_TRACE_WLAN_DMA_REJECT"), "1")) {
+            qemu_log("EXeSX WLAN DMA GATE CR=%08x CFGR1=%08x DER=%08x "
+                     "TCR=%08x left=%u dma=%d mux=%d fifo=%d\n",
+                     w->regfile[0x10 / 4], w->regfile[0x24 / 4],
+                     w->regfile[0x1c / 4], w->regfile[0x60 / 4],
+                     w->regfile[EXESX_LPSPI_FRAME_LEFT], !!dma,
+                     !!mux, exesx_lpspi2_pio_enabled());
+        }
         return;
     }
 
