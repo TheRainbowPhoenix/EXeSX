@@ -41,6 +41,19 @@ class SweepTests(unittest.TestCase):
         # Unmapped test results remain UNKNOWN, not a guessed PASS.
         sweep.require_original_menu_header((1, 8, 1, 1), "unverified-result")
 
+    def test_nested_manual_menu_requires_original_row_captions(self):
+        from ci_e2e_display_advanced import HEADERS
+        # These two original menus reuse the same title, so a generic
+        # changed-frame or header-only check was a false RSSI result.
+        with self.assertRaisesRegex(RuntimeError, "identical titles"):
+            sweep.require_original_menu_header(
+                (1,), HEADERS["manual-menu"], bytes(864 * 480 * 3))
+        with self.assertRaisesRegex(RuntimeError, "identical titles"):
+            sweep.require_original_menu_header(
+                (1,), HEADERS["manual-menu"])
+        self.assertEqual(
+            len(sweep.ORIGINAL_MANUAL_CHECK_ROWS_SHA256), 64)
+
     def test_no_backend_does_not_mark_wlan_pass(self):
         class Config:
             winc_port = None
