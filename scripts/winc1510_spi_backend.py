@@ -171,6 +171,13 @@ class Winc1510SPI:
         return self.memory.get(addr, 0)
 
     def _write_reg(self, addr, word):
+        # Original FUN_601c1298 writes a boot handshake to WINC 0x108c.
+        # FUN_601c13d0 waits for the device-side magic ACK. This is
+        # firmware-ready register behavior, not an A7 HIF callback.
+        if self.fixture_identity and addr == 0x108c and word == 0x13301361:
+            self.registers[0x108c] = 0x02532636
+            self.events.append(("firmware-boot-ack", addr, word))
+            return
         if self.hif_mailbox:
             if addr == 0x1078 and (word & 2):
                 # Actual original A7 FUN_601C0708 writes bit1, polls
