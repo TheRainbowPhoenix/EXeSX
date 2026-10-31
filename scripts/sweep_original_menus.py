@@ -152,12 +152,16 @@ def factory_boot(qmp, contact, trace, proc, timeout):
     if not trace.exists():
         raise RuntimeError("QEMU original A7 execution trace missing")
     with trace.open("r", errors="replace") as stream:
+        # Reuse the checkpoint-driven, release-aware key pacing
+        # proven by ci_e2e_arm_pattern.py. Rapid whole-chord retries
+        # skip original M4 scan/debounce and are less reliable.
         released = False
-        next_at = 0.0
+        index = 0
         down = False
         pressed = 0.0
-        key_index = 0
-        chord_retries = 0
+        next_at = 0.0
+        up_at = 0.0
+        ack_before = 0
         buffered = ""
         while time.monotonic() - started < timeout and proc.poll() is None:
             now = time.monotonic() - started
@@ -173,30 +177,23 @@ def factory_boot(qmp, contact, trace, proc, timeout):
                 for label, addr in CHECKPOINTS.items():
                     if pc.lower() == addr:
                         hits[label] += 1
+            if released and hits["wait"] and index < 3:
+                desired = ("first", "first", "accepted")[index]
+                if not down and now >= next_at:
+                    if index == 0 or m4_idle(qmp) or now - up_at > 1.25:
+                        physical(contact, ("0x93", "0x93", "0x94")[index])
+                        ack_before = hits[desired]
+                        pressed = now
+                        down = True
+                elif down and (hits[desired] > ack_before or
+                               now - pressed > .28):
+                    physical(contact, "0")
+                    index += 1
+                    down = False
+                    up_at = now
+                    next_at = now + .012
             if hits["paint"]:
                 break
-            if released and hits["wait"] and not hits["accepted"]:
-                if down and now - pressed >= .28:
-                    physical(contact, "0")
-                    down = False
-                    key_index += 1
-                    if key_index == 3:
-                        # Only the original third-key A7 PC is a
-                        # conclusive chord acceptance. Retry complete
-                        # physical key sequences if that PC is absent;
-                        # never forge original guest state.
-                        key_index = 0
-                        chord_retries += 1
-                        next_at = now + .3
-                    else:
-                        next_at = now + .15
-                elif not down and now >= next_at:
-                    if chord_retries >= 6:
-                        raise RuntimeError(
-                            "original factory test chord unacknowledged")
-                    physical(contact, ("0x93", "0x93", "0x94")[key_index])
-                    down = True
-                    pressed = now
             time.sleep(.018)
     required = ("wait", "first", "accepted", "factory",
                 "ipc_call", "ipc_return", "paint")
@@ -297,7 +294,26 @@ def run_case(args, case, attempt, goldens):
                     if known and title != HEADERS[known]:
                         raise RuntimeError("original submenu header mismatch: " +
                                            known)
-            time.sleep(args.settle)
+            # A native WLAN OK/NG can appear briefly before the A7
+            # returns to the previous menu. Preserve distinct real LCD
+            # screenshots throughout observation; never infer an OK
+            # merely from a different frame/hash.
+            intermediate = []
+            seen = set()
+            sample = 0
+            observed_start = time.monotonic()
+            while time.monotonic() - observed_start < args.settle:
+                name = "observation-%03d" % sample
+                sample += 1
+                picture = frame(qmp, root, name)
+                if picture["sha256"] not in seen:
+                    seen.add(picture["sha256"])
+                    screenshot(root / (name + ".ppm"),
+                               root / (name + ".png"))
+                    intermediate.append({
+                        "screenshot": name + ".png",
+                        "original_lcd_sha256": picture["sha256"]})
+                time.sleep(.3)
             final = frame(qmp, root, "final-screen")
             screenshot(root / "final-screen.ppm", root / "final-screen.png")
             title = native_header_fingerprint(
@@ -327,6 +343,7 @@ def run_case(args, case, attempt, goldens):
                 if e["event"] == "hif-request"))
             return {
                 "status": verdict, "route": list(case.route),
+                "intermediate_lcd_captures": intermediate,
                 "winc_event_counts": event_counts,
                 "original_hif_request_opcodes": opcodes,
                 "winc_private_event_log": ("private-winc.log"
