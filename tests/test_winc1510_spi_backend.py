@@ -137,6 +137,17 @@ class SPIProtocolTests(unittest.TestCase):
         self.assertIsNone(dev.selected_pcs)
         self.assertEqual(dev._read_reg(0xc0008), 0x1000)
 
+    def test_original_winc_hardware_ready_and_boot_status(self):
+        """Original FUN_601c1298 waits on 0x1014[31] and 0x207bc[0]."""
+        chip = Winc1510SPI(fixture_identity=True)
+        self.assertEqual(chip._read_reg(0x1014), 0x80000000)
+        self.assertEqual(chip._read_reg(0x207bc) & 1, 1)
+        chip.set_pins(reset_n=False)
+        self.assertEqual(chip._read_reg(0x1014), 0)
+        chip.set_pins(reset_n=True)
+        self.assertEqual(chip._read_reg(0x1014), 0x80000000)
+        self.assertEqual(chip._read_reg(0x207bc) & 1, 1)
+
     def test_optional_crc_extra_command_byte(self):
         dev=Winc1510SPI(crc=True)
         dev.shift(0,bytes.fromhex("ca0010005a"),begin=True)
