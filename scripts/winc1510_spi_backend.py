@@ -271,6 +271,19 @@ class Winc1510SPI:
                 # Original FUN_601c3d78 sends 0x2B disconnect.
                 self.ap_connected = False
                 self._defer_hif_callback(1, 0x2c, bytes(4))
+            elif opcode == 0x2f and self.ap_connected:
+                # Original FUN_601ca3d4(SSID, mode=5) requests the
+                # 0x2f Wi-Fi connection/AP record (different from
+                # 0x05 request -> 0x06 48-byte AP-channel reply).
+                # FUN_601c3030 reads a 100-byte device callback;
+                # FUN_601c9c4c expects state at 0, channel at 1,
+                # SSID beginning at 2 and companion fields at 0x23.
+                ssid = self.fixture_ssid.encode("utf-8")
+                info = bytearray(100)
+                info[0] = 1  # nonzero associated AP state
+                info[1] = 6  # explicit simulated channel
+                info[2:2 + len(ssid)] = ssid
+                self._defer_hif_callback(1, 0x2f, bytes(info))
             elif opcode == 5 and self.ap_connected:
                 # Original FUN_601c4088 queries AP info. FUN_601c3030
                 # reads 48 bytes; callback reads channel from byte45.
