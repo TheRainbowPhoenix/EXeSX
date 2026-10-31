@@ -1,5 +1,59 @@
 # DY357 WLAN: firmware entry points, candidate device, and pass criteria
 
+## 2026-10-31 update: genuine original-ROM VERSION and MAC checks passed against Python WINC
+
+**PASS, narrowly scoped:** Two *separate clean/cold boots* of unchanged owner OSUP,
+with real M4 electrical key input, passed the original A7 factory diagnostic
+path `TEST MENU -> MANUAL CHECK -> WIRELESS -> FIRMWARE -> VERSION CHECK`
+and `... -> WIRELESS -> MAC ADDRESS -> GET MAC ADDRESS`.
+The native Linux QEMU binary was built by GitHub CI from the branch and run
+locally with `-accel tcg,thread=single`, original A7/M4 firmware,
+and snapshot-protected synthetic eMMC/disposable SD media.
+
+Original read-only LCD screenshots (kept owner-local, **not** committed):
+- `VERSION CHECK TEST`: `OK: FIRMWARE VERSION 19.6.1`;
+  PNG SHA-256 `8e4d6f722122b9d90e2784df3e7024ee3146ccccbaa5568d07d0c49ae90f08e4`.
+- `GET MAC ADDRESS TEST`: `OK: MAC ADDRESS 02:35:70:15:10:01`,
+  with the large original `OK` banner;
+  PNG SHA-256 `9d4e17504b0755e32ec6e6a2ebd463c47ea3f47beb61fd1053ca3db6206f848d`.
+
+Original A7 trace reached `FUN_601cf53c` or `FUN_601cf678`,
+`FUN_601cfb14`, `FUN_601c2e3c` and the original
+`FUN_601c2580` / `FUN_601c2740` SPI transfers. The backend
+actually received PCS2 register/DMA reads including `0xC0008`, `C8`
+pointer-table reads at `0x31000` and version/MAC records at
+`0x31200` / `0x31100` respectively. Original firmware, not the
+host test harness, painted `OK`.
+
+Required explicit Python mode:
+
+```sh
+python3 scripts/winc1510_spi_backend.py --port 50991 \
+  --gpio-status --hif-mailbox --fixture-identity \
+  --command-crc --frame-spanning-cs
+```
+
+QEMU requires `EXESX_EXPERIMENTAL_LPSPI2_FIFO=1`,
+`EXESX_EXPERIMENTAL_LPSPI2_DMA=1`,
+`EXESX_ORIGINAL_LPSPI2_UPPER_LANE=1`,
+`EXESX_WINC1510_TCP_PORT=50991`, and
+`EXESX_WINC1510_GPIO_PROTOCOL=1`.
+These settings preserve the original driver's upper-byte TDR/RDR packing
+and split-frame CRC command/reply behavior. The opt-in Python identity
+implements WINC-ready/boot-ACK register responses and a deterministic
+MAC/version ROM table. Negative controls without fixture identity
+continue to omit this fabricated *device identity*, and no guest
+status/IPC/memory flag is injected.
+
+**Important scope:** the version `19.6.1` and locally administered
+`02:35:70:15:10:01` are **SIMULATOR FIXTURE VALUES**, not measured values
+from a real ATWINC1510. This does **not** establish AP authentication,
+RSSI, DHCP, sockets, radio sleep, OTA update completion, the separate USB
+`WIFI AUTO TEST` fixture, or an all-WLAN hardware PASS.
+Occasional original startup-chord timing misses occurred in separate
+cold-boot retries; those runs never reached WLAN and are not WLAN failures.
+
+
 This is an **in-progress hardware investigation**, not proof that the original WLAN test passes.
 
 **Owner-confirmed card identity:** DY357 uses the same Microchip ATWINC1510 as DY890. The original DY357 A7 WLAN driver's accesses to LPSPI2 are independently confirmed by the supplied decompilation; individual board PCS/IRQ/RESET pins still need tracing.
