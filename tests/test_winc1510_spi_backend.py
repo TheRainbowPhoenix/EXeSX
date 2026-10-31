@@ -96,6 +96,30 @@ class SPIProtocolTests(unittest.TestCase):
         self.assertEqual(legacy._read_reg(0x1078), 2)
         self.assertEqual(legacy._read_reg(0x150400), 0)
 
+    def test_opt_in_original_rom_mac_and_version_read_over_spi(self):
+        """Original A7 reads 0xC0008 -> pointer table -> two DMA records."""
+        legacy = Winc1510SPI()
+        self.assertEqual(legacy._read_reg(0xc0008), 0)
+        dev = Winc1510SPI(fixture_identity=True)
+        dev.shift(2, bytes.fromhex("ca0c0008"), begin=True)
+        self.assertEqual(dev.shift(2, bytes(7), end=True),
+                         bytes.fromhex("ca00f300100000"))
+        dev.shift(2, bytes.fromhex("c20310000008"), begin=True)
+        self.assertEqual(dev.shift(2, bytes(12), end=True),
+                         bytes.fromhex("c200f3f30011000000120000"))
+        dev.shift(2, bytes.fromhex("c20311000006"), begin=True)
+        self.assertEqual(dev.shift(2, bytes(10), end=True),
+                         bytes.fromhex("c200f3f3023570151001"))
+        dev.shift(2, bytes.fromhex("c20312000028"), begin=True)
+        payload = dev.shift(2, bytes(44), end=True)
+        self.assertEqual(payload[:4], bytes.fromhex("c200f3f3"))
+        self.assertEqual(payload[8:14], bytes((19, 6, 1, 19, 6, 1)))
+        self.assertEqual(dev.hif_notifications, [])
+        # The model's electrical reset retains configured ROM identity.
+        dev.set_pins(reset_n=False)
+        dev.set_pins(reset_n=True)
+        self.assertEqual(dev._read_reg(0xc0008), 0x1000)
+
     def test_optional_crc_extra_command_byte(self):
         dev=Winc1510SPI(crc=True)
         dev.shift(0,bytes.fromhex("ca0010005a"),begin=True)
