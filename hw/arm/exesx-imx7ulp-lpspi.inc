@@ -660,6 +660,23 @@ static void exesx_lpspi2_dma_kick(EXeSXProfileWindow *w)
         }
     }
     if (tx < 0 || rx < 0) {
+        if (!g_strcmp0(g_getenv("EXESX_TRACE_WLAN_DMA_REJECT"), "1")) {
+            const uint32_t *t = &dma->regfile[(0x1000 + 2 * 32) / 4];
+            const uint32_t *u = &dma->regfile[(0x1000 + 3 * 32) / 4];
+            qemu_log("EXeSX WLAN DMA WAIT tx=%d rx=%d "
+                     "CR=%08x CFGR1=%08x DER=%08x TCR=%08x LEFT=%u "
+                     "ERQ=%08x MUX2=%08x MUX3=%08x "
+                     "TCD2=%08x,%08x,%08x,%08x,%08x,%08x,%08x,%08x "
+                     "TCD3=%08x,%08x,%08x,%08x,%08x,%08x,%08x,%08x\n",
+                     tx, rx, w->regfile[0x10 / 4],
+                     w->regfile[0x24 / 4], w->regfile[0x1c / 4],
+                     w->regfile[0x60 / 4],
+                     w->regfile[EXESX_LPSPI_FRAME_LEFT],
+                     dma->regfile[0x0c / 4], mux->regfile[2],
+                     mux->regfile[3],
+                     t[0], t[1], t[2], t[3], t[4], t[5], t[6], t[7],
+                     u[0], u[1], u[2], u[3], u[4], u[5], u[6], u[7]);
+        }
         return;
     }
 
@@ -674,6 +691,11 @@ static void exesx_lpspi2_dma_kick(EXeSXProfileWindow *w)
         if (!td[2] || (td[2] & 3) || !txcount ||
             (uint64_t)td[2] * txcount > 8192 ||
             (td[7] & 0x80)) {
+            if (!g_strcmp0(g_getenv("EXESX_TRACE_WLAN_DMA_REJECT"), "1")) {
+                qemu_log("EXeSX WLAN DMA REJECT TX descriptor "
+                         "NBYTES=%u CITER=%u CSR=%04x\n",
+                         td[2], txcount, td[7] & 0xffff);
+            }
             break;
         }
         txbytes = txcount * td[2];
@@ -706,6 +728,12 @@ static void exesx_lpspi2_dma_kick(EXeSXProfileWindow *w)
                 clocked + txbytes > 8192 ||
                 w->regfile[EXESX_LPSPI_FRAME_LEFT] <
                     txbytes * 8U) {
+                if (!g_strcmp0(g_getenv("EXESX_TRACE_WLAN_DMA_REJECT"), "1")) {
+                    qemu_log("EXeSX WLAN DMA REJECT length "
+                             "TX=%u RX=%u clocked=%u frame-left=%u\n",
+                             txbytes, rxbytes, clocked,
+                             w->regfile[EXESX_LPSPI_FRAME_LEFT]);
+                }
                 break;
             }
             for (uint32_t i = 0; i < txbytes; i += 4) {
@@ -737,6 +765,12 @@ static void exesx_lpspi2_dma_kick(EXeSXProfileWindow *w)
         } else {
             /* Unsupported peripheral descriptor: don't produce a
              * successful guest DMA interrupt without real clocks. */
+            if (!g_strcmp0(g_getenv("EXESX_TRACE_WLAN_DMA_REJECT"), "1")) {
+                qemu_log("EXeSX WLAN DMA REJECT descriptor path "
+                         "txdest=%08x txsrc=%08x rxsrc=%08x rxdst=%08x "
+                         "rx_done=%d\n",
+                         txdest, txsrc, rd[0], rd[4], rx_done);
+            }
             break;
         }
         bool was_link = !!(td[7] & 0x10);
