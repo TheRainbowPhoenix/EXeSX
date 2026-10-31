@@ -159,6 +159,7 @@ def factory_boot(qmp, contact, trace, proc, timeout):
         next_at = 0.0
         up_at = 0.0
         ack_before = 0
+        missed = [0, 0, 0]
         buffered = ""
         while time.monotonic()-started < timeout and proc.poll() is None:
             now = time.monotonic()-started
@@ -178,17 +179,27 @@ def factory_boot(qmp, contact, trace, proc, timeout):
                 # The second 0x93 must be accepted before the next key.
                 desired = ("first", "first", "accepted")[index]
                 if not down and now >= next_at:
-                    if index == 0 or m4_idle(qmp) or now-up_at > 1.25:
+                    if index == 0 or now-up_at > .28:
                         physical(contact, ("0x93", "0x93", "0x94")[index])
                         ack_before = hits[desired]
                         pressed = now
                         down = True
                 elif down and (hits[desired] > ack_before or now-pressed > .28):
+                    # A missed electrical key is never a valid A7 event.
+                    # Retry the SAME physical contact until the original
+                    # A7 sequence checkpoint advances; no SRAM injection.
+                    acknowledged = hits[desired] > ack_before
                     physical(contact, "0")
-                    index += 1
+                    if acknowledged:
+                        index += 1
+                    else:
+                        missed[index] += 1
+                        if missed[index] >= 8:
+                            raise RuntimeError(
+                                "original A7 did not acknowledge startup key %d" % index)
                     down = False
                     up_at = now
-                    next_at = now + .012
+                    next_at = now + (.1 if acknowledged else .5)
             if hits["paint"]:
                 break
             time.sleep(.018)
