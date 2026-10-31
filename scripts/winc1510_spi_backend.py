@@ -383,8 +383,16 @@ class Winc1510SPI:
         self.completed = True
 
     def _clock_byte(self, byte):
+        had_pending_response = bool(self.pending)
         response = self.pending.popleft() if self.pending else 0xff
         if self.payload_size:
+            if self.crc and self.frame_spanning_cs and had_pending_response:
+                # Original A7 polls command echo/status C7,00,F3 with
+                # dummy MOSI clocks BEFORE sending its separate F3
+                # data-block marker. They are not DMA payload bytes.
+                # Without this guard the 8-byte HIF header becomes
+                # 00 00 00 F3 01 3B ... and the guest resets/retries.
+                return response
             if byte == 0xf3 and not self.payload:
                 return response  # optional data-block start marker
             self.payload.append(byte)
