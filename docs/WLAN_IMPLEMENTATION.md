@@ -1,5 +1,48 @@
 # DY357 WLAN: firmware entry points, candidate device, and pass criteria
 
+## 2026-10-31 follow-up: original 108-byte WLAN DMA now clocks, radio still unverified
+
+A subsequent unchanged OSUP cold boot with the corrected QEMU LPSPI2/eDMA
+engine passed the genuine A7 factory key chord, reached
+`TEST MENU -> MANUAL CHECK -> WIRELESS -> Wi-Fi MENU -> RSSI TEST`,
+and displayed the original `CONNECTING TO AP...` LCD. It did **not**
+display WLAN `OK` or an RSSI result within the bounded observation.
+
+**Root cause fixed in native hardware:** original `FUN_601c2740`
+queues TX-only WINC DMA with the paired RX channel as a constant
+discard sink (`DOFF=0`). The original RX-only case similarly uses
+a constant TX source (`SOFF=0`). The earlier QEMU bridge incorrectly
+required `DOFF=4`, preventing original WINC C7 `0x30038` data from
+being clocked. After the source fix, the original QEMU execution trace
+says `EXeSX WINC guest-originated linked eDMA 108 bytes, 3 TCD steps,
+TX ch2 RX ch3`, and shows all 27 real 32-bit MOSI words. No ROM,
+guest flags, HIF replies, or factory verdict were injected.
+
+GitHub native CI verified all four real-ARM DMA combinations
+`(SOFF,DOFF)=(4,4),(4,0),(0,4),(0,0)` with real SPI bytes,
+DMA DONE and INTMAJOR, rather than assuming completion:
+[CI #41249885596](https://github.com/TheRainbowPhoenix/EXeSX/actions/runs/41249885596).
+
+**Next dependency:** the original A7 still did not send the following
+WINC packet acknowledgment/register write after the 108-byte DMA.
+The Python backend had also dropped otherwise healthy TCP sessions
+after five host-wallclock seconds without SPI, causing
+`WINC SPI disconnected: timed out` under single-thread TCG. The
+backend idle timeout is now 120 seconds with an explicit >5-second
+socket regression; the remaining discriminator is **real eDMA TCD
+completion/INTMAJOR/guest ISR**, instrumented behind
+`EXESX_TRACE_WLAN_DMA_REJECT=1`. These are fixes and diagnostics,
+**not** proof of AP association, DHCP, RSSI, power management or
+USB factory WLAN.
+
+Startup-key retry safety and false route reports are also addressed:
+the original A7 needs two separately observed `0x93` key-down
+events before `0x94`; the sweep never advances on a mere time
+limit. Actual MANUAL and WLAN menu headers and row-caption pixels
+are verified so a DISPLAY/WIFI AUTO TEST detour cannot become a
+false RSSI result. All original screenshot and private AP evidence
+remains owner-local.
+
 ## 2026-10-31 original WLAN RSSI cold-boot trace: bounded remaining failure
 
 **Unchanged private original OSUP; QEMU `tcg,thread=single`; physical M4
