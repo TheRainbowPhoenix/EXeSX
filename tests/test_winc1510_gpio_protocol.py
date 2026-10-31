@@ -50,38 +50,45 @@ class WincGPIOTests(unittest.TestCase):
         self.assertTrue(chip.irq_n)
 
     def test_opt_in_ap_fixture_only_answers_original_hif_request(self):
+        # Source-derived: original FUN_601c37d0 sends 0xBB connect,
+        # FUN_601c4088 sends 0x05 AP details, and FUN_601c3d78
+        # sends 0x2B disconnect. Earlier 0x10/0x2F/0x03 expectations
+        # confused outgoing and incoming opcodes.
         chip = Winc1510SPI(hif_mailbox=True, fixture_ssid="PRIVATE_SIM_AP")
         self.assertTrue(chip.irq_n)
         self.assertFalse(chip.ap_connected)
-        self.assertEqual(chip.hif_notifications, [])
         addr = 0x30000
-        # Real HIF header (group 1, connect opcode 0x10, 8-byte total).
-        chip._dma_put(addr, bytes.fromhex("0110080000000000"))
-        chip._write_reg(0x106c, (addr << 2) | 2)
+
+        def guest_hif(opcode, payload=b""):
+            raw = bytes((1, opcode))
+            raw += (8 + len(payload)).to_bytes(2, "little")
+            raw += bytes(4) + payload
+            chip._dma_put(addr, raw)
+            chip._write_reg(0x106c, (addr << 2) | 2)
+
+        guest_hif(0xbb, b"PRIVATE_SIM_AP" + bytes(34))
         self.assertTrue(chip.ap_connected)
         self.assertFalse(chip.irq_n)
         self.assertEqual(chip.hif_notifications[-1][:2], (1, 0x2c))
-        self.assertEqual(chip._dma_get(0x32000, 12)[8:], b"\x01"+bytes(3))
-        # Original guest may request AP info while connection IRQ remains
-        # pending. A second callback must be FIFO queued, never overwrite.
-        chip._dma_put(addr, bytes.fromhex("012f080000000000"))
-        chip._write_reg(0x106c, (addr << 2) | 2)
+        self.assertEqual(chip._dma_get(0x32000 + 8, 4),
+                         bytes((1, 0, 0, 0)))
+
+        # Original A7 requests SSID/channel while connection IRQ pending.
+        # Device callback waits until original A7 clears bit 0 at 0x1070.
+        guest_hif(5)
         self.assertEqual(len(chip.deferred_callbacks), 1)
         chip._write_reg(0x1070, chip._read_reg(0x1070) & ~1)
         self.assertFalse(chip.irq_n)
-        self.assertEqual(chip.hif_notifications[-1][:2], (1, 0x2f))
-        info = chip._dma_get(0x32000 + 8, 100)
-        self.assertEqual(info[0], len(b"PRIVATE_SIM_AP"))
-        self.assertEqual(info[1], 1)
-        self.assertEqual(info[2:16], b"PRIVATE_SIM_AP")
+        self.assertEqual(chip.hif_notifications[-1][:2], (1, 6))
+        info = chip._dma_get(0x32000 + 8, 48)
+        self.assertEqual(info[:14], b"PRIVATE_SIM_AP")
+        self.assertEqual(info[45], 6)
         chip._write_reg(0x1070, chip._read_reg(0x1070) & ~1)
         self.assertTrue(chip.irq_n)
-        # Disconnect request and real device callback.
-        chip._dma_put(addr, bytes.fromhex("0103080000000000"))
-        chip._write_reg(0x106c, (addr << 2) | 2)
+        guest_hif(0x2b)
         self.assertFalse(chip.ap_connected)
         self.assertFalse(chip.irq_n)
-        self.assertEqual(chip._dma_get(0x32000, 12)[8:], bytes(4))
+        self.assertEqual(chip._dma_get(0x32000 + 8, 4), bytes(4))
         with self.assertRaises(ValueError):
             Winc1510SPI(fixture_ssid="AP")
         self.assertEqual(Winc1510SPI(hif_mailbox=True).hif_notifications, [])
