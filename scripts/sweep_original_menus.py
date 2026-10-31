@@ -251,7 +251,7 @@ def factory_boot(qmp, contact, trace, proc, timeout):
             if hits["paint"]:
                 break
             if released and hits["wait"] and index < 3:
-                desired = ("first", "first", "accepted")[index]
+                desired = ("first", "last", "accepted")[index]
                 if not down and now >= next_at:
                     if index == 0 or m4_idle(qmp) or now - up_at > .75:
                         physical(contact, ("0x93", "0x93", "0x94")[index])
