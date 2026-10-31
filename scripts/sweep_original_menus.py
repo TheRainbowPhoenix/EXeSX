@@ -106,6 +106,27 @@ ROOT_UNMAPPED = tuple(
 )
 
 
+def require_original_menu_header(route, observed):
+    """Reject wrong navigation even when the native LCD changed.
+
+    A stale M4 ENTER once went from WLAN CHECK MENU into DISPLAY MENU.
+    Generic frame-change checks misreported it as RSSI screen coverage.
+    Only source-captured authentic heading fingerprints count here.
+    """
+    display = {
+        (1,): "manual-menu",
+        (1, 1): "display-menu",
+        (1, 1, 1): "display-test-menu",
+        (1, 1, 2): "display-settings-menu",
+    }
+    known = display.get(tuple(route))
+    expected = (HEADERS[known] if known else
+                ORIGINAL_WLAN_ROUTE_HEADERS.get(tuple(route)))
+    if expected and observed != expected:
+        raise RuntimeError("original factory route heading mismatch: " +
+                           ",".join(map(str, route)))
+
+
 def all_cases():
     return CASES + ROOT_UNMAPPED
 
@@ -295,22 +316,8 @@ def run_case(args, case, attempt, goldens):
                     qmp, contact, root, stage,
                     attempts=args.entry_attempts)
                 entered.append({"row": row, "header_sha256": title})
-                if depth + 1 < len(case.route):
-                    known = {
-                        (1,): "manual-menu",
-                        (1, 1): "display-menu",
-                        (1, 1, 1): "display-test-menu",
-                        (1, 1, 2): "display-settings-menu",
-                    }.get(case.route[:depth + 1])
-                    if known and title != HEADERS[known]:
-                        raise RuntimeError("original submenu header mismatch: " +
-                                           known)
-                    expected_wlan = ORIGINAL_WLAN_ROUTE_HEADERS.get(
-                        case.route[:depth + 1])
-                    if expected_wlan and title != expected_wlan:
-                        raise RuntimeError(
-                            "original WLAN route lost (stale ENTER or "
-                            "incorrect key navigation): " + stage)
+                require_original_menu_header(
+                    case.route[:depth + 1], title)
             # A native WLAN OK/NG can appear briefly before the A7
             # returns to the previous menu. Preserve distinct real LCD
             # screenshots throughout observation; never infer an OK
