@@ -25,7 +25,7 @@ SPI=0x40290000
 DMA=0x40080000
 MUX=0x40210000
 
-def make_guest():
+def make_guest(rx_discard=False, tx_constant=False):
     code,lits=[],[]
     def emit(w):code.append(w)
     def li(r,v):lits.append((len(code),r,v));emit(0)
@@ -36,14 +36,14 @@ def make_guest():
         li(1,v);st(1,6,4*i)
     # Synthetic standalone TX eDMA channel 2.
     li(0,DMA+0x1040)
-    for off,v in ((0,TX),(4,0x02020004),(8,12),
+    for off,v in ((0,TX),(4,0x02020000 if tx_constant else 0x02020004),(8,12),
                   (12,0),(16,SPI+0x64),(20,0x00010000),
                   (24,0),(28,0x00010002)):
         li(1,v);st(1,0,off)
     # RX channel 3, same 12 real SPI bytes (interleaved with TX).
     li(0,DMA+0x1060)
     for off,v in ((0,SPI+0x74),(4,0x02020000),(8,12),
-                  (12,0),(16,RX),(20,0x00010004),
+                  (12,0),(16,RX),(20,0x00010000 if rx_discard else 0x00010004),
                   (24,0),(28,0x00010002)):
         li(1,v);st(1,0,off)
     li(0,MUX)
@@ -79,9 +79,9 @@ def word(q,a):
     if not m:raise AssertionError(v)
     return int(m.group(1),16)
 
-def run(qemu,profile):
+def run(qemu,profile,rx_discard=False,tx_constant=False):
     with tempfile.TemporaryDirectory() as td:
-        root=Path(td);image=root/"dma.elf";image.write_bytes(make_guest())
+        root=Path(td);image=root/"dma.elf";image.write_bytes(make_guest(rx_discard,tx_constant))
         port=choose_port()
         python=subprocess.Popen([sys.executable,
             str(Path(__file__).resolve().with_name("winc1510_spi_backend.py")),
@@ -117,16 +117,22 @@ def run(qemu,profile):
                         q=QMP(sock);q.execute("cont")
                         time.sleep(.9)
                         got=[word(q,RX+4*i) for i in range(3)]
-                        wanted=[0xffffffff,0xb0f300ca,0xff001002]
+                        wanted=([0xff001002,0,0] if rx_discard else
+                                [0xffffffff,0xb0f300ca,0xff001002])
                         assert got==wanted,(list(map(hex,got)),list(map(hex,wanted)))
                         assert word(q,RESULT)==0xc
                         assert word(q,RESULT+4)==0
                         assert word(q,DMA+0x105c)&0x80
                         assert word(q,DMA+0x107c)&0x80
                         assert word(q,DMA+0x1054)&0xffff0000 == 0
-                        print("PASS real A7 ARM eDMA1 paired RX/TX 12 SPI bytes"
-                              " PCS2 Python WINC chip-ID and actual DONE/INT W1C",
-                              flush=True)
+                        assert word(q,DMA+0x1040) == (
+                            TX if tx_constant else TX + 12)
+                        assert word(q,DMA+0x1070) == (
+                            RX if rx_discard else RX + 12)
+                        print("PASS real ARM WINC SPI 12-byte paired eDMA"
+                              " TX SOFF=%d RX DOFF=%d, actual DONE/IRQ"
+                              % (0 if tx_constant else 4,
+                                 0 if rx_discard else 4),flush=True)
                 finally:
                     proc.terminate()
                     try:proc.wait(timeout=4)
@@ -141,4 +147,8 @@ if __name__=="__main__":
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--qemu",type=Path,required=True)
     p.add_argument("--profile",type=Path,required=True)
-    a=p.parse_args();run(a.qemu,a.profile)
+    p.add_argument("--rx-discard",action="store_true",
+                   help="original transmit-only: RX TCD DOFF=0 sink")
+    p.add_argument("--tx-constant",action="store_true",
+                   help="original receive-only: TX TCD SOFF=0 source")
+    a=p.parse_args();run(a.qemu,a.profile,a.rx_discard,a.tx_constant)
