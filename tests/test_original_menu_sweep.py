@@ -13,6 +13,15 @@ import sweep_original_menus as sweep
 
 
 class SweepTests(unittest.TestCase):
+    def test_original_two_93_chord_uses_distinct_a7_checkpoints(self):
+        # The second 0x93 runs PC 60010928 (LAST), not 60010910
+        # (FIRST) again. The old incorrect tuple caused all cold
+        # boots to fail before reaching WLAN despite valid key input.
+        self.assertEqual(
+            sweep.ORIGINAL_CHORD_CHECKPOINTS,
+            ("first", "last", "accepted"))
+        self.assertEqual(len(set(sweep.ORIGINAL_CHORD_CHECKPOINTS)), 3)
+
     def test_manifest_covers_wlan_and_marks_unsafe_actions(self):
         cases = {case.key: case for case in sweep.all_cases()}
         self.assertGreaterEqual(len(cases), 35)
