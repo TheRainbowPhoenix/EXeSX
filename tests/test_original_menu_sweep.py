@@ -13,14 +13,14 @@ import sweep_original_menus as sweep
 
 
 class SweepTests(unittest.TestCase):
-    def test_original_two_93_chord_uses_distinct_a7_checkpoints(self):
-        # The second 0x93 runs PC 60010928 (LAST), not 60010910
-        # (FIRST) again. The old incorrect tuple caused all cold
-        # boots to fail before reaching WLAN despite valid key input.
+    def test_original_factory_two_93_keys_use_proven_ci_timing(self):
+        # QEMU -d exec logs translation-block entry, not per-key execution.
+        # FIRST may be logged once despite two genuine 0x93 key-downs.
+        # The CI driver releases the second key on its bounded hold,
+        # then requires the ORIGINAL accepted PC after 0x94.
         self.assertEqual(
             sweep.ORIGINAL_CHORD_CHECKPOINTS,
-            ("first", "last", "accepted"))
-        self.assertEqual(len(set(sweep.ORIGINAL_CHORD_CHECKPOINTS)), 3)
+            ("first", None, "accepted"))
 
     def test_manifest_covers_wlan_and_marks_unsafe_actions(self):
         cases = {case.key: case for case in sweep.all_cases()}
