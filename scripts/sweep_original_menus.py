@@ -212,6 +212,9 @@ def press_and_open(qmp, contact, out, stage, attempts=6):
     raise RuntimeError("physical ENTER did not change original LCD title: " + stage)
 
 
+ORIGINAL_CHORD_CHECKPOINTS = ("first", "last", "accepted")
+
+
 def factory_boot(qmp, contact, trace, proc, timeout):
     """CI-proven 0x93,0x93,0x94 chord, with real A7 PC acknowledgment."""
     hits = Counter()
@@ -251,7 +254,7 @@ def factory_boot(qmp, contact, trace, proc, timeout):
             if hits["paint"]:
                 break
             if released and hits["wait"] and index < 3:
-                desired = ("first", "last", "accepted")[index]
+                desired = ORIGINAL_CHORD_CHECKPOINTS[index]
                 if not down and now >= next_at:
                     if index == 0 or m4_idle(qmp) or now - up_at > .75:
                         physical(contact, ("0x93", "0x93", "0x94")[index])
