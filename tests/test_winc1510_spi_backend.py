@@ -120,6 +120,23 @@ class SPIProtocolTests(unittest.TestCase):
         dev.set_pins(reset_n=True)
         self.assertEqual(dev._read_reg(0xc0008), 0x1000)
 
+    def test_original_split_lpspi2_frames_preserve_winc_response(self):
+        """Original A7 transmits a CRC command then polls 8-bit frames."""
+        dev = Winc1510SPI(crc=True, fixture_identity=True,
+                          frame_spanning_cs=True)
+        self.assertEqual(dev.shift(2, bytes.fromhex("cfffffffaa"),
+                                   begin=True, end=True), b"\\xff" * 5)
+        self.assertEqual(dev.shift(2, b"\\x00", begin=True, end=True),
+                         b"\\xcf")
+        self.assertIsNone(dev.selected_pcs)
+        self.assertEqual(dev.shift(2, bytes.fromhex("ca0c0008bc"),
+                                   begin=True, end=True), b"\\xff" * 5)
+        answer = b"".join(dev.shift(2, b"\\x00", begin=True, end=True)
+                          for _ in range(7))
+        self.assertEqual(answer, bytes.fromhex("ca00f300100000"))
+        self.assertIsNone(dev.selected_pcs)
+        self.assertEqual(dev._read_reg(0xc0008), 0x1000)
+
     def test_optional_crc_extra_command_byte(self):
         dev=Winc1510SPI(crc=True)
         dev.shift(0,bytes.fromhex("ca0010005a"),begin=True)
