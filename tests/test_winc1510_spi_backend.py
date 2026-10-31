@@ -285,6 +285,43 @@ class SPIProtocolTests(unittest.TestCase):
         self.assertEqual(dev.hif_requests, [])
         self.assertEqual(dev.hif_notifications, [])
 
+    def test_complete_original_spi_c7_hif_ap_notification(self):
+        """No direct _dma_put/_write_reg calls: replay A7 MOSI frames."""
+        dev = Winc1510SPI(crc=True, frame_spanning_cs=True,
+                          fixture_identity=True, hif_mailbox=True,
+                          fixture_ssid="BenchAP", fixture_ipv4="192.0.2.31")
+
+        def shift(data):
+            return dev.shift(2, data, begin=True, end=True)
+
+        def dma_write(address, data):
+            cmd = b"\xc7" + address.to_bytes(3, "big")
+            cmd += len(data).to_bytes(3, "big")
+            self.assertEqual(shift(cmd), bytes([255]) * 7)
+            self.assertEqual(shift(bytes(1)), bytes([255]))
+            self.assertEqual(shift(bytes(2)), bytes.fromhex("c700"))
+            self.assertEqual(shift(bytes.fromhex("f3")), bytes.fromhex("f3"))
+            shift(data)
+            self.assertEqual(shift(bytes(3)), bytes.fromhex("ffc300"))
+
+        payload = b"BenchAP" + bytes(41)
+        header = bytes((1, 0xbb))
+        header += (8 + len(payload)).to_bytes(2, "little") + bytes(4)
+        dma_write(0x30000, header)
+        dma_write(0x30008, payload)
+        self.assertEqual(dev.hif_requests, [])
+        # The HIF event is sent only after actual original A7 SPI
+        # register write (C9) to the WINC internal mailbox 0x106C.
+        notify = b"\xc9" + (0x106c).to_bytes(3, "big")
+        notify += ((0x30000 << 2) | 2).to_bytes(4, "big")
+        self.assertEqual(shift(notify), bytes([255]) * 8)
+        self.assertEqual(shift(bytes(3)), bytes.fromhex("ffc900"))
+        self.assertEqual(len(dev.hif_requests), 1)
+        self.assertEqual(dev.hif_requests[0]["opcode"], 0xbb)
+        self.assertTrue(dev.ap_connected)
+        self.assertEqual(dev.hif_notifications, [(1, 0x2c, 12)])
+        self.assertEqual(len(dev.deferred_callbacks), 1)
+
     def test_optional_crc_extra_command_byte(self):
         dev=Winc1510SPI(crc=True)
         dev.shift(0,bytes.fromhex("ca0010005a"),begin=True)
