@@ -467,8 +467,19 @@ static MemTxResult exesx_lpspi2_write(EXeSXProfileWindow *w,
          * placed in the upper byte lanes (FUN_601c2580), whereas a
          * standalone 8-bit LPSPI frame uses low lane 0 as normal.
          */
+        /*
+         * Original DY357 FUN_601c2580 writes the final 1..3 MOSI bytes
+         * in the upper TDR lanes and reads them back with RDR >>
+         * ((4 - nbytes) * 8), EVEN for standalone 8/16/24-bit frames.
+         * The existing synthetic PIO probe uses the low lane for
+         * standalone frames; keep that legacy behavior unless the
+         * source-derived original firmware compatibility is enabled.
+         */
+        bool original_upper_lane =
+            !g_strcmp0(g_getenv("EXESX_ORIGINAL_LPSPI2_UPPER_LANE"), "1");
         bool high_partial = nbits < 32U &&
-                            ((w->regfile[0x60 / 4] & 0xfffU) + 1U) > 32U;
+                            (original_upper_lane ||
+                             ((w->regfile[0x60 / 4] & 0xfffU) + 1U) > 32U);
         uint32_t mask = nbits == 32U ? UINT32_MAX :
                         (1U << nbits) - 1U;
         shifted = high_partial ? (bits >> (32U - nbits)) & mask :
