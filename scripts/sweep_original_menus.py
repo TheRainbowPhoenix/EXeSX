@@ -153,16 +153,14 @@ def factory_boot(qmp, contact, trace, proc, timeout):
         raise RuntimeError("QEMU original A7 execution trace missing")
     with trace.open("r", errors="replace") as stream:
         released = False
-        index = 0
+        next_at = 0.0
         down = False
         pressed = 0.0
-        next_at = 0.0
-        up_at = 0.0
-        ack_before = 0
-        missed = [0, 0, 0]
+        key_index = 0
+        chord_retries = 0
         buffered = ""
-        while time.monotonic()-started < timeout and proc.poll() is None:
-            now = time.monotonic()-started
+        while time.monotonic() - started < timeout and proc.poll() is None:
+            now = time.monotonic() - started
             if not released and now >= 4:
                 physical(contact, "0")
                 released = True
@@ -175,33 +173,30 @@ def factory_boot(qmp, contact, trace, proc, timeout):
                 for label, addr in CHECKPOINTS.items():
                     if pc.lower() == addr:
                         hits[label] += 1
-            if released and hits["wait"] and index < 3:
-                # The second 0x93 must be accepted before the next key.
-                desired = ("first", "first", "accepted")[index]
-                if not down and now >= next_at:
-                    if index == 0 or now-up_at > .28:
-                        physical(contact, ("0x93", "0x93", "0x94")[index])
-                        ack_before = hits[desired]
-                        pressed = now
-                        down = True
-                elif down and (hits[desired] > ack_before or now-pressed > .28):
-                    # A missed electrical key is never a valid A7 event.
-                    # Retry the SAME physical contact until the original
-                    # A7 sequence checkpoint advances; no SRAM injection.
-                    acknowledged = hits[desired] > ack_before
-                    physical(contact, "0")
-                    if acknowledged:
-                        index += 1
-                    else:
-                        missed[index] += 1
-                        if missed[index] >= 8:
-                            raise RuntimeError(
-                                "original A7 did not acknowledge startup key %d" % index)
-                    down = False
-                    up_at = now
-                    next_at = now + (.1 if acknowledged else .5)
             if hits["paint"]:
                 break
+            if released and hits["wait"] and not hits["accepted"]:
+                if down and now - pressed >= .28:
+                    physical(contact, "0")
+                    down = False
+                    key_index += 1
+                    if key_index == 3:
+                        # Only the original third-key A7 PC is a
+                        # conclusive chord acceptance. Retry complete
+                        # physical key sequences if that PC is absent;
+                        # never forge original guest state.
+                        key_index = 0
+                        chord_retries += 1
+                        next_at = now + .3
+                    else:
+                        next_at = now + .15
+                elif not down and now >= next_at:
+                    if chord_retries >= 6:
+                        raise RuntimeError(
+                            "original factory test chord unacknowledged")
+                    physical(contact, ("0x93", "0x93", "0x94")[key_index])
+                    down = True
+                    pressed = now
             time.sleep(.018)
     required = ("wait", "first", "accepted", "factory",
                 "ipc_call", "ipc_return", "paint")
