@@ -247,6 +247,19 @@ static void exesx_lpspi2_poll_gpio_irq(EXeSXProfileWindow *w)
         return;
     }
     /*
+     * M4 GPIOB reads are also part of the original keyboard matrix
+     * scanner, including the factory startup test chord. Do not open a
+     * Python TCP connection or synchronously poll the WLAN IRQ while
+     * the A7 has never enabled LPSPI2. The earlier ungated pre-SPI
+     * bridge interrogated the backend for unrelated key scans, adding
+     * host-dependent delay to M4 input/debounce and intermittently
+     * preventing factory test entry. A7 WLAN initialization enables
+     * MEN before its first legitimate WINC IRQ_N check.
+     */
+    if (!(w->regfile[0x10 / 4] & 1)) {
+        return;
+    }
+    /*
      * The original host may sample IRQ_N before issuing its first SPI
      * command. Do not require an earlier TDR write to connect the slave:
      * that creates a circular dependency when initialization waits for
