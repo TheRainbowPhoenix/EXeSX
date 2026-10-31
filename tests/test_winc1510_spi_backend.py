@@ -255,6 +255,34 @@ class SPIProtocolTests(unittest.TestCase):
             Winc1510SPI(hif_mailbox=True, fixture_ssid="TestBench",
                         fixture_rssi_dbm=0)
 
+    def test_original_c7_dma_write_crc_then_data_packet_ack(self):
+        """Original A7 601c1af0 -> 601c18c4 checks C3/00, not FF/00.
+
+        The guest writes F3 block marker, 8-byte HIF header, CRC16,
+        then separately reads a 2-byte data acknowledgment. The HIF
+        notification must still be an ORIGINAL A7 0x106c register write.
+        """
+        dev = Winc1510SPI(crc=True, frame_spanning_cs=True,
+                          hif_mailbox=True, fixture_identity=True)
+        cmd = bytes.fromhex("c7030000000008aa")
+        self.assertEqual(dev.shift(2, cmd, begin=True, end=True),
+                         bytes([255]) * len(cmd))
+        ack = b"".join(dev.shift(2, bytes([0]), begin=True, end=True)
+                       for _ in range(3))
+        self.assertEqual(ack, bytes.fromhex("c700f3"))
+        dev.shift(2, bytes.fromhex("f3"), begin=True, end=True)
+        header = bytes.fromhex("013b0c0000000000")
+        dev.shift(2, header, begin=True, end=True)
+        self.assertEqual(dev._dma_get(0x30000, 8), header)
+        self.assertEqual(dev.shift(2, bytes(2), begin=True, end=True),
+                         bytes([255, 255]))
+        self.assertEqual(dev.shift(2, bytes(2), begin=True, end=True),
+                         bytes.fromhex("c300"))
+        self.assertIsNone(dev.selected_pcs)
+        self.assertIn(("dma-write-data-ack",), dev.events)
+        self.assertEqual(dev.hif_requests, [])
+        self.assertEqual(dev.hif_notifications, [])
+
     def test_optional_crc_extra_command_byte(self):
         dev=Winc1510SPI(crc=True)
         dev.shift(0,bytes.fromhex("ca0010005a"),begin=True)
