@@ -282,9 +282,9 @@ class Winc1510SPI:
                                    0x1070: 0, 0x1078: 0, 0x1084: 0,
                                    0x108c: 0, 0x106c: 0, 0x150400: 0})
             self._populate_fixture_identity()
-            self.pending.extend((cmd, 0))
+            self.pending.extend((cmd,) if self.frame_spanning_cs else (cmd, 0))
         elif cmd in (0xc5, 0xc6):
-            self.pending.extend((cmd, 0))
+            self.pending.extend((cmd,) if self.frame_spanning_cs else (cmd, 0))
         elif cmd in READ:
             self.pending.extend((cmd, 0, 0xf3))
             # Microchip nmspi.c spi_read_reg assembles b[0] as bits
