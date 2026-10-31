@@ -30,7 +30,7 @@ MAX_FLASH = 1024 * 1024
 class Winc1510SPI:
     def __init__(self, flash=None, chip_id=0x1002b0, crc=False,
                  hif_mailbox=False, fixture_ssid=None,
-                 fixture_identity=False):
+                 fixture_identity=False, frame_spanning_cs=False):
         if flash is not None and len(flash) > MAX_FLASH:
             raise ValueError("WINC SPI flash image larger than documented 1 MiB")
         self.flash = bytes(flash) if flash is not None else None
@@ -47,6 +47,7 @@ class Winc1510SPI:
         # An unconfigured card must NOT auto-report a connection.
         self.fixture_ssid = fixture_ssid
         self.fixture_identity = bool(fixture_identity)
+        self.frame_spanning_cs = bool(frame_spanning_cs)
         self.ap_connected = False
         self.deferred_callbacks = deque()
         self.hif_outbound_addr = 0x30000
@@ -341,12 +342,23 @@ class Winc1510SPI:
             self.end()
             return bytes([0xff]) * len(tx)
         if begin:
-            self.begin(pcs)
+            if not (self.frame_spanning_cs and self.selected_pcs == pcs):
+                self.begin(pcs)
         if self.selected_pcs != pcs:
             raise ValueError("SPI transfer without active matching PCS")
         rx = bytes(self._clock_byte(x) for x in tx)
         if end:
-            self.end()
+            # The original A7 WINC driver uses a separate sequence of
+            # LPSPI2 frames for command, echo/status, and response bytes.
+            # On the physical board the WLAN slave CS boundary is not
+            # established by the LPSPI2 TCR.CONT bit alone. In this
+            # explicit compatibility mode, a host frame end cannot
+            # truncate an unfinished WINC command or pending reply.
+            # Once the reply is fully clocked, reset CS and parser so
+            # the next actual original command starts from a clean slate.
+            if not (self.frame_spanning_cs and
+                    (not self.completed or self.pending or self.payload_size)):
+                self.end()
         return rx
 
 
@@ -418,6 +430,10 @@ def main():
     p.add_argument("--gpio-status", action="store_true",
                    help="extended bridge: RESET_N/WAKE_N/EN control flags and"
                         " one sampled IRQ_N status byte after each SPI response")
+    p.add_argument("--frame-spanning-cs", action="store_true",
+                   help="keep WINC command/response state over original "
+                        "DY357 LPSPI2 frame boundaries until all response "
+                        "bytes clock; opt-in board-CS compatibility")
     p.add_argument("--fixture-identity", action="store_true",
                    help="simulated WINC ROM metadata (MAC 02:35:70:15:10:01, "
                         "firmware 19.6.1); no guest status injection")
@@ -434,7 +450,8 @@ def main():
     chip = Winc1510SPI(flash, args.chip_id, args.command_crc,
                        hif_mailbox=args.hif_mailbox,
                        fixture_ssid=args.fixture_ssid,
-                       fixture_identity=args.fixture_identity)
+                       fixture_identity=args.fixture_identity,
+                       frame_spanning_cs=args.frame_spanning_cs)
     serve(args.listen, args.port, chip, args.gpio_status)
 
 
