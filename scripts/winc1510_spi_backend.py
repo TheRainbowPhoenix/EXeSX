@@ -181,6 +181,17 @@ class Winc1510SPI:
         # chip status, never a fabricated guest callback or WLAN PASS.
         if addr == 0x1014:
             return 0x80000000 if self.reset_n and self.chip_enable else 0
+        if addr == 0x000f and self.fixture_identity:
+            # ORIGINAL A7 FUN_601c10f8: configure chip registers
+            # 0x000b and 0x0001, then wait up to five polls for
+            # register 0x000f bit 2. Absent this physical device-ready
+            # bit the unmodified driver returns exactly -4, shown by
+            # factory AUTO DEEP SLEEP as WLAN CONNECT ERROR! E04.
+            # Report readiness only after the original guest has
+            # programmed the activation bits; no A7 state is injected.
+            activated = bool(self.registers.get(0x000b, 0) & 1)
+            activated &= bool(self.registers.get(0x0001, 0) & 2)
+            return 4 if activated and self.reset_n and self.chip_enable else 0
         if addr in self.registers:
             return self.registers[addr]
         if self.flash is not None and 0x400000 <= addr < 0x400000 + len(self.flash):
