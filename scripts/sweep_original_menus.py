@@ -224,10 +224,11 @@ def factory_boot(qmp, contact, trace, proc, timeout):
     if not trace.exists():
         raise RuntimeError("QEMU original A7 execution trace missing")
     with trace.open("r", errors="replace") as stream:
-        # Original FUN_60010868 counts TWO independent 0x93 key-down
-        # events before 0x94. A timeout is not proof of acceptance.
-        # Retry the real electrical contact, never advance the key
-        # index or write A7/M4 memory until an original A7 PC confirms it.
+        # Exact original-ROM entry pacing from ci_e2e_arm_pattern.py:
+        # the second press of 0x93 may execute the same translated A7
+        # basic block and is not guaranteed a second -d exec marker.
+        # Therefore release on 280 ms upper bound; acceptance of the
+        # entire chord is still checked using the original A7 PC.
         released = False
         index = 0
         down = False
@@ -235,7 +236,6 @@ def factory_boot(qmp, contact, trace, proc, timeout):
         next_at = 0.0
         up_at = 0.0
         ack_before = 0
-        misses = [0, 0, 0]
         buffered = ""
         while time.monotonic() - started < timeout and proc.poll() is None:
             now = time.monotonic() - started
@@ -251,38 +251,22 @@ def factory_boot(qmp, contact, trace, proc, timeout):
                 for label, addr in CHECKPOINTS.items():
                     if pc.lower() == addr:
                         hits[label] += 1
-            if hits["paint"]:
-                break
             if released and hits["wait"] and index < 3:
-                desired = ORIGINAL_CHORD_CHECKPOINTS[index]
+                desired = ("first", "first", "accepted")[index]
                 if not down and now >= next_at:
-                    if index == 0 or m4_idle(qmp) or now - up_at > .75:
+                    if index == 0 or m4_idle(qmp) or now-up_at > 1.25:
                         physical(contact, ("0x93", "0x93", "0x94")[index])
-                        ack_before = hits[desired] if desired else 0
+                        ack_before = hits[desired]
                         pressed = now
                         down = True
-                elif down and ((desired is not None and
-                               hits[desired] > ack_before) or
-                               now - pressed >= .34):
-                    acknowledged = (desired is None or hits[desired] > ack_before)
+                elif down and (hits[desired] > ack_before or now-pressed > .28):
                     physical(contact, "0")
+                    index += 1
                     down = False
                     up_at = now
-                    if acknowledged:
-                        index += 1
-                        next_at = now + .012
-                    else:
-                        misses[index] += 1
-                        if misses[index] >= 6:
-                            raise RuntimeError(
-                                "original A7 missed physical factory "
-                                "key %d six times" % index)
-                        # The 0x94 key can reset the original firmware's
-                        # sequence if it was sampled without the pair
-                        # of 0x93s: restart with genuine contacts.
-                        if index == 2:
-                            index = 0
-                        next_at = now + .36
+                    next_at = now + .012
+            if hits["paint"]:
+                break
             time.sleep(.018)
     required = ("wait", "first", "accepted", "factory",
                 "ipc_call", "ipc_return", "paint")
