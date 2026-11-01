@@ -90,6 +90,8 @@ class WincGPIOTests(unittest.TestCase):
         self.assertEqual(info[:14], b"PRIVATE_SIM_AP")
         self.assertEqual(info[45], 6)
         chip._write_reg(0x1070, chip._read_reg(0x1070) & ~1)
+        # A7 must read the full 56-byte AP info frame after ACK.
+        chip._dma_get(0x32000, 56)
         self.assertTrue(chip.irq_n)
         guest_hif(0x2b)
         self.assertFalse(chip.ap_connected)
