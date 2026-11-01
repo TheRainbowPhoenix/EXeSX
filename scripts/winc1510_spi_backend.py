@@ -67,6 +67,7 @@ class Winc1510SPI:
         self.power_save_mode = None
         self.sleep_hint = None
         self.deferred_callbacks = deque()
+        self.hif_ack_draining = False
         self.hif_outbound_addr = 0x30000
         self.hif_inbound_addr = 0x32000
         self.hif_requests = []
@@ -129,6 +130,7 @@ class Winc1510SPI:
             self.power_save_mode = None
             self.sleep_hint = None
             self.deferred_callbacks.clear()
+            self.hif_ack_draining = False
             self.registers.clear()
             self.registers.update({
                 0x1000: self.chip_id, 0x13f4: 3,
@@ -225,9 +227,14 @@ class Winc1510SPI:
                 # the original device-side HIF callback.
                 old_pending = bool(self.registers.get(0x1070, 0) & 1)
                 self.registers[0x1070] = word
-                if old_pending and not (word & 1) and self.deferred_callbacks:
-                    group, opcode, payload = self.deferred_callbacks.popleft()
-                    self.queue_hif_callback(group, opcode, payload)
+                if old_pending and not (word & 1):
+                    # ORIGINAL FUN_601c0970 clears 0x1070 bit0 BEFORE
+                    # reading 0x1084 and DMA-reading the incoming HIF
+                    # message. Publishing the next queued callback here
+                    # overwrites 0x32000/0x1084 and destroys the first
+                    # association result before the A7 can consume it.
+                    # Finish the original message before advancing FIFO.
+                    self.hif_ack_draining = True
                 return
         if addr == 0x1000:
             self.events.append(("blocked-chip-id-write", addr, word))
@@ -351,7 +358,25 @@ class Winc1510SPI:
     def _dma_get(self, addr, size):
         if size > MAX_FRAME:
             raise ValueError("oversize DMA read")
-        return bytes(self.memory.get(addr + i, 0) & 0xff for i in range(size))
+        data = bytes(self.memory.get(addr + i, 0) & 0xff
+                     for i in range(size))
+        # Source-derived: the A7 has already ACKed IRQ_N but still
+        # needs this exact device RAM. Deliver deferred callbacks only
+        # AFTER the last byte of the previous HIF message has been
+        # clocked over the real C8 DMA read.
+        if self.hif_ack_draining:
+            length = int.from_bytes(
+                bytes(self.memory.get(self.hif_inbound_addr + i, 0)
+                      for i in (2, 3)), "little")
+            end = self.hif_inbound_addr + length
+            if (8 <= length <= 0x63c and
+                    addr >= self.hif_inbound_addr and
+                    addr < end and addr + size >= end):
+                self.hif_ack_draining = False
+                if self.deferred_callbacks:
+                    group, opcode, payload = self.deferred_callbacks.popleft()
+                    self.queue_hif_callback(group, opcode, payload)
+        return data
 
     def _dma_put(self, addr, payload):
         if len(payload) > MAX_FRAME:
