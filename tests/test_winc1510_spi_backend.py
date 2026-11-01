@@ -381,7 +381,7 @@ class SPIProtocolTests(unittest.TestCase):
         write_block(0x30008, bytes(body))
         write_block(0x30038, security)
         self.assertEqual(dev.hif_requests, [])
-        command = b"\\xc9" + (0x106c).to_bytes(3, "big")
+        command = bytes((0xc9,)) + (0x106c).to_bytes(3, "big")
         command += ((0x30000 << 2) | 2).to_bytes(4, "big")
         command += bytes((0xaa,))
         spi(command)
