@@ -232,6 +232,9 @@ class SPIProtocolTests(unittest.TestCase):
         self.assertEqual(dev.hif_notifications[-1], (1, 4, 12))
         self.assertEqual(dev._dma_get(0x32008, 1), bytes((195,)))  # -61
         dev._write_reg(0x1070, 0)
+        # Original A7 consumes the full RSSI callback before next
+        # asynchronous device message may reuse HIF inbound RAM.
+        dev._dma_get(0x32000, 12)
         self.original_hif(dev, 0x2b)
         self.assertFalse(dev.ap_connected)
         self.assertEqual(dev.hif_notifications[-1], (1, 0x2c, 12))
