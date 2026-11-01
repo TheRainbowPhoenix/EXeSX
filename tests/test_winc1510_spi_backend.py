@@ -385,7 +385,7 @@ class SPIProtocolTests(unittest.TestCase):
         command += ((0x30000 << 2) | 2).to_bytes(4, "big")
         command += bytes((0xaa,))
         spi(command)
-        self.assertEqual(spi(bytes(3)), bytes.fromhex("ffc900"))
+        self.assertEqual(spi(bytes(3)), bytes.fromhex("c900ff"))
         self.assertEqual(len(dev.hif_requests), 1)
         self.assertEqual(dev.hif_requests[0]["opcode"], 0xbb)
         self.assertEqual(dev.hif_requests[0]["length"], 164)
