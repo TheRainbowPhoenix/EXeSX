@@ -1,5 +1,35 @@
 # DY357 WLAN: firmware entry points, candidate device, and pass criteria
 
+## 2026-11-01: source-derived E04 candidate and complete AP HIF replay
+
+**Unmodified owner A7 decompilation:** `FUN_601c10f8` writes bit0 to
+WINC register `0x000b`, bit1 to `0x0001`, then polls
+WINC `0x000f & 4` for at most five iterations. Failure returns
+**-4** (E04-class readiness failure). The Python device previously
+returned zero for `0x000f` unconditionally. The opt-in
+`--fixture-identity` model now exposes bit2 only after both genuine
+original register writes and while RESET_N/CHIP_EN are high. Reset
+clears those writes. No guest success flag or LCD verdict is injected.
+It remains to verify on original firmware whether this is the exact
+E04 connection-test code path: its old screen said a **connection**
+error rather than an initialization error.
+
+**Complete original-AP SPI replay:** `FUN_601c0708(1,0xbb,...)` sends
+a 164-byte HIF request via three `C7` DMA writes: header8 to
+`0x30000`, connection48 to `0x30008`, security108 to `0x30038`.
+The Python device returns the source-derived `C7 00 F3` command
+response and `FF C3 00` write ACK. Only the subsequent actual
+`C9` write to `0x106c` queues device-side connection callback
+`0x2c` and optional DHCP `0x32`. This source-derived sequence
+passes local simulator SPI replay and is now covered by a native CI
+unit regression. It does not directly create original A7 events.
+
+**Private cold-boot recheck:** two clean original OSUP attempts with
+single-threaded QEMU and snapshot-protected media both missed the
+original physical startup chord before entering WLAN. No new original
+LCD E04/RSSI PASS (or valid WLAN FAIL) resulted. Do not confuse native
+CI/protocol unit results with owner-original WLAN acceptance.
+
 ## 2026-10-31 follow-up: original 108-byte WLAN DMA now clocks, radio still unverified
 
 A subsequent unchanged OSUP cold boot with the corrected QEMU LPSPI2/eDMA
