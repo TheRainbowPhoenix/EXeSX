@@ -1,5 +1,44 @@
 # DY357 WLAN: firmware entry points, candidate device, and pass criteria
 
+## 2026-11-01: original HIF callback FIFO ordering and genuine WPA payload
+
+**Confirmed source-derived HIF bug:** original A7 `FUN_601c0970`
+acknowledges WINC `0x1070` bit0 **before** reading the incoming HIF
+message pointer at `0x1084` and DMA-reading its RAM body. The Python
+simulator previously published the next deferred device callback
+synchronously on the ACK write, overwriting the previous
+`0x32000` device buffer and pointer. With configured AP and optional
+DHCP, the queued `0x32` lease overwrote `0x2c` association
+before the firmware could read connection state. The backend now
+retains the old buffer through the complete source-derived C8 DMA read,
+then releases the next callback. New HIF events arriving in this
+ACK-to-DMA interval are also deferred. Tests explicitly validate both
+the preserved original `0x2c` bytes and FIFO release order; no guest
+memory or A7 RTOS state is injected.
+
+**Correct original WPA/WPA2 connect packet:** `FUN_601c37d0` calls
+`FUN_601c0708(1,0xbb,header,0x30,security,0x10,0x30)`, i.e.
+an 8-byte HIF header, 48-byte connection structure, and 16-byte
+security record (**72 bytes**). An earlier 164-byte synthetic AP
+regression incorrectly conflated it with the separate 108-byte HIF
+security payload path. The regression now replays the true 72-byte
+0xBB packet over three original C7 DMA writes and the actual C9
+mailbox notification. The AUTO DEEP SLEEP original test
+`FUN_601cab94` sends **both** HIF 0x2D(3,1) and 0x39(1),
+not only 0x2D. Both are modeled as genuine device requests without
+inventing HIF completion events.
+
+**Hardware acceptance remains outstanding:** source-derived protocol
+and synthetic ARM DMA tests cannot establish original RSSI/AUTO DEEP
+SLEEP LCD PASS. The original local cold boot reached the factory
+menu but the on-demand sweep held ENTER while taking QMP LCD
+screenshots; this could cause M4 repeat key events and menu
+misnavigation. The sweep has been changed to pulse/release actual
+M4 ENTER first, then inspect the original framebuffer. Repeat
+unchanged-OSUP cold boots with private snapshot media and
+capture the actual original LCD verdict. Never upload private
+ROM, SSID credentials or framebuffer pixels to public CI.
+
 ## 2026-11-01: source-derived E04 candidate and complete AP HIF replay
 
 **Unmodified owner A7 decompilation:** `FUN_601c10f8` writes bit0 to
