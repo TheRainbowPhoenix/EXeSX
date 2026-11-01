@@ -322,6 +322,31 @@ class SPIProtocolTests(unittest.TestCase):
         self.assertEqual(dev.hif_notifications, [(1, 0x2c, 12)])
         self.assertEqual(len(dev.deferred_callbacks), 1)
 
+    def test_original_e04_clock_activation_and_reset_negative_controls(self):
+        """Original FUN_601c10f8: 0xB[0], 0x1[1] -> 0xF[2].
+
+        Without 0xF bit2 the real A7 returns -4 (factory E04).
+        The model must not return ready before the ORIGINAL SPI
+        register initialization, nor while the card is disabled.
+        """
+        dev = Winc1510SPI(fixture_identity=True)
+        self.assertEqual(dev._read_reg(0xf) & 4, 0)
+        dev._write_reg(0xb, 1)
+        self.assertEqual(dev._read_reg(0xf) & 4, 0)
+        dev._write_reg(1, 2)
+        self.assertEqual(dev._read_reg(0xf) & 4, 4)
+        dev.set_pins(reset_n=False)
+        self.assertEqual(dev._read_reg(0xf) & 4, 0)
+        dev.set_pins(reset_n=True)
+        self.assertEqual(dev._read_reg(0xf) & 4, 0)
+        dev._write_reg(0xb, 1)
+        dev._write_reg(1, 2)
+        self.assertEqual(dev._read_reg(0xf) & 4, 4)
+        legacy = Winc1510SPI()
+        legacy._write_reg(0xb, 1)
+        legacy._write_reg(1, 2)
+        self.assertEqual(legacy._read_reg(0xf) & 4, 0)
+
     def test_optional_crc_extra_command_byte(self):
         dev=Winc1510SPI(crc=True)
         dev.shift(0,bytes.fromhex("ca0010005a"),begin=True)
