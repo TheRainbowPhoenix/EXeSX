@@ -65,6 +65,7 @@ class Winc1510SPI:
         self.fixture_rssi_dbm = fixture_rssi_dbm
         self.ap_connected = False
         self.power_save_mode = None
+        self.sleep_hint = None
         self.deferred_callbacks = deque()
         self.hif_outbound_addr = 0x30000
         self.hif_inbound_addr = 0x32000
@@ -126,6 +127,7 @@ class Winc1510SPI:
             self.hif_notifications.clear()
             self.ap_connected = False
             self.power_save_mode = None
+            self.sleep_hint = None
             self.deferred_callbacks.clear()
             self.registers.clear()
             self.registers.update({
@@ -262,6 +264,14 @@ class Winc1510SPI:
             # sleep; record settings but never invent a host OK event.
             self.power_save_mode = (payload[0], payload[1])
             self.events.append(("guest-power-save-request", *self.power_save_mode))
+        if group == 1 and opcode == 0x39 and len(payload) >= 2:
+            # Original AUTO DEEP SLEEP FUN_601cab94 first sends
+            # 0x2D(3,1), then FUN_601c3e2c sends 0x39 with a
+            # four-byte setting whose low halfword is 1.
+            # Record a genuine guest request; do not synthesize
+            # an A7 notification, timer wake, or test PASS.
+            self.sleep_hint = int.from_bytes(payload[:2], "little")
+            self.events.append(("guest-sleep-hint", self.sleep_hint))
         if self.fixture_ssid is not None and group == 1:
             if opcode == 0xbb:
                 # Original FUN_601c37d0 emits group1/0xBB with SSID
