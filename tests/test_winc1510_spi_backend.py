@@ -347,10 +347,10 @@ class SPIProtocolTests(unittest.TestCase):
         legacy._write_reg(1, 2)
         self.assertEqual(legacy._read_reg(0xf) & 4, 0)
 
-    def test_original_164_byte_ap_hif_three_real_spi_dma_writes(self):
-        """A7 FUN_601c0708(1,BB,48+108) must reach 0x106c as one HIF.
+    def test_original_72_byte_wpa_ap_hif_three_real_spi_dma_writes(self):
+        """A7 FUN_601c0708(1,BB,48+16) must reach 0x106c as one HIF.
 
-        The previous original E06 trace clocked all 108 bytes but never
+        The previous original E06 trace clocked a separate 108-byte message but never
         reached a connection callback. Replay the complete A7 physical
         SPI sequence instead of writing mailbox state directly.
         """
@@ -374,7 +374,7 @@ class SPIProtocolTests(unittest.TestCase):
 
         body = bytearray(48)
         body[0:7] = b"BenchAP"
-        security = bytes(108)
+        security = bytes(16)
         length = 8 + len(body) + len(security)
         hif = bytes((1, 0xbb)) + length.to_bytes(2, "little") + bytes(4)
         write_block(0x30000, hif)
@@ -388,7 +388,7 @@ class SPIProtocolTests(unittest.TestCase):
         self.assertEqual(spi(bytes(3)), bytes.fromhex("c900ff"))
         self.assertEqual(len(dev.hif_requests), 1)
         self.assertEqual(dev.hif_requests[0]["opcode"], 0xbb)
-        self.assertEqual(dev.hif_requests[0]["length"], 164)
+        self.assertEqual(dev.hif_requests[0]["length"], 72)
         self.assertTrue(dev.ap_connected)
         self.assertEqual(dev.hif_notifications[0][:2], (1, 0x2c))
         self.assertEqual(dev.deferred_callbacks[0][:2], (1, 0x32))
