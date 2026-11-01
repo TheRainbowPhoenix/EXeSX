@@ -167,6 +167,35 @@ def skip_reason(case, args):
     return ""
 
 
+def navigate_pulsed(qmp, contact, out, target):
+    """Use actual brief M4 UP/DOWN contacts; never hold during QMP I/O."""
+    from ci_e2e_arm_pattern import actual_row
+
+    last = frame(qmp, out, "initial-menu")
+    for step in range(35):
+        row = actual_row(last["highlight_y"])
+        if row == target:
+            time.sleep(.3)
+            confirmed = frame(qmp, out, "selected-row")
+            if actual_row(confirmed["highlight_y"]) == target:
+                screenshot(out / "selected-row.ppm", out / "selected-row.png")
+                return confirmed
+            last = confirmed
+            continue
+        physical(contact, "0x91" if row is None or row < target else "0x90")
+        try:
+            time.sleep(.20)
+        finally:
+            physical(contact, "0")
+        time.sleep(.6)
+        current = frame(qmp, out, "navigation")
+        if current["highlight_y"] != last["highlight_y"]:
+            last = current
+        else:
+            time.sleep(.15)
+    raise RuntimeError("original LCD selection failed to reach row %d" % target)
+
+
 def press_and_open(qmp, contact, out, stage, attempts=6):
     """Pulse actual M4 ENTER briefly, release, THEN sample original LCD.
 
@@ -349,7 +378,7 @@ def run_case(args, case, attempt, goldens):
             entered = []
             for depth, row in enumerate(case.route):
                 stage = "route-%d-row-%d" % (depth + 1, row)
-                navigate(qmp, contact, root, row)
+                navigate_pulsed(qmp, contact, root, row)
                 if (backend_command and backend is None and
                         depth == len(case.route) - 1):
                     # A live synchronous GPIO/IRQ socket during earlier
