@@ -327,7 +327,12 @@ class Winc1510SPI:
                     1, 4, bytes((self.fixture_rssi_dbm & 0xff, 0, 0, 0)))
 
     def _defer_hif_callback(self, group, opcode, payload):
-        if self.registers.get(0x1070, 0) & 1:
+        if (self.registers.get(0x1070, 0) & 1 or
+                self.hif_ack_draining):
+            # During original A7 ACK -> DMA read, 0x1070 bit0 is
+            # cleared but the incoming RAM is still owned by the
+            # previous callback. Do not overwrite it if a second HIF
+            # request triggers a new device event in that interval.
             self.deferred_callbacks.append((group, opcode, payload))
         else:
             self.queue_hif_callback(group, opcode, payload)
