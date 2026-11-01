@@ -347,6 +347,52 @@ class SPIProtocolTests(unittest.TestCase):
         legacy._write_reg(1, 2)
         self.assertEqual(legacy._read_reg(0xf) & 4, 0)
 
+    def test_original_164_byte_ap_hif_three_real_spi_dma_writes(self):
+        """A7 FUN_601c0708(1,BB,48+108) must reach 0x106c as one HIF.
+
+        The previous original E06 trace clocked all 108 bytes but never
+        reached a connection callback. Replay the complete A7 physical
+        SPI sequence instead of writing mailbox state directly.
+        """
+        dev = Winc1510SPI(crc=True, frame_spanning_cs=True,
+                          fixture_identity=True, hif_mailbox=True,
+                          fixture_ssid="BenchAP",
+                          fixture_ipv4="192.0.2.31")
+
+        def spi(data):
+            return dev.shift(2, data, begin=True, end=True)
+
+        def write_block(addr, content):
+            cmd = bytes((0xc7,)) + addr.to_bytes(3, "big")
+            cmd += len(content).to_bytes(3, "big") + bytes((0xaa,))
+            spi(cmd)
+            self.assertEqual(spi(bytes(3)), bytes.fromhex("c700f3"))
+            spi(bytes.fromhex("f3"))
+            spi(content)
+            self.assertEqual(spi(bytes(3)), bytes.fromhex("ffc300"))
+            self.assertIsNone(dev.selected_pcs)
+
+        body = bytearray(48)
+        body[0:7] = b"BenchAP"
+        security = bytes(108)
+        length = 8 + len(body) + len(security)
+        hif = bytes((1, 0xbb)) + length.to_bytes(2, "little") + bytes(4)
+        write_block(0x30000, hif)
+        write_block(0x30008, bytes(body))
+        write_block(0x30038, security)
+        self.assertEqual(dev.hif_requests, [])
+        command = b"\\xc9" + (0x106c).to_bytes(3, "big")
+        command += ((0x30000 << 2) | 2).to_bytes(4, "big")
+        command += bytes((0xaa,))
+        spi(command)
+        self.assertEqual(spi(bytes(3)), bytes.fromhex("ffc900"))
+        self.assertEqual(len(dev.hif_requests), 1)
+        self.assertEqual(dev.hif_requests[0]["opcode"], 0xbb)
+        self.assertEqual(dev.hif_requests[0]["length"], 164)
+        self.assertTrue(dev.ap_connected)
+        self.assertEqual(dev.hif_notifications[0][:2], (1, 0x2c))
+        self.assertEqual(dev.deferred_callbacks[0][:2], (1, 0x32))
+
     def test_optional_crc_extra_command_byte(self):
         dev=Winc1510SPI(crc=True)
         dev.shift(0,bytes.fromhex("ca0010005a"),begin=True)
