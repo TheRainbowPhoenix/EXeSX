@@ -213,14 +213,21 @@ class SPIProtocolTests(unittest.TestCase):
         # The DHCP callback must wait until original A7 acknowledges IRQ.
         self.assertEqual(len(dev.deferred_callbacks), 1)
         dev._write_reg(0x1070, 0)
+        # Original FUN_601c0970 ACKs BEFORE reading 0x1084/RAM.
+        # That ACK must not replace association data with DHCP.
+        self.assertEqual(dev._read_reg(0x1070), 0)
+        self.assertEqual(dev._dma_get(0x32000, 12),
+                         bytes.fromhex("012c0c000000000001000000"))
         self.assertEqual(dev.hif_notifications[-1], (1, 0x32, 32))
         self.assertEqual(dev._dma_get(0x32008, 4), bytes((192, 0, 2, 31)))
         dev._write_reg(0x1070, 0)
+        dev._dma_get(0x32000, 32)
         self.original_hif(dev, 5)
         self.assertEqual(dev.hif_notifications[-1], (1, 6, 56))
         self.assertEqual(dev._dma_get(0x32008, 9), b"TestBench")
         self.assertEqual(dev._dma_get(0x32008 + 45, 1), bytes((6,)))
         dev._write_reg(0x1070, 0)
+        dev._dma_get(0x32000, 56)
         self.original_hif(dev, 3)
         self.assertEqual(dev.hif_notifications[-1], (1, 4, 12))
         self.assertEqual(dev._dma_get(0x32008, 1), bytes((195,)))  # -61
