@@ -393,6 +393,22 @@ class SPIProtocolTests(unittest.TestCase):
         self.assertEqual(dev.hif_notifications[0][:2], (1, 0x2c))
         self.assertEqual(dev.deferred_callbacks[0][:2], (1, 0x32))
 
+    def test_original_auto_deep_sleep_two_real_hif_commands(self):
+        """A7 FUN_601cab94 emits group1 0x2D then 0x39, no magic OK."""
+        dev = Winc1510SPI(hif_mailbox=True, fixture_identity=True)
+        self.assertIsNone(dev.power_save_mode)
+        self.assertIsNone(dev.sleep_hint)
+        self.original_hif(dev, 0x2d, bytes((3, 1, 0, 0)))
+        self.assertEqual(dev.power_save_mode, (3, 1))
+        self.assertIsNone(dev.sleep_hint)
+        self.original_hif(dev, 0x39, bytes((1, 0, 0, 0)))
+        self.assertEqual(dev.sleep_hint, 1)
+        self.assertEqual(dev.hif_notifications, [])
+        self.assertFalse(dev.ap_connected)
+        dev.set_pins(reset_n=False)
+        self.assertIsNone(dev.power_save_mode)
+        self.assertIsNone(dev.sleep_hint)
+
     def test_optional_crc_extra_command_byte(self):
         dev=Winc1510SPI(crc=True)
         dev.shift(0,bytes.fromhex("ca0010005a"),begin=True)
