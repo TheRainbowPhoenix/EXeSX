@@ -48,6 +48,117 @@ static const MemoryRegionOps exesx_lcd_export_ops = {
     .impl = { .min_access_size = 1, .max_access_size = 8, .unaligned = true },
 };
 
+/* Read-only diagnostic window: raw DCS state, never an LCD verdict.
+ * WORD0 signature, WORD1 flags, WORD2 cmd/MADCTL/param-count,
+ * WORD3 brightness/last-data, WORD4/5 raw vendor B2 bytes,
+ * WORD6 opt-in byte-swapped RAMWR count, WORD7 pixel-write count.
+ */
+#define EXESX_LCD_STATUS_EXPORT_BASE UINT64_C(0xb1100000)
+#define EXESX_LCD_STATUS_EXPORT_SIZE 64
+/*
+ * DY357 factory's original BACKLIGHT DUTY and PWM FREQ menus maintain
+ * their numeric settings in A7 RAM (observed in original disassembly).
+ * The frequency menu sends a constant 1 to the LCD data port, not its
+ * divisor, so the panel's real vendor register protocol is unknown.
+ *
+ * Explicit compatibility mode ONLY: sample unchanged guest RAM to drive
+ * a host-observable virtual signal. Never write RAM, alter original
+ * firmware UI, claim a real vendor-command decode or modify GRAM pixels.
+ * Invalid/uninitialized RAM retains the previous diagnostic defaults.
+ */
+static bool exesx_lcd_pwm_shadow_sample(EXeSXProfileWindow *w)
+{
+    uint8_t divisor_bytes[4] = {0}, duty_bytes[2] = {0};
+    uint32_t divisor, duty;
+    if (!w->lcd_original_pwm_shadow) {
+        return false;
+    }
+    if (address_space_read(&address_space_memory, UINT64_C(0x62344f3c),
+                           MEMTXATTRS_UNSPECIFIED, divisor_bytes, 4) != MEMTX_OK ||
+        address_space_read(&address_space_memory, UINT64_C(0x62413262),
+                           MEMTXATTRS_UNSPECIFIED, duty_bytes, 2) != MEMTX_OK) {
+        return false;
+    }
+    divisor = (uint32_t)divisor_bytes[0] | ((uint32_t)divisor_bytes[1] << 8) |
+              ((uint32_t)divisor_bytes[2] << 16) |
+              ((uint32_t)divisor_bytes[3] << 24);
+    duty = (uint32_t)duty_bytes[0] | ((uint32_t)duty_bytes[1] << 8);
+    if (divisor < 160 || divisor > 160000 || duty > 255) {
+        return false;
+    }
+    w->lcd_pwm_divisor = divisor;
+    w->lcd_pwm_duty = duty;
+    return true;
+}
+
+static uint64_t exesx_lcd_status_read(void *opaque, hwaddr offset, unsigned size)
+{
+    EXeSXState *board = opaque;
+    EXeSXProfileWindow *w = board->lcd;
+    uint32_t words[16] = { 0 };
+    uint64_t result = 0;
+    bool shadow_ok;
+    if (!w || offset >= EXESX_LCD_STATUS_EXPORT_SIZE ||
+        size > EXESX_LCD_STATUS_EXPORT_SIZE - offset) {
+        return 0;
+    }
+    shadow_ok = exesx_lcd_pwm_shadow_sample(w);
+    words[0] = 0x3144434c; /* "LCD1" */
+    words[1] = (w->lcd_rgb565 ? 1U : 0U) |
+               (w->lcd_te_enabled ? 2U : 0U) |
+               (w->lcd_display_on ? 4U : 0U) |
+               (w->lcd_sleep_out ? 8U : 0U) |
+               (w->lcd_inverted ? 16U : 0U) |
+               (w->lcd_idle ? 32U : 0U);
+    words[2] = (uint32_t)w->lcd_cmd |
+               ((uint32_t)w->lcd_madctl << 8) |
+               ((w->lcd_param_count & 0xffffU) << 16);
+    words[3] = (uint32_t)w->lcd_dcs_brightness |
+               ((uint32_t)w->lcd_last_data << 8);
+    for (unsigned i = 0; i < 8; ++i) {
+        words[4 + i / 4] |= (uint32_t)w->lcd_b2[i] << (8 * (i & 3));
+    }
+    words[6] = w->lcd_swapped_writes;
+    words[7] = (uint32_t)w->lcd_pixel_writes;
+    /*
+     * Host-only signal observer, explicitly NOT the unknown vendor
+     * panel PWM register. The original UI displays 16 MHz/divisor
+     * and initializes duty 0xCC. Model an ideal digital waveform
+     * only when the diagnostic option is enabled. RGB565 GRAM
+     * and real GPIOF/PTB register behavior are not changed.
+     */
+    if (w->lcd_pwm_diagnostic && w->lcd_pwm_divisor) {
+        uint64_t period_ns =
+            ((uint64_t)w->lcd_pwm_divisor * UINT64_C(1000000000) +
+             UINT64_C(8000000)) / UINT64_C(16000000);
+        uint64_t high_ns =
+            (period_ns * w->lcd_pwm_duty + 127U) / 255U;
+        uint64_t phase_ns =
+            qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) % period_ns;
+        words[8] = (uint32_t)period_ns;
+        words[9] = (uint32_t)high_ns;
+        words[10] = (phase_ns < high_ns) ? 1 : 0;
+        words[11] = (w->lcd_pwm_duty * 10000U + 127U) / 255U;
+        words[12] = w->lcd_pwm_divisor;
+        words[13] = UINT32_C(16000000) / w->lcd_pwm_divisor;
+        words[14] = w->lcd_pwm_duty;
+        words[15] = shadow_ok ? 0x50574d32 : 0x50574d31;
+        /* PWM2: sampled live original A7 RAM, not panel vendor command. */
+    }
+    for (unsigned i = 0; i < size; ++i) {
+        unsigned pos = offset + i;
+        result |= (uint64_t)((words[pos / 4] >> (8 * (pos & 3))) & 255)
+                  << (8 * i);
+    }
+    return result;
+}
+static const MemoryRegionOps exesx_lcd_status_ops = {
+    .read = exesx_lcd_status_read,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+    .valid = { .min_access_size = 1, .max_access_size = 8, .unaligned = true },
+    .impl = { .min_access_size = 1, .max_access_size = 8, .unaligned = true },
+};
+
 static void exesx_lcd_screenshot_file(EXeSXProfileWindow *w,
                                       const char *file)
 {
@@ -145,6 +256,16 @@ static void exesx_lcd_gpioa(EXeSXState *s, uint32_t off, uint32_t bits)
  */
 static void exesx_lcd_ramwr_pixel(EXeSXProfileWindow *w, uint16_t rgb565)
 {
+    /*
+     * Original DY357 transposed 16-bit image transfer (MADCTL=0x40):
+     * owner-ROM MENU 1 evidence shows reversed RGB565 byte lanes.
+     * Experimental opt-in until the exact FlexBus transfer provenance
+     * is established. Never alter normal 0x60/PIO color-bar pixels.
+     */
+    if (w->lcd_transposed_byteswap && (w->lcd_madctl & 0xe0) == 0x40) {
+        rgb565 = (uint16_t)((rgb565 >> 8) | (rgb565 << 8));
+        ++w->lcd_swapped_writes;
+    }
     unsigned x = w->lcd_x;
     unsigned y = w->lcd_y;
     /*
@@ -222,6 +343,7 @@ static void exesx_lcd_ramwr_pixel(EXeSXProfileWindow *w, uint16_t rgb565)
 static void exesx_lcd_parameter(EXeSXProfileWindow *w, uint16_t v)
 {
     unsigned n = w->lcd_param_count++;
+    w->lcd_last_data = v & 255;
     switch (w->lcd_cmd) {
     case 0x35: /* TEON */
         w->lcd_te_enabled = true;
@@ -255,6 +377,22 @@ static void exesx_lcd_parameter(EXeSXProfileWindow *w, uint16_t v)
         break;
     case 0x3a: /* COLMOD; only RGB565 data storage supported */
         w->lcd_rgb565 = (v & 255) == 0x55;
+        break;
+    case 0x51: /* Standard DCS brightness register, 0..255 */
+        if (n == 0) {
+            w->lcd_dcs_brightness = v & 255;
+            if (w->lcd_pwm_diagnostic) {
+                /* Explicit experimental PWM mapping: never a claim that
+                 * DY357 vendor BACKLIGHT DUTY uses DCS 0x51.
+                 */
+                w->lcd_pwm_duty = v & 255;
+            }
+        }
+        break;
+    case 0xb2: /* Preserve original vendor data; semantics not guessed */
+        if (n < G_N_ELEMENTS(w->lcd_b2)) {
+            w->lcd_b2[n] = v & 255;
+        }
         break;
     default:
         break; /* Preserve unknown vendor initialization as inert. */
@@ -292,6 +430,18 @@ static MemTxResult exesx_lcd_write(EXeSXProfileWindow *w, hwaddr offset,
             w->lcd_y = w->lcd_y0;
         } else if (w->lcd_cmd == 0x34) {
             w->lcd_te_enabled = false;
+        }
+        /* DCS power and inversion are panel state, not GRAM mutations. */
+        switch (w->lcd_cmd) {
+        case 0x10: w->lcd_sleep_out = false; break;
+        case 0x11: w->lcd_sleep_out = true; break;
+        case 0x20: w->lcd_inverted = false; break;
+        case 0x21: w->lcd_inverted = true; break;
+        case 0x28: w->lcd_display_on = false; break;
+        case 0x29: w->lcd_display_on = true; break;
+        case 0x38: w->lcd_idle = false; break;
+        case 0x39: w->lcd_idle = true; break;
+        default: break;
         }
     } else {
         exesx_lcd_parameter(w, data & 0xffff);

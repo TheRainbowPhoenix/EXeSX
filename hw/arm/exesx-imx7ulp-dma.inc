@@ -137,8 +137,13 @@ static MemTxResult exesx_dma0_read(EXeSXProfileWindow *w, hwaddr off,
         !exesx_dma0_early_reg(off)) {
         return MEMTX_ERROR;
     }
-    /* Without descriptors, no channel reports activity/error/interrupt. */
-    if (off == 0x04 || off == 0x24 || off == 0x2c || off == 0x34) {
+    /* Actual DMA1 INTMAJOR bits are produced only by successful
+     * opt-in peripheral or memory transfers; legacy mode stays RAZ. */
+    if (off == 0x24 && w->base == UINT64_C(0x40080000) &&
+        !g_strcmp0(g_getenv("EXESX_EXPERIMENTAL_LPSPI2_DMA"), "1")) {
+        *value = w->regfile[off / 4];
+    } else if (off == 0x04 || off == 0x24 ||
+               off == 0x2c || off == 0x34) {
         *value = 0;
     } else {
         *value = w->regfile[off / 4];
@@ -183,6 +188,9 @@ static MemTxResult exesx_dma0_write(EXeSXProfileWindow *w, hwaddr off,
                 if (!(bits & 0x40)) {
                     if (w->base == UINT64_C(0x40080000)) {
                         exesx_dma1_request(w, bits & 0x1f);
+                        if (w->board->wlan_lpspi2) {
+                            exesx_lpspi2_dma_kick(w->board->wlan_lpspi2);
+                        }
                     }
                 }
             } else {
@@ -208,8 +216,17 @@ static MemTxResult exesx_dma0_write(EXeSXProfileWindow *w, hwaddr off,
         return MEMTX_ERROR;
     }
     if (off == 0x24 || off == 0x2c) {
-        /* W1C interrupt/error status, initially zero. */
+        /* W1C interrupt/error status. A7 eDMA1 grouped GIC IRQs
+         * deassert only after the original guest clears INTMAJOR. */
         w->regfile[off / 4] &= ~((uint32_t)value);
+        if (off == 0x24 && w->base == UINT64_C(0x40080000) &&
+            !g_strcmp0(g_getenv("EXESX_EXPERIMENTAL_LPSPI2_DMA"), "1")) {
+            for (unsigned group = 0; group < 16; ++group) {
+                uint32_t pending = w->regfile[off / 4] &
+                                   ((1U << group) | (1U << (group + 16)));
+                qemu_set_irq(w->board->dma1_group_irqs[group], !!pending);
+            }
+        }
     } else {
         w->regfile[off / 4] = (uint32_t)value;
     }

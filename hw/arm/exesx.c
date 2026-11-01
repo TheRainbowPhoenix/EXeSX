@@ -23,6 +23,12 @@
 #include "qemu/module.h"
 #include "qemu/log.h"
 #include "qemu/timer.h"
+#include "qemu/sockets.h"
+#ifndef _WIN32
+/* Modern QEMU osdep.h no longer defines the old closesocket alias on
+ * Linux. Windows still has its real socket-close wrapper. */
+#define closesocket(fd) close(fd)
+#endif
 #include "migration/vmstate.h"
 #include <inttypes.h>
 
@@ -36,6 +42,11 @@ typedef struct EXeSXState {
     ARMCPU *a7cpu;
     EXeSXProfileWindow *mu_a, *mu_b, *lcd, *dmamux1, *m4_gpio_a, *m4_gpio_b;
     EXeSXProfileWindow *m4_port_a, *m4_port_b, *m4_iomuxc0, *m4_lpi2c2;
+    EXeSXProfileWindow *wlan_lpspi2, *wlan_dma1, *usb0;
+    /* Actual i.MX7ULP eDMA1 grouped channel interrupts are GIC SPIs
+     * 0..15 (channels n and n+16 share an IRQ), see imx7ulp.dtsi. */
+    qemu_irq dma1_group_irqs[16];
+    qemu_irq usb1_irq;
     uint64_t m4_keyboard_code;
     int m4_keyboard_row;
     int64_t m4_keyboard_next_poll_ns;
@@ -50,7 +61,7 @@ typedef struct EXeSXState {
     bool m4_released;
     /* MU_A input is M4 NVIC IRQ22; MU_B is GIC SPI19 on A7. */
     qemu_irq mu_a_irq, mu_b_irq, lpit0_irq, lpit1_irq, lptmr0_irq, lptmr1_irq, tpm0_irq, m4_porta_irq, m4_portb_irq, adc0_irq, adc1_irq;
-    MemoryRegion firmware, vectors, sram, ipc, provisional_writable, lcd_export;
+    MemoryRegion firmware, vectors, sram, ipc, provisional_writable, lcd_export, lcd_status_export;
 } EXeSXState;
 
 
@@ -81,6 +92,12 @@ struct EXeSXProfileWindow {
     GHashTable *registers;
     char *kind;
     EXeSXState *board;
+    /* Host-only TCP socket is NEVER snapshotted as guest hardware state. */
+    int lpspi_backend_fd;
+    int usb_listen_fd, usb_peer_fd;
+    QEMUTimer *usb_poll_timer;
+    unsigned usb_rx_have;
+    uint8_t usb_rxbuf[4100];
     QEMUTimer *lpit_timer, *lptmr_timer, *tpm0_timer, *lcd_screenshot_timer, *m4_port_poll_timer;
     uint32_t m4_port_previous;
     bool m4_port_sampled;
@@ -90,6 +107,13 @@ struct EXeSXProfileWindow {
     uint16_t lcd_params[4];
     uint8_t lcd_cmd, lcd_madctl;
     bool lcd_dc, lcd_te_enabled, lcd_rgb565;
+    bool lcd_display_on, lcd_sleep_out, lcd_inverted, lcd_idle;
+    bool lcd_transposed_byteswap, lcd_pwm_diagnostic;
+    bool lcd_original_pwm_shadow;
+    uint16_t lcd_pwm_divisor;
+    uint8_t lcd_pwm_duty;
+    uint8_t lcd_dcs_brightness, lcd_last_data, lcd_b2[8];
+    uint32_t lcd_swapped_writes;
     uint64_t lcd_pixel_writes;
     /* Stable addresses; preserved by VMState on loadvm. */
     uint32_t regfile[0x10000 / sizeof(uint32_t)];
@@ -145,6 +169,19 @@ static void exesx_m4_rom_handoff(EXeSXState *s, uint32_t entry)
 static int exesx_registers_post_load(void *opaque, int version_id)
 {
     EXeSXProfileWindow *w = opaque;
+    if (w->usb_peer_fd >= 0) {
+        closesocket(w->usb_peer_fd);
+        w->usb_peer_fd = -1;
+    }
+    w->usb_rx_have = 0;
+    if (w->usb_poll_timer) {
+        timer_mod(w->usb_poll_timer,
+                  qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 1000000);
+    }
+    if (w->lpspi_backend_fd >= 0 && w->base == UINT64_C(0x40290000)) {
+        closesocket(w->lpspi_backend_fd);
+        w->lpspi_backend_fd = -1;
+    }
     if (w->lptmr_timer) {
         /* Device flags/epoch are saved in regfile; rearm this
          * host QEMU timer after loading a private VM checkpoint. */
@@ -348,6 +385,9 @@ static void exesx_load_profile(MemoryRegion *sysmem, EXeSXState *board)
         const char *group = groups[k];
         g_autofree char *kind = g_key_file_get_string(cfg, group, "kind", NULL);
         EXeSXProfileWindow *w = g_new0(EXeSXProfileWindow, 1);
+        w->lpspi_backend_fd = -1;
+        w->usb_listen_fd = -1;
+        w->usb_peer_fd = -1;
         gsize nkeys;
         g_auto(GStrv) keys = NULL;
         gsize i;
@@ -374,12 +414,33 @@ static void exesx_load_profile(MemoryRegion *sysmem, EXeSXState *board)
             w->lcd_x1 = EXESX_LCD_W - 1;
             w->lcd_y1 = EXESX_LCD_H - 1;
             w->lcd_rgb565 = true;
+            /* Experimental waveform observer only: original factory defaults.
+             * Frequency menu's software divisor is NOT yet an identified
+             * physical panel register. No guest PWM success is fabricated.
+             */
+            w->lcd_pwm_diagnostic =
+                !g_strcmp0(g_getenv("EXESX_EXPERIMENTAL_LCD_PWM_DIAGNOSTIC"), "1");
+            /* Owner-ROM compatibility shadow; never enabled by default. */
+            w->lcd_original_pwm_shadow =
+                !g_strcmp0(g_getenv("EXESX_EXPERIMENTAL_LCD_ORIGINAL_PWM_SHADOW"), "1");
+            if (w->lcd_original_pwm_shadow) {
+                w->lcd_pwm_diagnostic = true;
+            }
+            w->lcd_pwm_divisor = 0x1239;
+            w->lcd_pwm_duty = 0xcc;
+            w->lcd_transposed_byteswap =
+                !g_strcmp0(g_getenv("EXESX_LCD_TRANSPOSED_RGB565_BYTESWAP"), "1");
             if (!g_strcmp0(g_getenv("EXESX_LCD_FRAMEBUFFER_EXPORT"), "1")) {
                 memory_region_init_io(&board->lcd_export, OBJECT(board),
                     &exesx_lcd_export_ops, board, "exesx.debug.lcd.rgb565",
                     EXESX_LCD_EXPORT_SIZE);
                 memory_region_add_subregion(sysmem, EXESX_LCD_EXPORT_BASE,
                                             &board->lcd_export);
+                memory_region_init_io(&board->lcd_status_export, OBJECT(board),
+                    &exesx_lcd_status_ops, board, "exesx.debug.lcd.dcs-state",
+                    EXESX_LCD_STATUS_EXPORT_SIZE);
+                memory_region_add_subregion(sysmem, EXESX_LCD_STATUS_EXPORT_BASE,
+                                            &board->lcd_status_export);
             }
             if (g_getenv("EXESX_LCD_SCREENSHOT") ||
                 g_getenv("EXESX_LCD_CAPTURE_REQUEST_FILE")) {
@@ -409,8 +470,26 @@ static void exesx_load_profile(MemoryRegion *sysmem, EXeSXState *board)
                 error_report("EXeSX i.MX7ULP model window %s invalid size", group);
                 exit(1);
             }
+            if (!strcmp(kind, "imx7ulp-usb") && w->base == 0x40330000) {
+                board->usb0 = w;
+                if (g_getenv("EXESX_USB_FIXTURE_TCP_PORT") &&
+                    !g_strcmp0(g_getenv("EXESX_EXPERIMENTAL_USB_ENDPOINTS"), "1")) {
+                    w->usb_poll_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL,
+                                                     exesx_usb_tick, w);
+                    timer_mod(w->usb_poll_timer,
+                              qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + 1000000);
+                }
+            }
             if (g_strcmp0(kind, "imx7ulp-dmamux") == 0 && w->base == 0x40210000) {
                 board->dmamux1 = w;
+            }
+            if (g_strcmp0(kind, "imx7ulp-lpspi") == 0 &&
+                w->base == UINT64_C(0x40290000)) {
+                board->wlan_lpspi2 = w;
+            }
+            if (g_strcmp0(kind, "imx7ulp-dma") == 0 &&
+                w->base == UINT64_C(0x40080000)) {
+                board->wlan_dma1 = w;
             }
             if (!strcmp(kind, "imx7ulp-pctl") && w->base == 0x4103d000) {
                 /* Original M4 FUN_1FFD8412 selects the active keyboard
@@ -619,6 +698,10 @@ static void exesx_init(MachineState *ms)
                            qdev_get_gpio_in(DEVICE(a7), ARM_CPU_FIQ));
         /* GIC qdev input indices are 0-based SPIs (GIC ID=32+index). */
         s->mu_b_irq = qdev_get_gpio_in(gic, 19);
+        s->usb1_irq = qdev_get_gpio_in(gic, 40); /* USBOTG1 */
+        for (unsigned ch = 0; ch < 16; ++ch) {
+            s->dma1_group_irqs[ch] = qdev_get_gpio_in(gic, ch);
+        }
         /* NXP i.MX7ULP A7 GIC SPI 25 = LPIT1. */
         s->lpit1_irq = qdev_get_gpio_in(gic, 25);
 
