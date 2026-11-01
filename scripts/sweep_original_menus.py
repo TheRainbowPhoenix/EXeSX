@@ -168,48 +168,42 @@ def skip_reason(case, args):
 
 
 def press_and_open(qmp, contact, out, stage, attempts=6):
-    """Require a stable change to the original title glyphs, not selection."""
+    """Pulse actual M4 ENTER briefly, release, THEN sample original LCD.
+
+    QMP frame captures can take long periods under single-threaded TCG.
+    Previously holding ENTER until the framebuffer changed caused repeated
+    electrical key events and even reentered the *previous* menu's handler.
+    Each bounded physical pulse now runs independently of QMP operations.
+    """
     before = frame(qmp, out, stage + "-before")
     old_title = native_header_fingerprint(screen_rgb(out, stage + "-before"))
     old_hash = before["sha256"]
     for i in range(attempts):
         physical(contact, "0x94")
-        changed = False
         try:
-            start = time.monotonic()
-            while time.monotonic() - start < 2.0:
-                time.sleep(.16)
-                now = frame(qmp, out, stage + "-probe")
-                title = native_header_fingerprint(
-                    screen_rgb(out, stage + "-probe"))
-                if title != old_title and now["sha256"] != old_hash:
-                    changed = True
-                    break
+            time.sleep(.19)
         finally:
             physical(contact, "0")
-        if changed:
-            # The original A7 can paint a new menu title BEFORE it
-            # dispatches the subsequent ENTER to the new handler.
-            # Sending a new key immediately after the first changed
-            # LCD frame can dispatch it into the previous MANUAL MENU
-            # and wrongly open DISPLAY rather than WLAN COMMUNICATION.
-            # Release the physical M4 contact and require its key latch
-            # to clear, then let the original A7 finish the transition.
-            for _ in range(35):
-                if m4_idle(qmp):
-                    break
-                time.sleep(.04)
-            time.sleep(1.25)
-            settled = frame(qmp, out, stage + "-opened")
-            final = native_header_fingerprint(screen_rgb(out, stage + "-opened"))
-            if final != old_title:
-                return final
-        for _ in range(30):
+        # The original M4 GPIO scan/debounce and A7 menu handler need
+        # physical key release before the next input or LCD inspection.
+        time.sleep(.65)
+        for _ in range(10):
             if m4_idle(qmp):
                 break
-            time.sleep(.04)
-        time.sleep(.18)
-    raise RuntimeError("physical ENTER did not change original LCD title: " + stage)
+            time.sleep(.045)
+        opened = frame(qmp, out, stage + "-probe")
+        new_title = native_header_fingerprint(
+            screen_rgb(out, stage + "-probe"))
+        if new_title != old_title and opened["sha256"] != old_hash:
+            time.sleep(.75)
+            frame(qmp, out, stage + "-opened")
+            confirmed = native_header_fingerprint(
+                screen_rgb(out, stage + "-opened"))
+            if confirmed != old_title:
+                return confirmed
+        time.sleep(.22)
+    raise RuntimeError(
+        "physical ENTER did not change original LCD title: " + stage)
 
 
 ORIGINAL_CHORD_CHECKPOINTS = ("first", None, "accepted")
