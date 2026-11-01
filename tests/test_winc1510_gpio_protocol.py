@@ -78,6 +78,12 @@ class WincGPIOTests(unittest.TestCase):
         guest_hif(5)
         self.assertEqual(len(chip.deferred_callbacks), 1)
         chip._write_reg(0x1070, chip._read_reg(0x1070) & ~1)
+        # A7 ACK happens before it reads original callback RAM. Until
+        # it has clocked all 12 bytes, AP info MUST NOT overwrite it.
+        self.assertTrue(chip.irq_n)
+        self.assertEqual(chip._dma_get(0x32000 + 8, 4),
+                         bytes((1, 0, 0, 0)))
+        chip._dma_get(0x32000, 12)
         self.assertFalse(chip.irq_n)
         self.assertEqual(chip.hif_notifications[-1][:2], (1, 6))
         info = chip._dma_get(0x32000 + 8, 48)
