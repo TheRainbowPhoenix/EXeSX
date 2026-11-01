@@ -416,6 +416,26 @@ class SPIProtocolTests(unittest.TestCase):
         self.assertIsNone(dev.power_save_mode)
         self.assertIsNone(dev.sleep_hint)
 
+    def test_hif_request_between_original_irq_ack_and_dma_read_is_deferred(self):
+        """No overwrite after 0x1070 ACK; A7 must first finish C8 read."""
+        dev = Winc1510SPI(hif_mailbox=True, fixture_ssid="BenchAP")
+        self.original_hif(dev, 0xbb, b"BenchAP" + bytes(41))
+        self.assertEqual(dev.hif_notifications, [(1, 0x2c, 12)])
+        dev._write_reg(0x1070, 0)  # original A7 ACK before fetching RAM
+        self.assertTrue(dev.hif_ack_draining)
+        self.original_hif(dev, 3)  # a second actual original HIF request
+        # RSSI query needs association and must be queued, not overwrite
+        # the 0x2c connection state that the original has yet to read.
+        self.assertEqual(len(dev.deferred_callbacks), 1)
+        self.assertEqual(dev.hif_notifications, [(1, 0x2c, 12)])
+        original_connection = dev._dma_get(0x32000, 12)
+        self.assertEqual(original_connection,
+                         bytes.fromhex("012c0c000000000001000000"))
+        self.assertEqual(dev.hif_notifications[-1], (1, 4, 12))
+        self.assertFalse(dev.hif_ack_draining)
+        dev._write_reg(0x1070, 0)
+        self.assertEqual(dev._dma_get(0x32008, 1), bytes((201,)))
+
     def test_optional_crc_extra_command_byte(self):
         dev=Winc1510SPI(crc=True)
         dev.shift(0,bytes.fromhex("ca0010005a"),begin=True)
