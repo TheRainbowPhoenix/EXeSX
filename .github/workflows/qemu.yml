@@ -59,6 +59,90 @@ jobs:
           if-no-files-found: error
       - name: Build independent memory-access tracer plugin
         run: bash scripts/build_memtrace.sh
+      - name: Original DY357 six-attempt ARM pattern and DCS 0x53/0x51 trace
+        if: github.event_name == 'pull_request' && github.head_ref == 'research/himax-hx5298-dimming-20261120'
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          set -euo pipefail
+          private="$RUNNER_TEMP/dy357-original-private"
+          mkdir -p "$private"
+          curl --fail --location --retry 3 \
+            https://github.com/TheRainbowPhoenix/EXeXS_test/releases/download/Test/EXeSX-DY357-pattern-CI.zip \
+            -o "$private/fixture.zip"
+          python3 - "$private" <<'PY'
+          import sys,pathlib,zipfile,shutil
+          dest=pathlib.Path(sys.argv[1])
+          with zipfile.ZipFile(dest/"fixture.zip") as z:
+              for obj in z.infolist():
+                  p=pathlib.PurePosixPath(obj.filename)
+                  if p.is_absolute() or ".." in p.parts: raise ValueError("unsafe fixture path")
+                  if obj.is_dir(): continue
+                  target=dest.joinpath(*p.parts)
+                  target.parent.mkdir(parents=True,exist_ok=True)
+                  with z.open(obj) as src,target.open("wb") as out:
+                      shutil.copyfileobj(src,out)
+          PY
+          fixture="$private/EXeSX-private-E2E-fixture"
+          (cd "$fixture" && python3 reconstruct_media.py > "$private/media-private.log")
+          cat > "$private/qemu-with-dcs-trace" <<EOF
+          #!/bin/bash
+          exec "$GITHUB_WORKSPACE/build/qemu-system-arm" "\$@" -plugin "$GITHUB_WORKSPACE/build/exesx-memtrace.so,dcs_control_only=1"
+          EOF
+          chmod +x "$private/qemu-with-dcs-trace"
+          export PYTHONPATH="$GITHUB_WORKSPACE/scripts"
+          export EXESX_LCD_TRACE_DIAGNOSTIC="1"
+          set +e
+          python3 "$fixture/ci_e2e_arm_pattern.py" \
+            --qemu "$private/qemu-with-dcs-trace" \
+            --profile "$GITHUB_WORKSPACE/profiles/imx7ulp-early-boot.ini" \
+            --elf "$fixture/a7-bios-os.elf" \
+            --emmc "$fixture/source-derived-synthetic-emmc.raw" \
+            --sd "$fixture/disposable-sd-2g.raw" \
+            --output "$private/results" \
+            --attempts 6 --boot-timeout 75 \
+            > "$private/e2e-output-private.log" 2>&1
+          rc=$?
+          set -e
+          echo "ORIGINAL_TEST_EXIT_CODE=$rc (0 means genuine ROM pattern check passed)"
+          # Print ONLY control-command metadata, never ROM bytes, raw QEMU
+          # traces, screenshots or full runtime logs.
+          python3 - "$private" <<'PY'
+          import pathlib,sys,re,collections,json
+          root=pathlib.Path(sys.argv[1])
+          seen=[]
+          summaries=[]
+          for f in root.rglob("*"):
+              if not f.is_file() or f.stat().st_size>200000000: continue
+              if f.suffix.lower() not in {".log",".txt"}: continue
+              try:
+                  with f.open(errors="replace") as stream:
+                      for ln in stream:
+                          if "EXESX_DCS_CTRL" in ln:
+                              seen.append(ln.split("EXESX_DCS_CTRL",1)[-1].strip()[:200])
+                          elif "EXESX_DCS_SUMMARY" in ln:
+                              summaries.append(ln.split("EXESX_DCS_SUMMARY",1)[-1].strip()[:200])
+              except OSError: pass
+          counts=collections.Counter("0x53" if "0x53" in s or "parameter53" in s else "0x51" if "0x51" in s or "parameter51" in s else "other" for s in seen)
+          print("DCS_CONTROL_EVENT_COUNTS",dict(counts))
+          print("DCS_PROCESS_EXIT_SUMMARIES",summaries[:6])
+          print("DCS_CONTROL_EVENTS",seen[:35])
+          print("DCS_COMMAND_TRACE_PRESENT",bool(seen or summaries))
+          for f in root.rglob("*.json"):
+              if f.stat().st_size > 40000: continue
+              if f.name=="manifest.json": continue
+              try:
+                  obj=json.loads(f.read_text())
+              except (ValueError,OSError): continue
+              if isinstance(obj,dict):
+                  print("RESULT_JSON_FIELDS",str(f.relative_to(root)),{
+                      k:obj[k] for k in ("passed","status","success","attempts","result")
+                      if k in obj and isinstance(obj[k],(str,int,bool))
+                  })
+          PY
+          # Pattern test is a diagnostic; separate repository smoke tests should
+          # still run even if original-firmware test did not reach a menu.
+          exit 0
       - name: Check experimental runtime memory profile and CPU probe
         env:
           EXESX_MEMORY_PROFILE: ${{ github.workspace }}/profiles/boot-ram-experimental.ini
