@@ -98,7 +98,7 @@ jobs:
           native="$RUNNER_TEMP/native/exesx-qemu-linux-x86_64"
           cat > "$RUNNER_TEMP/qemu-synthetic-with-plugin" <<EOF
           #!/bin/bash
-          exec "$native/qemu-system-arm" "\$@" -plugin "$native/exesx-memtrace.so,dcs_control_only=1" -D "$RUNNER_TEMP/synthetic-dcs.log"
+          exec "$native/qemu-system-arm" "\$@" -plugin "$native/exesx-memtrace.so,dcs_control_only=1" -d plugin -D "$RUNNER_TEMP/synthetic-dcs.log" >> "$RUNNER_TEMP/synthetic-qemu-stdout.log" 2>> "$RUNNER_TEMP/synthetic-qemu-stderr.log"
           EOF
           chmod +x "$RUNNER_TEMP/qemu-synthetic-with-plugin"
           export LD_LIBRARY_PATH="$native/lib"
@@ -125,4 +125,11 @@ jobs:
           print("SYNTHETIC_LCD_CMD_51_CONFIRMED",any("command=0x51" in ln for ln in results))
           print("SYNTHETIC_DCS_EVENTS",results[:12])
           print("SYNTHETIC_LCD_SCREENSHOT_PASS", "PASS synthetic ARM" in (root/"synthetic-test-output.log").read_text(errors="replace"))
+          for label in ("synthetic-dcs.log","synthetic-qemu-stdout.log","synthetic-qemu-stderr.log"):
+              p=root/label
+              data=p.read_text(errors="replace") if p.exists() else ""
+              print("CALIBRATION_CAPTURE",label,"bytes",len(data),
+                    "DCS",sum("EXESX_DCS_CTRL" in ln for ln in data.splitlines()),
+                    "plugin_messages",sum("plugin" in ln.lower() for ln in data.splitlines()))
+              print("CALIBRATION_MARKERS",label,[ln[:200] for ln in data.splitlines() if "EXESX_DCS" in ln][:8])
           PY
