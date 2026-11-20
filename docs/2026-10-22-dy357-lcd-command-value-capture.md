@@ -18,7 +18,7 @@ For the captured stream, classifying data by **GPIOA16 level** (rather than inst
 
 | Command | Original observed data | Evidence-backed interpretation |
 | --- | --- | --- |
-| `0xB9` | `FF 52 98` | Vendor-specific extended-register unlock; **controller not identified** |
+| `0xB9` | `FF 52 98` | Vendor-specific extended-register unlock; **Himax HX5298/HI5298 is a later candidate, not an identified chip** |
 | `0xBD` | `00`, later `01`, later `00` | Vendor register bank selection candidate |
 | `0xB1`, `0xB2`, `0xB4`, `0xDF`, `0xE0` | Variable initialization bytes | Power/timing/gamma-like extension commands; exact meanings vendor-specific |
 | `0x11` | one recorded 00 parameter | DCS sleep-out command; some private command-stream encoders include a placeholder, not proof a real panel requires parameter |
@@ -30,6 +30,8 @@ For the captured stream, classifying data by **GPIOA16 level** (rather than inst
 | `0x2B` | `00 00 01 DF` | Initial rows **0..479** (480 pixels) |
 | `0x38` | no parameters | DCS idle-mode off |
 | `0x2C` | followed by pixel data | RAMWR frame-memory write |
+
+**20 November follow-up:** Cross-manual analysis proposed Himax HX5298/HI5298 register behavior closest to HX8399-C, with some HX8398-A/HX8399-A similarities. Neither identity nor the `HX`/`HI` spelling is confirmed by publicly available ROM/ID/marking evidence. DCS `0x53` bit 3 is a promising dimming-control lead, **not yet an observed DY357 brightness event**. See [Himax candidate and original-ROM dimming audit](2026-11-20-himax-hx5298-controller-and-dimming.md).
 
 The observed initialization **supports a nominal 800×480 viewport**, not the earlier casual comparison with small ST7789 modules. **Do not claim the exact chip is ST7789**: the `B9 FF 52 98` vendor unlock sequence and unusually long extended initialization must be matched to a verified controller-specific datasheet. DCS/8080 bus semantics are documented in the [Sitronix ST7789V datasheet, 8080 parallel bus and D/CX](https://docs.espressif.com/projects/esp-dev-kits/zh-cn/latest/_static/esp32-s3-lcd-ev-board/datasheets/2.4_320x240/ST7789V_SPEC_V1.0.pdf); that is a *protocol reference*, not proof of this physical controller.
 
