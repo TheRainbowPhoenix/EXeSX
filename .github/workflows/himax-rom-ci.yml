@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   inspect-bundle:
@@ -81,4 +82,47 @@ jobs:
                   print("FUNCTION_REF",addr,"count",len(m))
               for n in ("LCD BRIGHTNESS", "0x53", "0x51", "0x60015640"):
                   print("TEXT_REF",repr(n),"count",s.count(n))
+          PY
+
+      - name: Calibrate DCS 0x53/0x51 instrumentation using synthetic ARM bus writes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/native"
+          gh run download 44826791993 \
+            -n exesx-qemu-native-759fc4584db92987bee038a8cc4fab14b6b1a108 \
+            -D "$RUNNER_TEMP/native"
+          tar -C "$RUNNER_TEMP/native" -xf "$RUNNER_TEMP/native/exesx-qemu-linux-x86_64.tar.gz"
+          native="$RUNNER_TEMP/native/exesx-qemu-linux-x86_64"
+          cat > "$RUNNER_TEMP/qemu-synthetic-with-plugin" <<EOF
+          #!/bin/bash
+          exec "$native/qemu-system-arm" "\$@" -plugin "$native/exesx-memtrace.so,dcs_control_only=1" -D "$RUNNER_TEMP/synthetic-dcs.log"
+          EOF
+          chmod +x "$RUNNER_TEMP/qemu-synthetic-with-plugin"
+          export LD_LIBRARY_PATH="$native/lib"
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          src=Path("scripts/probe_lcd_screenshot.py").read_text()
+          needle="    cmd(0x3a); val(0x55)"
+          assert needle in src
+          src=src.replace(needle,"    cmd(0x53); val(0x28)\n    cmd(0x51); val(0x7f)\n"+needle)
+          Path(os.environ["RUNNER_TEMP"],"synthetic-dcs-probe.py").write_text(src)
+          PY
+          python3 "$RUNNER_TEMP/synthetic-dcs-probe.py" \
+            --qemu "$RUNNER_TEMP/qemu-synthetic-with-plugin" \
+            --profile "$GITHUB_WORKSPACE/profiles/imx7ulp-early-boot.ini" \
+            > "$RUNNER_TEMP/synthetic-test-output.log" 2>&1 || true
+          python3 - <<'PY'
+          import os,pathlib
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])
+          log=root/"synthetic-dcs.log"
+          results=[ln.strip() for ln in log.read_text(errors="replace").splitlines()
+                   if "EXESX_DCS_CTRL" in ln or "EXESX_DCS_SUMMARY" in ln] if log.exists() else []
+          print("SYNTHETIC_LCD_CMD_53_CONFIRMED",any("command=0x53" in ln for ln in results))
+          print("SYNTHETIC_LCD_CMD_51_CONFIRMED",any("command=0x51" in ln for ln in results))
+          print("SYNTHETIC_DCS_EVENTS",results[:12])
+          print("SYNTHETIC_LCD_SCREENSHOT_PASS", "PASS synthetic ARM" in (root/"synthetic-test-output.log").read_text(errors="replace"))
           PY
