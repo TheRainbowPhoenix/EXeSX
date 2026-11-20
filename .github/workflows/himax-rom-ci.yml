@@ -1,0 +1,186 @@
+name: Inspect DY357 ROM test bundle for LCD command audit
+on:
+  push:
+    branches: [research/himax-hx5298-dimming-20261120]
+    paths:
+      - ".github/workflows/himax-rom-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  inspect-bundle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Download original public DY357 test bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 \
+            "https://github.com/TheRainbowPhoenix/EXeXS_test/releases/download/Test/EXeSX-DY357-pattern-CI.zip" \
+            --output "${RUNNER_TEMP}/dy357-test.zip"
+          echo "Bundle zip SHA256:"
+          sha256sum "${RUNNER_TEMP}/dy357-test.zip"
+          python3 - <<'PY'
+          import os,zipfile,hashlib
+          path=os.environ["RUNNER_TEMP"]+"/dy357-test.zip"
+          with zipfile.ZipFile(path) as z:
+              for f in z.infolist():
+                  print("ZIP_MEMBER", repr(f.filename), "size",f.file_size)
+          PY
+      - name: Inspect manifest and executable test entry points
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/dy357-bundle"
+          python3 - <<'PY'
+          import os,zipfile,pathlib
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])/"dy357-bundle"
+          with zipfile.ZipFile(pathlib.Path(os.environ["RUNNER_TEMP"])/"dy357-test.zip") as z:
+              for info in z.infolist():
+                  p=pathlib.PurePosixPath(info.filename)
+                  if p.is_absolute() or ".." in p.parts: raise ValueError("Unsafe ZIP entry")
+                  if info.is_dir(): continue
+                  target=root.joinpath(*p.parts)
+                  target.parent.mkdir(parents=True,exist_ok=True)
+                  with z.open(info) as f,target.open("wb") as dst:
+                      import shutil
+                      shutil.copyfileobj(f,dst)
+          for f in root.rglob("*"):
+              if not f.is_file(): continue
+              print("FILE", f.relative_to(root),"BYTES",f.stat().st_size)
+              if f.suffix.lower() in {".py",".sh",".yml",".yaml",".md",".txt",".json"} and f.stat().st_size<100000:
+                  print("SCRIPT_HEAD",str(f.relative_to(root)))
+                  try:
+                      for line in f.read_text(errors="replace").splitlines()[:35]:
+                          print("  ",line[:200])
+                  except OSError: pass
+          PY
+
+      - name: Show original-ROM test runner supported options
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/scripts"
+          python3 "$RUNNER_TEMP/dy357-bundle/EXeSX-private-E2E-fixture/ci_e2e_arm_pattern.py" --help | head -100
+      - name: ROM-side static lead inventory (metadata only)
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os,pathlib,re
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])/"dy357-bundle"/"EXeSX-private-E2E-fixture"
+          for name in ("decomp/XD-SX9850.0.c",):
+              s=(root/name).read_text(errors="replace")
+              print("STATIC_FILE",name,"bytes",len(s))
+              for addr in ("60015104","60015640","60058008","60058138"):
+                  m=list(re.finditer(r"\b(?:FUN_|sub_)?"+addr+r"\b",s,re.I))
+                  print("FUNCTION_REF",addr,"count",len(m))
+              for n in ("LCD BRIGHTNESS", "0x53", "0x51", "0x60015640"):
+                  print("TEXT_REF",repr(n),"count",s.count(n))
+          PY
+
+      - name: Calibrate DCS 0x53/0x51 instrumentation using synthetic ARM bus writes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/native"
+          gh run download 44826791993 \
+            -n exesx-qemu-native-759fc4584db92987bee038a8cc4fab14b6b1a108 \
+            -D "$RUNNER_TEMP/native"
+          tar -C "$RUNNER_TEMP/native" -xf "$RUNNER_TEMP/native/exesx-qemu-linux-x86_64.tar.gz"
+          native="$RUNNER_TEMP/native/exesx-qemu-linux-x86_64"
+          cat > "$RUNNER_TEMP/qemu-synthetic-with-plugin" <<EOF
+          #!/bin/bash
+          exec "$native/qemu-system-arm" "\$@" -plugin "$native/exesx-memtrace.so,dcs_control_only=1" -d plugin -D "$RUNNER_TEMP/synthetic-dcs.log" >> "$RUNNER_TEMP/synthetic-qemu-stdout.log" 2>> "$RUNNER_TEMP/synthetic-qemu-stderr.log"
+          EOF
+          chmod +x "$RUNNER_TEMP/qemu-synthetic-with-plugin"
+          export LD_LIBRARY_PATH="$native/lib"
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          src=Path("scripts/probe_lcd_screenshot.py").read_text()
+          needle="    cmd(0x3a); val(0x55)"
+          assert needle in src
+          src=src.replace(needle,"    cmd(0x53); val(0x28)\n    cmd(0x51); val(0x7f)\n"+needle)
+          Path(os.environ["RUNNER_TEMP"],"synthetic-dcs-probe.py").write_text(src)
+          PY
+          python3 "$RUNNER_TEMP/synthetic-dcs-probe.py" \
+            --qemu "$RUNNER_TEMP/qemu-synthetic-with-plugin" \
+            --profile "$GITHUB_WORKSPACE/profiles/imx7ulp-early-boot.ini" \
+            > "$RUNNER_TEMP/synthetic-test-output.log" 2>&1 || true
+          python3 - <<'PY'
+          import os,pathlib
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])
+          log=root/"synthetic-dcs.log"
+          results=[ln.strip() for ln in log.read_text(errors="replace").splitlines()
+                   if "EXESX_DCS_CTRL" in ln or "EXESX_DCS_SUMMARY" in ln] if log.exists() else []
+          print("SYNTHETIC_LCD_CMD_53_CONFIRMED",any("command=0x53" in ln for ln in results))
+          print("SYNTHETIC_LCD_CMD_51_CONFIRMED",any("command=0x51" in ln for ln in results))
+          print("SYNTHETIC_DCS_EVENTS",results[:12])
+          print("SYNTHETIC_LCD_SCREENSHOT_PASS", "PASS synthetic ARM" in (root/"synthetic-test-output.log").read_text(errors="replace"))
+          for label in ("synthetic-dcs.log","synthetic-qemu-stdout.log","synthetic-qemu-stderr.log"):
+              p=root/label
+              data=p.read_text(errors="replace") if p.exists() else ""
+              print("CALIBRATION_CAPTURE",label,"bytes",len(data),
+                    "DCS",sum("EXESX_DCS_CTRL" in ln for ln in data.splitlines()),
+                    "plugin_messages",sum("plugin" in ln.lower() for ln in data.splitlines()))
+              print("CALIBRATION_MARKERS",label,[ln[:200] for ln in data.splitlines() if "EXESX_DCS" in ln][:8])
+          PY
+
+      - name: Trace original DY357 ARM pattern test with validated DCS plugin
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/dy357-bundle/EXeSX-private-E2E-fixture"
+          (cd "$root" && python3 reconstruct_media.py > "$RUNNER_TEMP/reconstruction-private.log")
+          native="$RUNNER_TEMP/native/exesx-qemu-linux-x86_64"
+          cat > "$RUNNER_TEMP/qemu-original-dcs" <<EOF
+          #!/bin/bash
+          exec "$native/qemu-system-arm" "\$@" -plugin "$native/exesx-memtrace.so,dcs_control_only=1" -d exec,plugin
+          EOF
+          chmod +x "$RUNNER_TEMP/qemu-original-dcs"
+          export PYTHONPATH="$GITHUB_WORKSPACE/scripts"
+          export LD_LIBRARY_PATH="$native/lib"
+          set +e
+          python3 "$root/ci_e2e_arm_pattern.py" \
+            --qemu "$RUNNER_TEMP/qemu-original-dcs" \
+            --profile "$GITHUB_WORKSPACE/profiles/imx7ulp-early-boot.ini" \
+            --elf "$root/a7-bios-os.elf" \
+            --emmc "$root/source-derived-synthetic-emmc.raw" \
+            --sd "$root/disposable-sd-2g.raw" \
+            --output "$RUNNER_TEMP/original-dcs-results" \
+            --attempts 6 --boot-timeout 75 \
+            > "$RUNNER_TEMP/original-dcs-harness-private.log" 2>&1
+          status=$?
+          set -e
+          echo "ORIGINAL_WITH_PLUGIN_EXIT_CODE=$status"
+          python3 - <<'PY'
+          import os,pathlib,json,collections
+          tmp=pathlib.Path(os.environ["RUNNER_TEMP"])
+          logs=[]
+          for f in (tmp/"original-dcs-results").rglob("*"):
+              if not f.is_file() or f.suffix not in (".log",".txt") or f.stat().st_size>200000000:continue
+              try:
+                  with f.open(errors="replace") as fp:
+                      events=[ln.strip() for ln in fp if "EXESX_DCS_CTRL" in ln or "EXESX_DCS_SUMMARY" in ln]
+              except OSError: continue
+              if events: logs.append((str(f.relative_to(tmp)),events))
+          print("ORIGINAL_TRACE_FILES_WITH_DCS",len(logs))
+          for name,events in logs[:6]:
+              print("ORIGINAL_DCS_TRACE_FILE",name)
+              print("ORIGINAL_DCS_EVENT_COUNT",len(events))
+              print("ORIGINAL_DCS_CONTROL_EVENTS",events[:35])
+          d=tmp/"original-dcs-results"/"result.json"
+          if d.exists():
+              p=json.loads(d.read_text())
+              print("ORIGINAL_TEST_STATUS",p.get("result"),"KEYS",list(p)[:10])
+          print("ORIGINAL_DCS_53_OBSERVED",any("command=0x53" in event for _,lst in logs for event in lst))
+          print("ORIGINAL_DCS_51_OBSERVED",any("command=0x51" in event for _,lst in logs for event in lst))
+          PY

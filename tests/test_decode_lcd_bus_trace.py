@@ -77,5 +77,33 @@ class LcdTraceTests(unittest.TestCase):
         self.assertEqual(result["gpioa16_control_write_count"],1)
         self.assertEqual(result["pixel_samples"],0)
 
+    def test_control_display_dimming_metadata_is_counts_only(self):
+        # Entirely synthetic bus writes. DD bit3 is a *mode*, not proof of
+        # physical backlight level, which may be controlled separately.
+        events = []
+        for command, value in ((0x53, 0x20), (0x53, 0x28),
+                               (0x51, 0x7f), (0x53, 0x2c)):
+            events.extend((
+                line(0x6001512c, 0x10000, 4, 0x400f0008),
+                line(0x60019990, command),
+                line(0x60015154, 0x10000, 4, 0x400f0004),
+                line(0x600199a0, value),
+            ))
+        result = lcdtrace.decode_lines(events)
+        summary = result["control_display_0x53"]
+        self.assertEqual(summary["command_count"], 3)
+        self.assertEqual(summary["parameterized_count"], 3)
+        self.assertEqual(summary["dd_bit3_set_count"], 2)
+        self.assertEqual(summary["dd_bit3_clear_count"], 1)
+        self.assertEqual(summary["dd_bit3_toggle_count"], 1)
+        self.assertEqual(summary["bctrl_bit5_set_count"], 3)
+        self.assertEqual(summary["bl_bit2_set_count"], 1)
+        self.assertEqual(result["brightness_0x51_command_count"], 1)
+        # No byte values or full raw command parameters in public output.
+        import json
+        self.assertNotIn('"params"', json.dumps(result))
+        self.assertNotIn("0x28", json.dumps(result))
+
+
 if __name__=="__main__":
     unittest.main()
