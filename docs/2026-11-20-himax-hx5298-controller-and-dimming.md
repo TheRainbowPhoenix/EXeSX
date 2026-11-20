@@ -31,6 +31,14 @@ The HX8399-C control-display definition and standard DCS-style register descript
 
 References: [Linux MIPI DCS command definitions](https://github.com/torvalds/linux/blob/master/include/video/mipi_display.h) and the HX8399-C manual above.
 
+## Already demonstrated: factory LCD test exercises the display
+
+The [original-firmware guarded factory menu sweep](2026-10-26-original-factory-menu-test-sweep.md) records actual original A7 firmware entering **TEST MENU item 12, LCD UNIT CHECK**, with visible RGB gradient/test fields followed by white. It also records original LCD color bars for ARM PATTERN MANUAL/AUTO CHECK (items 2/3). These are positive observations of *original firmware exercising LCD drawing*, **not** a captured 0x53 write or measured physical backlight transition. This evidence is stronger than synthetic guest tests for deciding whether display drawing is used, but cannot answer whether `DD` is exercised.
+
+**Current emulator limitation:** `hw/arm/exesx-lcd.inc` accepts and remembers a command byte but `exesx_lcd_parameter()` handles only selected DCS commands (including `0x35`, `0x36`, `0x3a`, `0x2a`, `0x2b`, and `0x2c`). The default handler ignores unknown commands' parameter bytes, including **`0x53` and `0x51`**. Therefore even if owner-original firmware sends `0x53` during LCD UNIT CHECK, the current QEMU presentation will **not** dim in response to it. Trace the writes first; do not implement brightness visuals as proof that they happened.
+
+Build CI's synthetic LCD screenshot and MADCTL tests passing does **not** constitute an original-ROM LCD UNIT CHECK rerun. A direct re-test needs a local owner-held `OSUP.BIN` / extracted original ROM, its private media setup, and safe original factory-menu navigation. These assets are excluded from the public repository; no runtime claim should be made without them.
+
 ## Is the original DY357 ROM using 0x53 to dim?
 
 **Not established from the accessible evidence.** The public EXeSX repository contains no owner-original `OSUP.BIN`, extracted ROM, Ghidra database, or complete private LCD bus trace. The published October trace contains a **selected** 36-command summary but does not report a `0x53` control-display transaction. That omission **must not** be interpreted as proof the ROM never uses it: the capture was bounded and did not exercise every display menu or brightness mode.
