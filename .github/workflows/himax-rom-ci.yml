@@ -133,3 +133,54 @@ jobs:
                     "plugin_messages",sum("plugin" in ln.lower() for ln in data.splitlines()))
               print("CALIBRATION_MARKERS",label,[ln[:200] for ln in data.splitlines() if "EXESX_DCS" in ln][:8])
           PY
+
+      - name: Trace original DY357 ARM pattern test with validated DCS plugin
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/dy357-bundle/EXeSX-private-E2E-fixture"
+          (cd "$root" && python3 reconstruct_media.py > "$RUNNER_TEMP/reconstruction-private.log")
+          native="$RUNNER_TEMP/native/exesx-qemu-linux-x86_64"
+          cat > "$RUNNER_TEMP/qemu-original-dcs" <<EOF
+          #!/bin/bash
+          exec "$native/qemu-system-arm" "\$@" -plugin "$native/exesx-memtrace.so,dcs_control_only=1" -d plugin
+          EOF
+          chmod +x "$RUNNER_TEMP/qemu-original-dcs"
+          export PYTHONPATH="$GITHUB_WORKSPACE/scripts"
+          export LD_LIBRARY_PATH="$native/lib"
+          set +e
+          python3 "$root/ci_e2e_arm_pattern.py" \
+            --qemu "$RUNNER_TEMP/qemu-original-dcs" \
+            --profile "$GITHUB_WORKSPACE/profiles/imx7ulp-early-boot.ini" \
+            --elf "$root/a7-bios-os.elf" \
+            --emmc "$root/source-derived-synthetic-emmc.raw" \
+            --sd "$root/disposable-sd-2g.raw" \
+            --output "$RUNNER_TEMP/original-dcs-results" \
+            --attempts 6 --boot-timeout 75 \
+            > "$RUNNER_TEMP/original-dcs-harness-private.log" 2>&1
+          status=$?
+          set -e
+          echo "ORIGINAL_WITH_PLUGIN_EXIT_CODE=$status"
+          python3 - <<'PY'
+          import os,pathlib,json,collections
+          tmp=pathlib.Path(os.environ["RUNNER_TEMP"])
+          logs=[]
+          for f in (tmp/"original-dcs-results").rglob("*"):
+              if not f.is_file() or f.suffix not in (".log",".txt") or f.stat().st_size>200000000:continue
+              try:
+                  with f.open(errors="replace") as fp:
+                      events=[ln.strip() for ln in fp if "EXESX_DCS_CTRL" in ln or "EXESX_DCS_SUMMARY" in ln]
+              except OSError: continue
+              if events: logs.append((str(f.relative_to(tmp)),events))
+          print("ORIGINAL_TRACE_FILES_WITH_DCS",len(logs))
+          for name,events in logs[:6]:
+              print("ORIGINAL_DCS_TRACE_FILE",name)
+              print("ORIGINAL_DCS_EVENT_COUNT",len(events))
+              print("ORIGINAL_DCS_CONTROL_EVENTS",events[:35])
+          d=tmp/"original-dcs-results"/"result.json"
+          if d.exists():
+              p=json.loads(d.read_text())
+              print("ORIGINAL_TEST_STATUS",p.get("result"),"KEYS",list(p)[:10])
+          print("ORIGINAL_DCS_53_OBSERVED",any("command=0x53" in event for _,lst in logs for event in lst))
+          print("ORIGINAL_DCS_51_OBSERVED",any("command=0x51" in event for _,lst in logs for event in lst))
+          PY
