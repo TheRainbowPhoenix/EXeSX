@@ -143,7 +143,7 @@ jobs:
           native="$RUNNER_TEMP/native/exesx-qemu-linux-x86_64"
           cat > "$RUNNER_TEMP/qemu-original-dcs" <<EOF
           #!/bin/bash
-          exec "$native/qemu-system-arm" "\$@" -plugin "$native/exesx-memtrace.so,dcs_control_only=1" -d plugin
+          exec "$native/qemu-system-arm" "\$@" -plugin "$native/exesx-memtrace.so,dcs_control_only=1" -d exec,plugin
           EOF
           chmod +x "$RUNNER_TEMP/qemu-original-dcs"
           export PYTHONPATH="$GITHUB_WORKSPACE/scripts"
