@@ -60,3 +60,25 @@ jobs:
                           print("  ",line[:200])
                   except OSError: pass
           PY
+
+      - name: Show original-ROM test runner supported options
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/scripts"
+          python3 "$RUNNER_TEMP/dy357-bundle/EXeSX-private-E2E-fixture/ci_e2e_arm_pattern.py" --help | head -100
+      - name: ROM-side static lead inventory (metadata only)
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os,pathlib,re
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])/"dy357-bundle"/"EXeSX-private-E2E-fixture"
+          for name in ("decomp/XD-SX9850.0.c",):
+              s=(root/name).read_text(errors="replace")
+              print("STATIC_FILE",name,"bytes",len(s))
+              for addr in ("60015104","60015640","60058008","60058138"):
+                  m=list(re.finditer(r"\b(?:FUN_|sub_)?"+addr+r"\b",s,re.I))
+                  print("FUNCTION_REF",addr,"count",len(m))
+              for n in ("LCD BRIGHTNESS", "0x53", "0x51", "0x60015640"):
+                  print("TEXT_REF",repr(n),"count",s.count(n))
+          PY
