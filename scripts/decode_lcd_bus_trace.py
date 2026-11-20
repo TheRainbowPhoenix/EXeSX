@@ -4,7 +4,8 @@
 Source: QEMU EXeSX memtrace plugin with virtual_only=1,values=1.
 Inputs contain proprietary command/pixel values: NEVER commit raw traces.
 This script emits only command IDs, counts, window extents and RGB565
-histograms. It cannot infer physical LCD model or unobserved framebuffer.
+histograms and brightness/dimming bit-state counts. It cannot infer physical LCD
+model, actual backlight level, or unobserved framebuffer.
 """
 import argparse
 from collections import Counter
