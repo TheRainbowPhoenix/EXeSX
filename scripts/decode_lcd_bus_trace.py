@@ -77,8 +77,24 @@ def decode_lines(lines):
                 out.append({"start":start, "end":end, "count":end-start+1,
                             "params_above_byte_range":sum(x>255 for x in p[:4])})
         return out
+    # DCS 0x53 (WRCTRLD) controls BCTRL(bit5), DD(bit3), BL(bit2).
+    # Only public-safe counts; never emit raw owner-firmware parameters.
+    control_params = last_params(0x53)
+    control_values = [p[0] & 0xff for p in control_params if p]
     return {
         "port":"0xb0000000",
+        "control_display_0x53":{
+            "command_count":len(control_params),
+            "parameterized_count":len(control_values),
+            "dd_bit3_set_count":sum(bool(v & 0x08) for v in control_values),
+            "dd_bit3_clear_count":sum(not (v & 0x08) for v in control_values),
+            "dd_bit3_toggle_count":sum(
+                bool((prev ^ curr) & 0x08)
+                for prev, curr in zip(control_values, control_values[1:])),
+            "bctrl_bit5_set_count":sum(bool(v & 0x20) for v in control_values),
+            "bl_bit2_set_count":sum(bool(v & 0x04) for v in control_values),
+        },
+        "brightness_0x51_command_count":len(last_params(0x51)),
         "command_count":len(commands),
         "commands":[{"id":f"0x{c['command']:02x}",
                      "param_count":len(c["params"]),
