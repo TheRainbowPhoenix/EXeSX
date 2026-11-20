@@ -1,0 +1,62 @@
+name: Inspect DY357 ROM test bundle for LCD command audit
+on:
+  push:
+    branches: [research/himax-hx5298-dimming-20261120]
+    paths:
+      - ".github/workflows/himax-rom-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect-bundle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Download original public DY357 test bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 \
+            "https://github.com/TheRainbowPhoenix/EXeXS_test/releases/download/Test/EXeSX-DY357-pattern-CI.zip" \
+            --output "${RUNNER_TEMP}/dy357-test.zip"
+          echo "Bundle zip SHA256:"
+          sha256sum "${RUNNER_TEMP}/dy357-test.zip"
+          python3 - <<'PY'
+          import os,zipfile,hashlib
+          path=os.environ["RUNNER_TEMP"]+"/dy357-test.zip"
+          with zipfile.ZipFile(path) as z:
+              for f in z.infolist():
+                  print("ZIP_MEMBER", repr(f.filename), "size",f.file_size)
+          PY
+      - name: Inspect manifest and executable test entry points
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/dy357-bundle"
+          python3 - <<'PY'
+          import os,zipfile,pathlib
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])/"dy357-bundle"
+          with zipfile.ZipFile(pathlib.Path(os.environ["RUNNER_TEMP"])/"dy357-test.zip") as z:
+              for info in z.infolist():
+                  p=pathlib.PurePosixPath(info.filename)
+                  if p.is_absolute() or ".." in p.parts: raise ValueError("Unsafe ZIP entry")
+                  if info.is_dir(): continue
+                  target=root.joinpath(*p.parts)
+                  target.parent.mkdir(parents=True,exist_ok=True)
+                  with z.open(info) as f,target.open("wb") as dst:
+                      import shutil
+                      shutil.copyfileobj(f,dst)
+          for f in root.rglob("*"):
+              if not f.is_file(): continue
+              print("FILE", f.relative_to(root),"BYTES",f.stat().st_size)
+              if f.suffix.lower() in {".py",".sh",".yml",".yaml",".md",".txt",".json"} and f.stat().st_size<100000:
+                  print("SCRIPT_HEAD",str(f.relative_to(root)))
+                  try:
+                      for line in f.read_text(errors="replace").splitlines()[:35]:
+                          print("  ",line[:200])
+                  except OSError: pass
+          PY
